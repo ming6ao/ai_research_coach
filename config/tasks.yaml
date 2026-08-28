@@ -1,0 +1,122 @@
+tasks:
+  # ---------------- ML Researcher ----------------
+  - id: mr_ml_01
+    role: ml_researcher
+    skill: ml_fundamentals
+    type: mcq
+    prompt: "Which statement best describes overfitting?"
+    options:
+      - "A. Model performs well on training and test data"
+      - "B. Model memorizes training data and generalizes poorly to unseen data"
+      - "C. Model underperforms on training data"
+      - "D. Model has too few parameters"
+    answer: "B"
+    max_score: 1
+
+  - id: mr_ml_02
+    role: ml_researcher
+    skill: ml_fundamentals
+    type: open
+    prompt: "Explain the bias-variance tradeoff and how it relates to model complexity."
+    rubric: "Should define bias and variance, explain their inverse relationship, and connect to under/overfitting as complexity increases."
+    max_score: 5
+
+  - id: mr_dl_01
+    role: ml_researcher
+    skill: deep_learning
+    type: open
+    prompt: "Explain the vanishing gradient problem and list three mitigation strategies."
+    rubric: "Should name the problem (gradients shrink in deep nets) and give >=2 of: ReLU/leaky ReLU, residual connections, batch/layer normalization, careful init, LSTM/gating."
+    max_score: 5
+
+  - id: mr_math_01
+    role: ml_researcher
+    skill: math_stats
+    type: mcq
+    prompt: "For a random variable X with variance Var(X)=4, what is Var(3X+2)?"
+    options:
+      - "A. 4"
+      - "B. 12"
+      - "C. 36"
+      - "D. 14"
+    answer: "C"
+    max_score: 1
+
+  - id: mr_exp_01
+    role: ml_researcher
+    skill: experimentation
+    type: open
+    prompt: "You changed two hyperparameters and got a 2% accuracy lift. How would you determine if the improvement is real and not noise?"
+    rubric: "Should mention multiple seeds/runs, validation splits, statistical significance/confidence intervals, and controlling confounding variables."
+    max_score: 5
+
+  - id: mr_code_01
+    role: ml_researcher
+    skill: research_coding
+    type: code
+    prompt: "Implement a numerically stable softmax(x) that returns a probability vector. Function signature: def softmax(x): where x is a list of floats."
+    function_name: softmax
+    tests:
+      - input: [[1.0, 2.0, 3.0]]
+        expected: [0.0900, 0.2447, 0.6652]
+      - input: [[1000.0, 1000.0, 1000.0]]
+        expected: [0.3333, 0.3333, 0.3333]
+    tolerance: 1e-2
+    max_score: 5
+
+  # ---------------- ML Infra Engineer ----------------
+  - id: mi_sys_01
+    role: ml_infra_engineer
+    skill: systems
+    type: mcq
+    prompt: "Which technique best reduces communication overhead in data-parallel distributed training?"
+    options:
+      - "A. Increase batch size only on one GPU"
+      - "B. Gradient accumulation with less frequent syncs / gradient compression"
+      - "C. Disable the network"
+      - "D. Use a single large model replica"
+    answer: "B"
+    max_score: 1
+
+  - id: mi_mlops_01
+    role: ml_infra_engineer
+    skill: mlops
+    type: open
+    prompt: "Describe the components of a CI/CD pipeline for deploying an ML model to production."
+    rubric: "Should mention: data/feature validation, training job, model registry, automated tests, staging canary deploy, monitoring/rollback."
+    max_score: 5
+
+  - id: mi_cloud_01
+    role: ml_infra_engineer
+    skill: cloud
+    type: open
+    prompt: "When would you choose a container (e.g. Docker) over a serverless function for serving a model, and why?"
+    rubric: "Should note long-running/stateful workloads, large models/GPU, cold-start latency, custom deps, and steady traffic favor containers."
+    max_score: 5
+
+  - id: mi_data_01
+    role: ml_infra_engineer
+    skill: data_eng
+    type: mcq
+    prompt: "Which is the best fit for processing a continuous stream of events with low latency?"
+    options:
+      - "A. Nightly batch MapReduce"
+      - "B. A streaming system (e.g. Kafka + Flink)"
+      - "C. A static CSV dump"
+      - "D. Manual SQL export"
+    answer: "B"
+    max_score: 1
+
+  - id: mi_code_01
+    role: ml_infra_engineer
+    skill: infra_coding
+    type: code
+    prompt: "Implement a function that takes a list of (key, value) pairs and returns a dict counting occurrences of each key. Signature: def count_keys(pairs):"
+    function_name: count_keys
+    tests:
+      - input: [[["a", 1], ["b", 2], ["a", 3]]]
+        expected: {"a": 2, "b": 1}
+      - input: [[]]
+        expected: {}
+    tolerance: 0
+    max_score: 5

@@ -1,0 +1,30 @@
+roles:
+  ml_researcher:
+    name: ML Researcher
+    description: Designs models, runs experiments, and advances ML methods.
+    skills:
+      - id: ml_fundamentals
+        name: ML Fundamentals
+      - id: deep_learning
+        name: Deep Learning
+      - id: math_stats
+        name: Math & Statistics
+      - id: experimentation
+        name: Experimentation & Evaluation
+      - id: research_coding
+        name: Research Coding (Python/Numpy/PyTorch)
+
+  ml_infra_engineer:
+    name: ML Infra Engineer
+    description: Builds training/inference platforms, pipelines, and distributed systems.
+    skills:
+      - id: systems
+        name: Systems & Distributed Computing
+      - id: mlops
+        name: MLOps & Pipelines
+      - id: cloud
+        name: Cloud & Containers
+      - id: data_eng
+        name: Data Engineering
+      - id: infra_coding
+        name: Infra Coding (Python/Go/Bash)
