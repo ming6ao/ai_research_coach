@@ -1,122 +1,888 @@
 tasks:
-  # ---------------- ML Researcher ----------------
-  - id: mr_ml_01
-    role: ml_researcher
-    skill: ml_fundamentals
-    type: mcq
-    prompt: "Which statement best describes overfitting?"
-    options:
-      - "A. Model performs well on training and test data"
-      - "B. Model memorizes training data and generalizes poorly to unseen data"
-      - "C. Model underperforms on training data"
-      - "D. Model has too few parameters"
-    answer: "B"
-    max_score: 1
+- id: mr_ml_01
+  role: ml_researcher
+  skill: ml_fundamentals
+  type: mcq
+  prompt: Which statement best describes overfitting?
+  options:
+  - A. Model performs well on training and test data
+  - B. Model memorizes training data and generalizes poorly to unseen data
+  - C. Model underperforms on training data
+  - D. Model has too few parameters
+  answer: B
+  max_score: 1
+- id: mr_ml_02
+  role: ml_researcher
+  skill: ml_fundamentals
+  type: open
+  prompt: Explain the bias-variance tradeoff and how it relates to model complexity.
+  rubric: Should define bias and variance, explain their inverse relationship, and connect to under/overfitting as complexity
+    increases.
+  max_score: 5
+- id: mr_dl_01
+  role: ml_researcher
+  skill: deep_learning
+  type: open
+  prompt: Explain the vanishing gradient problem and list three mitigation strategies.
+  rubric: 'Should name the problem (gradients shrink in deep nets) and give >=2 of: ReLU/leaky ReLU, residual connections,
+    batch/layer normalization, careful init, LSTM/gating.'
+  max_score: 5
+- id: mr_math_01
+  role: ml_researcher
+  skill: math_stats
+  type: mcq
+  prompt: For a random variable X with variance Var(X)=4, what is Var(3X+2)?
+  options:
+  - A. 4
+  - B. 12
+  - C. 36
+  - D. 14
+  answer: C
+  max_score: 1
+- id: mr_exp_01
+  role: ml_researcher
+  skill: experimentation
+  type: open
+  prompt: You changed two hyperparameters and got a 2% accuracy lift. How would you determine if the improvement is real and
+    not noise?
+  rubric: Should mention multiple seeds/runs, validation splits, statistical significance/confidence intervals, and controlling
+    confounding variables.
+  max_score: 5
+- id: mi_sys_01
+  role: ml_infra_engineer
+  skill: systems
+  type: mcq
+  prompt: Which technique best reduces communication overhead in data-parallel distributed training?
+  options:
+  - A. Increase batch size only on one GPU
+  - B. Gradient accumulation with less frequent syncs / gradient compression
+  - C. Disable the network
+  - D. Use a single large model replica
+  answer: B
+  max_score: 1
+- id: mi_mlops_01
+  role: ml_infra_engineer
+  skill: mlops
+  type: open
+  prompt: Describe the components of a CI/CD pipeline for deploying an ML model to production.
+  rubric: 'Should mention: data/feature validation, training job, model registry, automated tests, staging canary deploy,
+    monitoring/rollback.'
+  max_score: 5
+- id: mi_cloud_01
+  role: ml_infra_engineer
+  skill: cloud
+  type: open
+  prompt: When would you choose a container (e.g. Docker) over a serverless function for serving a model, and why?
+  rubric: Should note long-running/stateful workloads, large models/GPU, cold-start latency, custom deps, and steady traffic
+    favor containers.
+  max_score: 5
+- id: mi_data_01
+  role: ml_infra_engineer
+  skill: data_eng
+  type: mcq
+  prompt: Which is the best fit for processing a continuous stream of events with low latency?
+  options:
+  - A. Nightly batch MapReduce
+  - B. A streaming system (e.g. Kafka + Flink)
+  - C. A static CSV dump
+  - D. Manual SQL export
+  answer: B
+  max_score: 1
+- id: mi_code_01
+  role: ml_infra_engineer
+  skill: infra_coding
+  type: code
+  prompt: 'Implement a function that takes a list of (key, value) pairs and returns a dict counting occurrences of each key.
+    Signature: def count_keys(pairs):'
+  function_name: count_keys
+  tests:
+  - input:
+    - - - a
+        - 1
+      - - b
+        - 2
+      - - a
+        - 3
+    expected:
+      a: 2
+      b: 1
+  - input:
+    - []
+    expected: {}
+  tolerance: 0
+  max_score: 5
+- id: mr_dl_mlp
+  role: ml_researcher
+  skill: deep_learning
+  type: code
+  prompt: Implement the full training step (zero gradients, forward pass, loss, backward pass, optimizer step) for an MLP
+    using PyTorch. Fill in the markers in the class/scaffold.
+  scaffold: "import torch\nimport torch.nn as nn\nimport torch.optim as optim\n\n# --- FIXED STRUCTURE: DO NOT MODIFY ---\n\
+    class MLP(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.layers = nn.Sequential(\n   \
+    \         nn.Linear(10, 32),\n            nn.ReLU(),\n            nn.Linear(32, 1)\n        )\n\n    def forward(self,\
+    \ x):\n        return self.layers(x)\n\ndef train_step(model, optimizer, criterion, x, target):\n    # >>> START YOUR\
+    \ IMPLEMENTATION <<<\n    # 1. Zero the gradients\n    # 2. Forward pass\n    # 3. Compute loss\n    # 4. Backward pass\n\
+    \    # 5. Optimizer step\n    pass\n    # >>> END YOUR IMPLEMENTATION <<<\n\n# Test setup\nmodel = MLP()\noptimizer =\
+    \ optim.SGD(model.parameters(), lr=0.01)\ncriterion = nn.MSELoss()\nx = torch.randn(1, 10)\ntarget = torch.randn(1, 1)\n\
+    # train_step(model, optimizer, criterion, x, target)"
+  tests:
+  - name: step_updates_weights
+    code: 'import torch, torch.nn as nn, torch.optim as optim
 
-  - id: mr_ml_02
-    role: ml_researcher
-    skill: ml_fundamentals
-    type: open
-    prompt: "Explain the bias-variance tradeoff and how it relates to model complexity."
-    rubric: "Should define bias and variance, explain their inverse relationship, and connect to under/overfitting as complexity increases."
-    max_score: 5
+      model = MLP()
 
-  - id: mr_dl_01
-    role: ml_researcher
-    skill: deep_learning
-    type: open
-    prompt: "Explain the vanishing gradient problem and list three mitigation strategies."
-    rubric: "Should name the problem (gradients shrink in deep nets) and give >=2 of: ReLU/leaky ReLU, residual connections, batch/layer normalization, careful init, LSTM/gating."
-    max_score: 5
+      opt = optim.SGD(model.parameters(), lr=0.1)
 
-  - id: mr_math_01
-    role: ml_researcher
-    skill: math_stats
-    type: mcq
-    prompt: "For a random variable X with variance Var(X)=4, what is Var(3X+2)?"
-    options:
-      - "A. 4"
-      - "B. 12"
-      - "C. 36"
-      - "D. 14"
-    answer: "C"
-    max_score: 1
+      crit = nn.MSELoss()
 
-  - id: mr_exp_01
-    role: ml_researcher
-    skill: experimentation
-    type: open
-    prompt: "You changed two hyperparameters and got a 2% accuracy lift. How would you determine if the improvement is real and not noise?"
-    rubric: "Should mention multiple seeds/runs, validation splits, statistical significance/confidence intervals, and controlling confounding variables."
-    max_score: 5
+      x = torch.randn(4, 10)
 
-  - id: mr_code_01
-    role: ml_researcher
-    skill: research_coding
-    type: code
-    prompt: "Implement a numerically stable softmax(x) that returns a probability vector. Function signature: def softmax(x): where x is a list of floats."
-    function_name: softmax
-    tests:
-      - input: [[1.0, 2.0, 3.0]]
-        expected: [0.0900, 0.2447, 0.6652]
-      - input: [[1000.0, 1000.0, 1000.0]]
-        expected: [0.3333, 0.3333, 0.3333]
-    tolerance: 1e-2
-    max_score: 5
+      target = torch.randn(4, 1)
 
-  # ---------------- ML Infra Engineer ----------------
-  - id: mi_sys_01
-    role: ml_infra_engineer
-    skill: systems
-    type: mcq
-    prompt: "Which technique best reduces communication overhead in data-parallel distributed training?"
-    options:
-      - "A. Increase batch size only on one GPU"
-      - "B. Gradient accumulation with less frequent syncs / gradient compression"
-      - "C. Disable the network"
-      - "D. Use a single large model replica"
-    answer: "B"
-    max_score: 1
+      p0 = [p.clone() for p in model.parameters()]
 
-  - id: mi_mlops_01
-    role: ml_infra_engineer
-    skill: mlops
-    type: open
-    prompt: "Describe the components of a CI/CD pipeline for deploying an ML model to production."
-    rubric: "Should mention: data/feature validation, training job, model registry, automated tests, staging canary deploy, monitoring/rollback."
-    max_score: 5
+      loss = train_step(model, opt, crit, x, target)
 
-  - id: mi_cloud_01
-    role: ml_infra_engineer
-    skill: cloud
-    type: open
-    prompt: "When would you choose a container (e.g. Docker) over a serverless function for serving a model, and why?"
-    rubric: "Should note long-running/stateful workloads, large models/GPU, cold-start latency, custom deps, and steady traffic favor containers."
-    max_score: 5
+      assert loss is not None, ''train_step must return the loss''
 
-  - id: mi_data_01
-    role: ml_infra_engineer
-    skill: data_eng
-    type: mcq
-    prompt: "Which is the best fit for processing a continuous stream of events with low latency?"
-    options:
-      - "A. Nightly batch MapReduce"
-      - "B. A streaming system (e.g. Kafka + Flink)"
-      - "C. A static CSV dump"
-      - "D. Manual SQL export"
-    answer: "B"
-    max_score: 1
+      changed = any(not torch.equal(a, b) for a, b in zip(p0, model.parameters()))
 
-  - id: mi_code_01
-    role: ml_infra_engineer
-    skill: infra_coding
-    type: code
-    prompt: "Implement a function that takes a list of (key, value) pairs and returns a dict counting occurrences of each key. Signature: def count_keys(pairs):"
-    function_name: count_keys
-    tests:
-      - input: [[["a", 1], ["b", 2], ["a", 3]]]
-        expected: {"a": 2, "b": 1}
-      - input: [[]]
-        expected: {}
-    tolerance: 0
-    max_score: 5
+      assert changed, ''optimizer did not update weights'''
+  - name: loss_decreases
+    code: 'import torch, torch.nn as nn, torch.optim as optim
+
+      model = MLP()
+
+      opt = optim.SGD(model.parameters(), lr=0.05)
+
+      crit = nn.MSELoss()
+
+      x = torch.randn(4, 10)
+
+      target = torch.randn(4, 1)
+
+      loss0 = train_step(model, opt, crit, x, target)
+
+      loss1 = train_step(model, opt, crit, x, target)
+
+      assert loss1 <= loss0 + 1e-4, ''loss should not increase across consecutive steps'''
+  max_score: 5
+- id: mr_dl_mha
+  role: ml_researcher
+  skill: deep_learning
+  type: code
+  prompt: 'Implement a memory-efficient Multi-Head Attention block from scratch in PyTorch: projections, head reshape, scaled
+    dot-product attention, concat, and output projection.'
+  scaffold: "import torch\nimport torch.nn as nn\nimport torch.nn.functional as F\nimport math\n\nclass MultiHeadAttention(nn.Module):\n\
+    \    def __init__(self, d_model, num_heads):\n        super().__init__()\n        assert d_model % num_heads == 0\n  \
+    \      \n        self.d_model = d_model\n        self.num_heads = num_heads\n        self.d_k = d_model // num_heads\n\
+    \        \n        self.w_q = nn.Linear(d_model, d_model)\n        self.w_k = nn.Linear(d_model, d_model)\n        self.w_v\
+    \ = nn.Linear(d_model, d_model)\n        self.w_o = nn.Linear(d_model, d_model)\n\n    def forward(self, q, k, v, mask=None):\n\
+    \        # q, k, v shape: (batch_size, seq_len, d_model)\n        # >>> START YOUR IMPLEMENTATION <<<\n        # 1. Linear\
+    \ projections\n        # 2. Reshape for multi-head\n        # 3. Scaled dot-product attention\n        # 4. Concatenate\
+    \ heads\n        # 5. Final linear projection\n        pass\n        # >>> END YOUR IMPLEMENTATION <<<\n\n# Test dimensions\n\
+    batch_size, seq_len, d_model, num_heads = 2, 8, 64, 8\nmha = MultiHeadAttention(d_model, num_heads)\nx = torch.randn(batch_size,\
+    \ seq_len, d_model)\n# output = mha(x, x, x)"
+  tests:
+  - name: shape
+    code: 'import torch
+
+      mha = MultiHeadAttention(64, 8)
+
+      x = torch.randn(2, 8, 64)
+
+      out = mha(x, x, x)
+
+      assert out.shape == (2, 8, 64), f''got {out.shape}'''
+  - name: uses_values
+    code: 'import torch
+
+      mha = MultiHeadAttention(16, 4)
+
+      x = torch.randn(2, 6, 16)
+
+      out1 = mha(x, x, x)
+
+      v = torch.randn(2, 6, 16)
+
+      out2 = mha(x, x, v)
+
+      assert not torch.allclose(out1, out2), ''output does not depend on V - attention not implemented'''
+  max_score: 5
+- id: mr_dl_bn
+  role: ml_researcher
+  skill: deep_learning
+  type: code
+  prompt: 'Implement Batch Normalization for a 2D input (batch, features): normalize with batch statistics during training,
+    update running stats, scale/shift with gamma/beta.'
+  scaffold: "import torch\nimport torch.nn as nn\n\nclass CustomBatchNorm1d(nn.Module):\n    def __init__(self, num_features,\
+    \ eps=1e-5, momentum=0.1):\n        super().__init__()\n        self.num_features = num_features\n        self.eps = eps\n\
+    \        self.momentum = momentum\n        \n        # Learnable parameters\n        self.gamma = nn.Parameter(torch.ones(num_features))\n\
+    \        self.beta = nn.Parameter(torch.zeros(num_features))\n        \n        # Running statistics\n        self.register_buffer('running_mean',\
+    \ torch.zeros(num_features))\n        self.register_buffer('running_var', torch.ones(num_features))\n\n    def forward(self,\
+    \ x):\n        # x shape: (batch_size, num_features)\n        # >>> START YOUR IMPLEMENTATION <<<\n        # 1. Calculate\
+    \ mean and variance of the batch (if training)\n        # 2. Update running statistics (if training)\n        # 3. Normalize\
+    \ the input\n        # 4. Scale and shift using gamma and beta\n        pass\n        # >>> END YOUR IMPLEMENTATION <<<\n\
+    \n# Test\nbn = CustomBatchNorm1d(10)\nx = torch.randn(5, 10)\n# output = bn(x)"
+  tests:
+  - name: shape_and_stats
+    code: 'import torch
+
+      bn = CustomBatchNorm1d(4)
+
+      bn.train()
+
+      x = torch.randn(8, 4)
+
+      y = bn(x)
+
+      assert y.shape == x.shape
+
+      assert torch.allclose(y.mean(0), torch.zeros(4), atol=1e-2), ''output mean != 0''
+
+      assert torch.allclose(y.var(0, unbiased=False), torch.ones(4), atol=1e-1), ''output var != 1'''
+  - name: running_stats_update
+    code: 'import torch
+
+      bn = CustomBatchNorm1d(4, momentum=0.1)
+
+      bn.train()
+
+      x = torch.randn(8, 4)
+
+      bn(x)
+
+      assert torch.allclose(bn.running_mean, 0.1 * x.mean(0), atol=1e-2), ''running_mean not updated with momentum''
+
+      assert torch.allclose(bn.running_var, 0.1 * x.var(0, unbiased=False) + 0.9 * 1.0, atol=1e-1), ''running_var not updated'''
+  max_score: 5
+- id: mr_rc_softmax
+  role: ml_researcher
+  skill: research_coding
+  type: code
+  prompt: Implement a numerically stable softmax that subtracts the max before exponentiation to avoid overflow.
+  scaffold: "import torch\n\ndef stable_softmax(x, dim=-1):\n    \"\"\"\n    Computes softmax in a numerically stable way.\n\
+    \    x: input tensor\n    dim: dimension along which to compute softmax\n    \"\"\"\n    # >>> START YOUR IMPLEMENTATION\
+    \ <<<\n    # Your code here\n    pass\n    # >>> END YOUR IMPLEMENTATION <<<\n\n# Test\nx = torch.tensor([1000.0, 1001.0,\
+    \ 1002.0])\n# print(stable_softmax(x))"
+  tests:
+  - name: sums_to_one
+    code: 'import torch
+
+      x = torch.tensor([1000.0, 1001.0, 1002.0])
+
+      p = stable_softmax(x)
+
+      assert torch.allclose(p.sum(), torch.tensor(1.0), atol=1e-4), ''probabilities must sum to 1''
+
+      assert torch.isfinite(p).all(), ''overflow!'''
+  - name: monotonic
+    code: 'import torch
+
+      x = torch.tensor([1000.0, 1001.0, 1002.0])
+
+      p = stable_softmax(x)
+
+      assert p[2] > p[1] > p[0]'
+  - name: dim_axis
+    code: 'import torch
+
+      x = torch.tensor([[1000.0, 1.0], [1001.0, 2.0]])
+
+      p = stable_softmax(x, dim=0)
+
+      assert torch.allclose(p.sum(0), torch.ones(2), atol=1e-4)'
+  max_score: 5
+- id: mr_dl_ce
+  role: ml_researcher
+  skill: deep_learning
+  type: code
+  prompt: Implement cross-entropy loss from scratch using the log-sum-exp trick for stability (no F.cross_entropy).
+  scaffold: "import torch\nimport torch.nn.functional as F\n\ndef custom_cross_entropy(logits, target):\n    \"\"\"\n    logits:\
+    \ (batch_size, num_classes)\n    target: (batch_size,) containing class indices\n    \"\"\"\n    # >>> START YOUR IMPLEMENTATION\
+    \ <<<\n    # 1. Compute log-sum-exp of logits for normalization\n    # 2. Extract logits of the target classes\n    #\
+    \ 3. Compute the negative log likelihood\n    pass\n    # >>> END YOUR IMPLEMENTATION <<<\n\n# Test\nlogits = torch.randn(3,\
+    \ 5)\ntarget = torch.tensor([1, 0, 4])\n# loss = custom_cross_entropy(logits, target)"
+  tests:
+  - name: matches_torch
+    code: 'import torch
+
+      import torch.nn.functional as F
+
+      logits = torch.tensor([[2.0, 1.0, 0.1], [1.0, 3.0, 0.5]])
+
+      target = torch.tensor([0, 1])
+
+      mine = custom_cross_entropy(logits, target)
+
+      ref = F.cross_entropy(logits, target)
+
+      assert torch.allclose(mine, ref, atol=1e-4), f''mine={mine} ref={ref}'''
+  - name: reduction
+    code: 'import torch
+
+      logits = torch.randn(3, 5)
+
+      target = torch.tensor([1, 0, 4])
+
+      l = custom_cross_entropy(logits, target)
+
+      assert l.dim() == 0 or l.numel() == 1, ''should return a scalar loss''
+
+      assert torch.isfinite(l)'
+  max_score: 5
+- id: mr_ml_knn
+  role: ml_researcher
+  skill: ml_fundamentals
+  type: code
+  prompt: Implement KNN from scratch in NumPy with a vectorized Euclidean distance, majority vote over the k nearest neighbors.
+  scaffold: "import numpy as np\n\ndef knn_predict(X_train, y_train, X_test, k=3):\n    \"\"\"\n    X_train: (N, D) training\
+    \ data\n    y_train: (N,) training labels\n    X_test: (M, D) test data\n    k: number of neighbors\n    Returns: (M,)\
+    \ predictions\n    \"\"\"\n    # >>> START YOUR IMPLEMENTATION <<<\n    # 1. Compute Euclidean distances between each\
+    \ test point and all training points (Vectorized!)\n    # 2. Find the indices of the k nearest neighbors\n    # 3. Get\
+    \ the labels of these k neighbors\n    # 4. Return the most common label (majority vote)\n    pass\n    # >>> END YOUR\
+    \ IMPLEMENTATION <<<\n\n# Test\nX_train = np.random.rand(100, 5)\ny_train = np.random.randint(0, 2, 100)\nX_test = np.random.rand(10,\
+    \ 5)\n# preds = knn_predict(X_train, y_train, X_test, k=3)"
+  tests:
+  - name: classifies
+    code: 'import numpy as np
+
+      X_train = np.array([[0, 0], [0, 1], [1, 0], [1, 1], [10, 10], [10, 11]])
+
+      y_train = np.array([0, 0, 0, 0, 1, 1])
+
+      X_test = np.array([[0.2, 0.2], [9.9, 10.1]])
+
+      preds = knn_predict(X_train, y_train, X_test, k=3)
+
+      assert list(preds) == [0, 1], f''got {preds}'''
+  - name: shape
+    code: 'import numpy as np
+
+      X_train = np.random.rand(30, 4)
+
+      y_train = np.random.randint(0, 2, 30)
+
+      preds = knn_predict(X_train, y_train, X_train[:5], k=3)
+
+      assert preds.shape == (5,)'
+  max_score: 5
+- id: mr_ml_lr
+  role: ml_researcher
+  skill: ml_fundamentals
+  type: code
+  prompt: 'Implement the gradient descent update for logistic regression: sigmoid of logits, binary cross-entropy gradients,
+    and weight/bias updates.'
+  scaffold: "import numpy as np\n\ndef sigmoid(z):\n    return 1 / (1 + np.exp(-z))\n\ndef train_logistic_regression(X, y,\
+    \ lr=0.01, epochs=100):\n    \"\"\"\n    X: (N, D) features\n    y: (N,) targets (0 or 1)\n    \"\"\"\n    N, D = X.shape\n\
+    \    weights = np.zeros(D)\n    bias = 0\n    \n    def update_step(X_batch, y_batch, w, b):\n        # >>> START YOUR\
+    \ IMPLEMENTATION <<<\n        # 1. Linear combination (logits)\n        # 2. Apply sigmoid\n        # 3. Compute gradients\
+    \ for weights and bias\n        # 4. Return updated weights and bias\n        pass\n        # >>> END YOUR IMPLEMENTATION\
+    \ <<<\n        \n    for _ in range(epochs):\n        weights, bias = update_step(X, y, weights, bias)\n        \n   \
+    \ return weights, bias\n\n# Test\nX = np.random.randn(100, 2)\ny = np.random.randint(0, 2, 100)\n# w, b = train_logistic_regression(X,\
+    \ y)"
+  tests:
+  - name: converges
+    code: 'import numpy as np
+
+      np.random.seed(0)
+
+      X = np.random.randn(300, 3)
+
+      w_true = np.array([2.0, -1.0, 0.5])
+
+      z = X @ w_true
+
+      p = 1 / (1 + np.exp(-z))
+
+      y = (p > 0.5).astype(float)
+
+      w, b = train_logistic_regression(X, y, lr=0.2, epochs=3000)
+
+      pred = (1 / (1 + np.exp(-(X @ w + b))) > 0.5).astype(float)
+
+      assert (pred == y).mean() > 0.95, f''accuracy {(pred==y).mean()}'''
+  max_score: 5
+- id: mr_ml_kmeans
+  role: ml_researcher
+  skill: ml_fundamentals
+  type: code
+  prompt: 'Implement K-Means: assignment step (nearest centroid) and update step (recompute centroids as means), iterating
+    until convergence.'
+  scaffold: "import numpy as np\n\ndef k_means(X, k, max_iters=100):\n    \"\"\"\n    X: (N, D) data points\n    k: number\
+    \ of clusters\n    \"\"\"\n    N, D = X.shape\n    # Randomly initialize centroids\n    centroids = X[np.random.choice(N,\
+    \ k, replace=False)]\n    \n    def assignment_step(X, centroids):\n        # >>> START YOUR IMPLEMENTATION <<<\n    \
+    \    # 1. Assign each point to the nearest centroid\n        pass\n        # >>> END YOUR IMPLEMENTATION <<<\n\n    def\
+    \ update_step(X, assignments, k):\n        # >>> START YOUR IMPLEMENTATION <<<\n        # 2. Recalculate centroids as\
+    \ the mean of assigned points\n        pass\n        # >>> END YOUR IMPLEMENTATION <<<\n    \n    for _ in range(max_iters):\n\
+    \        assignments = assignment_step(X, centroids)\n        centroids = update_step(X, assignments, k)\n        \n \
+    \   return centroids, assignments\n\n# Test\nX = np.random.rand(200, 2)\n# centroids, assignments = k_means(X, k=3)"
+  tests:
+  - name: recovers_clusters
+    code: 'import numpy as np
+
+      np.random.seed(1)
+
+      X = np.vstack([np.random.randn(40, 2) + [0, 0], np.random.randn(40, 2) + [10, 10], np.random.randn(40, 2) + [0, 10]])
+
+      centroids, assignments = k_means(X, k=3, max_iters=50)
+
+      assert len(set(assignments)) == 3, ''did not find 3 clusters''
+
+      # each true group should be internally consistent
+
+      assert assignments.shape == (120,)'
+  - name: centroids_centered
+    code: 'import numpy as np
+
+      np.random.seed(2)
+
+      X = np.vstack([np.random.randn(30, 2) + [0, 0], np.random.randn(30, 2) + [5, 5]])
+
+      centroids, assignments = k_means(X, k=2, max_iters=50)
+
+      means = np.array([X[assignments == i].mean(0) for i in range(2)])
+
+      assert np.allclose(np.sort(means, axis=0), np.sort(centroids, axis=0), atol=1e-2)'
+  max_score: 5
+- id: mr_ml_tree
+  role: ml_researcher
+  skill: ml_fundamentals
+  type: code
+  prompt: Implement Gini impurity and find the best feature/threshold split for a decision tree.
+  scaffold: "import numpy as np\n\ndef calculate_gini(y):\n    \"\"\"Calculate Gini Impurity for a list of labels.\"\"\"\n\
+    \    # >>> START YOUR IMPLEMENTATION <<<\n    pass\n    # >>> END YOUR IMPLEMENTATION <<<\n\ndef find_best_split(X, y):\n\
+    \    \"\"\"\n    Find the best split (feature index and threshold) for the data.\n    X: (N, D) features\n    y: (N,)\
+    \ labels\n    \"\"\"\n    best_gini = float('inf')\n    best_split = None\n    \n    def split_data(X, y, feature_idx,\
+    \ threshold):\n        # >>> START YOUR IMPLEMENTATION <<<\n        # Return left and right subsets\n        pass\n  \
+    \      # >>> END YOUR IMPLEMENTATION <<<\n    \n    # Iterate through features and unique values as thresholds\n    #\
+    \ Calculate weighted Gini for each split\n    return best_split\n\n# Test\nX = np.random.rand(50, 2)\ny = np.random.randint(0,\
+    \ 2, 50)\n# split = find_best_split(X, y)"
+  tests:
+  - name: gini_bounds
+    code: 'import numpy as np
+
+      assert abs(calculate_gini(np.array([0, 0, 1, 1])) - 0.5) < 1e-9, ''gini of 2/2 split should be 0.5''
+
+      assert calculate_gini(np.array([0, 0, 0])) == 0, ''pure node has gini 0''
+
+      assert 0 <= calculate_gini(np.array([0, 0, 1])) <= 0.5'
+  - name: finds_split
+    code: 'import numpy as np
+
+      X = np.array([[0.0, 1.0], [1.0, 2.0], [2.0, 3.0], [3.0, 4.0], [4.0, 5.0], [0.5, 10.0], [1.5, 11.0]])
+
+      y = np.array([0, 0, 0, 1, 1, 1, 1])
+
+      split = find_best_split(X, y)
+
+      assert split is not None, ''no split found''
+
+      fi, thr = split
+
+      assert isinstance(fi, int) and 0 <= fi < X.shape[1]
+
+      assert thr is not None'
+  max_score: 5
+- id: mr_rc_scaling
+  role: ml_researcher
+  skill: research_coding
+  type: code
+  prompt: Implement vectorized Standardization (z-score) and Min-Max Normalization in NumPy, handling division by zero.
+  scaffold: "import numpy as np\n\ndef standardize(X):\n    \"\"\"Standardize features to mean=0, std=1.\"\"\"\n    # >>>\
+    \ START YOUR IMPLEMENTATION <<<\n    pass\n    # >>> END YOUR IMPLEMENTATION <<<\n\ndef normalize(X):\n    \"\"\"Normalize\
+    \ features to range [0, 1].\"\"\"\n    # >>> START YOUR IMPLEMENTATION <<<\n    pass\n    # >>> END YOUR IMPLEMENTATION\
+    \ <<<\n\n# Test\nX = np.random.rand(100, 3) * 10 + 5\n# X_std = standardize(X)\n# X_norm = normalize(X)"
+  tests:
+  - name: standardize
+    code: 'import numpy as np
+
+      X = np.random.rand(100, 3) * 10 + 5
+
+      Xs = standardize(X)
+
+      assert np.allclose(Xs.mean(0), 0, atol=1e-8)
+
+      assert np.allclose(Xs.std(0), 1, atol=1e-8)'
+  - name: normalize
+    code: 'import numpy as np
+
+      X = np.random.rand(100, 3) * 10 + 5
+
+      Xn = normalize(X)
+
+      assert np.allclose(Xn.min(0), 0, atol=1e-8)
+
+      assert np.allclose(Xn.max(0), 1, atol=1e-8)'
+  - name: zero_variance
+    code: 'import numpy as np
+
+      X = np.ones((10, 3))
+
+      Xs = standardize(X)
+
+      assert np.all(np.isfinite(Xs)), ''division by zero not handled'''
+  max_score: 5
+- id: mr_exp_metrics
+  role: ml_researcher
+  skill: experimentation
+  type: code
+  prompt: Build a confusion matrix from scratch and compute Precision, Recall, and F1. No scikit-learn.
+  scaffold: "import numpy as np\n\ndef compute_metrics(y_true, y_pred):\n    \"\"\"\n    y_true: (N,) ground truth labels\
+    \ (0 or 1)\n    y_pred: (N,) predicted labels (0 or 1)\n    \"\"\"\n    # >>> START YOUR IMPLEMENTATION <<<\n    # 1.\
+    \ Calculate TP, FP, TN, FN\n    # 2. Calculate Precision, Recall, and F1\n    pass\n    # >>> END YOUR IMPLEMENTATION\
+    \ <<<\n    \n    return {\n        \"precision\": precision,\n        \"recall\": recall,\n        \"f1\": f1\n    }\n\
+    \n# Test\ny_true = np.array([1, 0, 1, 1, 0, 1])\ny_pred = np.array([1, 0, 0, 1, 0, 1])\n# metrics = compute_metrics(y_true,\
+    \ y_pred)"
+  tests:
+  - name: exact
+    code: 'import numpy as np
+
+      y_true = np.array([1, 0, 1, 1, 0, 1])
+
+      y_pred = np.array([1, 0, 0, 1, 0, 1])
+
+      m = compute_metrics(y_true, y_pred)
+
+      assert abs(m[''precision''] - 1.0) < 1e-9, m
+
+      assert abs(m[''recall''] - 0.75) < 1e-9, m
+
+      assert abs(m[''f1''] - (2 * 1.0 * 0.75) / (1.0 + 0.75)) < 1e-9, m'
+  - name: imbalanced
+    code: 'import numpy as np
+
+      y_true = np.array([0, 0, 0, 0, 1])
+
+      y_pred = np.array([1, 1, 1, 1, 0])
+
+      m = compute_metrics(y_true, y_pred)
+
+      assert abs(m[''precision''] - 0.0) < 1e-9
+
+      assert abs(m[''recall''] - 0.0) < 1e-9'
+  max_score: 5
+- id: mr_rc_iou
+  role: ml_researcher
+  skill: research_coding
+  type: code
+  prompt: Calculate Intersection over Union (IoU) between two bounding boxes given as [x1, y1, x2, y2].
+  scaffold: "def calculate_iou(boxA, boxB):\n    \"\"\"\n    boxA, boxB: list/tuple of [x1, y1, x2, y2]\n    (x1, y1) is top-left,\
+    \ (x2, y2) is bottom-right\n    \"\"\"\n    # >>> START YOUR IMPLEMENTATION <<<\n    # 1. Determine the coordinates of\
+    \ the intersection rectangle\n    # 2. Compute the area of intersection\n    # 3. Compute the area of both boxes\n   \
+    \ # 4. Compute the area of union\n    # 5. Compute IoU\n    pass\n    # >>> END YOUR IMPLEMENTATION <<<\n\n# Test\nbox1\
+    \ = [0, 0, 2, 2]\nbox2 = [1, 1, 3, 3]\n# print(calculate_iou(box1, box2)) # Expected: 1/7 approx 0.142"
+  tests:
+  - name: known
+    code: 'iou = calculate_iou([0, 0, 2, 2], [1, 1, 3, 3])
+
+      assert abs(iou - 1 / 7) < 1e-6, f''got {iou}'''
+  - name: no_overlap
+    code: 'iou = calculate_iou([0, 0, 1, 1], [5, 5, 6, 6])
+
+      assert iou == 0, f''got {iou}'''
+  - name: contained
+    code: 'iou = calculate_iou([0, 0, 4, 4], [1, 1, 2, 2])
+
+      assert abs(iou - 1.0 / 16) < 1e-6, f''got {iou}'''
+  max_score: 5
+- id: mr_rc_ngram
+  role: ml_researcher
+  skill: research_coding
+  type: code
+  prompt: Write a function to generate n-grams from a text string (lowercase, strip punctuation, split into tokens).
+  scaffold: "import re\n\ndef generate_ngrams(text, n):\n    \"\"\"\n    text: input string\n    n: size of n-gram\n    \"\
+    \"\"\n    # >>> START YOUR IMPLEMENTATION <<<\n    # 1. Clean text (lowercase, remove punctuation)\n    # 2. Split into\
+    \ tokens\n    # 3. Generate n-grams\n    pass\n    # >>> END YOUR IMPLEMENTATION <<<\n\n# Test\ntext = \"The quick brown\
+    \ fox jumps over the lazy dog.\"\n# print(generate_ngrams(text, 2)) # Bigrams"
+  tests:
+  - name: bigrams
+    code: 'text = ''The quick brown fox jumps over the lazy dog.''
+
+      bigrams = generate_ngrams(text, 2)
+
+      assert (''the'', ''quick'') in bigrams
+
+      assert len(bigrams) == 8, f''got {len(bigrams)}'''
+  - name: trigrams
+    code: 'text = ''The quick brown fox''
+
+      trigrams = generate_ngrams(text, 3)
+
+      assert (''the'', ''quick'', ''brown'') in trigrams
+
+      assert (''quick'', ''brown'', ''fox'') in trigrams'
+  max_score: 5
+- id: mr_rc_sampling
+  role: ml_researcher
+  skill: research_coding
+  type: code
+  prompt: 'Implement weighted sampling from scratch: normalize weights to probabilities, build cumulative distribution, sample
+    with replacement.'
+  scaffold: "import numpy as np\n\ndef weighted_sample(items, weights, k=1):\n    \"\"\"\n    items: list of items to sample\
+    \ from\n    weights: list of non-negative weights\n    k: number of samples\n    \"\"\"\n    # >>> START YOUR IMPLEMENTATION\
+    \ <<<\n    # 1. Normalize weights to sum to 1 (probabilities)\n    # 2. Compute cumulative probabilities\n    # 3. Generate\
+    \ random numbers and find corresponding items\n    pass\n    # >>> END YOUR IMPLEMENTATION <<<\n\n# Test\nitems = ['A',\
+    \ 'B', 'C']\nweights = [0.1, 0.6, 0.3]\n# print(weighted_sample(items, weights, k=5))"
+  tests:
+  - name: weights_sum_to_one
+    code: 'import numpy as np
+
+      items = [''A'', ''B'', ''C'']
+
+      weights = [0.1, 0.6, 0.3]
+
+      samples = weighted_sample(items, weights, k=1000)
+
+      assert len(samples) == 1000
+
+      assert all(s in items for s in samples)'
+  - name: distribution
+    code: 'import numpy as np
+
+      np.random.seed(42)
+
+      items = [''A'', ''B'', ''C'']
+
+      weights = [0.1, 0.6, 0.3]
+
+      samples = weighted_sample(items, weights, k=5000)
+
+      from collections import Counter
+
+      c = Counter(samples)
+
+      assert c[''B''] > c[''C''] > c[''A''], c'
+  max_score: 5
+- id: mr_dl_router
+  role: ml_researcher
+  skill: deep_learning
+  type: code
+  prompt: 'Implement a Top-k router for a Mixture-of-Experts layer: gate logits, top-k selection, softmax over the selected
+    experts.'
+  scaffold: "import torch\nimport torch.nn as nn\nimport torch.nn.functional as F\n\nclass TopKRouter(nn.Module):\n    def\
+    \ __init__(self, d_model, num_experts, k=2):\n        super().__init__()\n        self.num_experts = num_experts\n   \
+    \     self.k = k\n        self.gate = nn.Linear(d_model, num_experts)\n\n    def forward(self, x):\n        # x shape:\
+    \ (batch_size, seq_len, d_model)\n        # >>> START YOUR IMPLEMENTATION <<<\n        # 1. Compute logits using the gate\
+    \ linear layer\n        # 2. Find the top-k experts and their scores\n        # 3. Softmax the scores of the selected\
+    \ experts\n        # 4. Return the selected expert indices and their routing weights\n        pass\n        # >>> END\
+    \ YOUR IMPLEMENTATION <<<\n\n# Test\nbatch_size, seq_len, d_model, num_experts, k = 2, 4, 16, 8, 2\nrouter = TopKRouter(d_model,\
+    \ num_experts, k)\nx = torch.randn(batch_size, seq_len, d_model)\n# weights, indices = router(x)"
+  tests:
+  - name: shapes
+    code: 'import torch
+
+      router = TopKRouter(16, 8, 2)
+
+      x = torch.randn(2, 4, 16)
+
+      weights, indices = router(x)
+
+      assert weights.shape == (2, 4, 2), weights.shape
+
+      assert indices.shape == (2, 4, 2), indices.shape
+
+      assert indices.max() < 8 and indices.min() >= 0'
+  - name: weights_sum
+    code: 'import torch
+
+      router = TopKRouter(16, 8, 2)
+
+      x = torch.randn(2, 4, 16)
+
+      weights, indices = router(x)
+
+      assert torch.allclose(weights.sum(-1), torch.ones(2, 4), atol=1e-4)'
+  max_score: 5
+- id: mr_dl_lb
+  role: ml_researcher
+  skill: deep_learning
+  type: code
+  prompt: 'Implement the Switch-Transformer load balancing loss: f_i (fraction of tokens per expert) times P_i (mean routing
+    probability), scaled by num_experts.'
+  scaffold: "import torch\nimport torch.nn.functional as F\n\ndef compute_load_balancing_loss(gate_logits, num_experts):\n\
+    \    \"\"\"\n    gate_logits: (batch_size * seq_len, num_experts)\n    num_experts: int\n    Returns: scalar loss\n  \
+    \  \"\"\"\n    # >>> START YOUR IMPLEMENTATION <<<\n    # 1. Compute routing probabilities (softmax)\n    # 2. Calculate\
+    \ fraction of tokens dispatched to each expert (f_i)\n    # 3. Calculate mean probability assigned to each expert (P_i)\n\
+    \    # 4. Compute the load balancing loss as num_experts * sum(f_i * P_i)\n    pass\n    # >>> END YOUR IMPLEMENTATION\
+    \ <<<\n\n# Test\nbatch_size, seq_len, num_experts = 2, 4, 8\nlogits = torch.randn(batch_size * seq_len, num_experts)\n\
+    # loss = compute_load_balancing_loss(logits, num_experts)"
+  tests:
+  - name: uniform_is_1
+    code: 'import torch
+
+      logits = torch.ones(8, 4)
+
+      loss = compute_load_balancing_loss(logits, 4)
+
+      assert abs(loss - 1.0) < 1e-4, f''got {loss}'''
+  - name: positive_finite
+    code: 'import torch
+
+      logits = torch.randn(8 * 4, 8)
+
+      loss = compute_load_balancing_loss(logits, 8)
+
+      assert loss > 0 and torch.isfinite(loss)'
+  max_score: 5
+- id: mi_sys_batcher
+  role: ml_infra_engineer
+  skill: systems
+  type: code
+  prompt: Implement a RequestBatcher that groups incoming requests into full batches of size K; get_batches returns full batches
+    and clears them.
+  scaffold: "class RequestBatcher:\n    def __init__(self, batch_size: int):\n        self.batch_size = batch_size\n     \
+    \   # >>> START YOUR IMPLEMENTATION <<<\n        # Initialize your internal buffer (bucket) here\n        pass\n     \
+    \   # >>> END YOUR IMPLEMENTATION <<<\n\n    def append(self, request: str):\n        \"\"\"Adds a request to the internal\
+    \ buffer.\"\"\"\n        # >>> START YOUR IMPLEMENTATION <<<\n        pass\n        # >>> END YOUR IMPLEMENTATION <<<\n\
+    \n    def get_batches(self):\n        \"\"\"Returns all full batches and clears them from the buffer.\"\"\"\n        #\
+    \ >>> START YOUR IMPLEMENTATION <<<\n        pass\n        # >>> END YOUR IMPLEMENTATION <<<\n\n# --- Test Cases ---\n\
+    def test_batcher():\n    batcher = RequestBatcher(batch_size=2)\n    \n    # Test 1: Partial batch\n    batcher.append(\"\
+    req1\")\n    # assert batcher.get_batches() == []\n    \n    # Test 2: Full batch\n    batcher.append(\"req2\")\n    #\
+    \ assert batcher.get_batches() == [[\"req1\", \"req2\"]]\n    \n    # Test 3: Multiple batches\n    batcher.append(\"\
+    req3\")\n    batcher.append(\"req4\")\n    batcher.append(\"req5\")\n    # assert batcher.get_batches() == [[\"req3\"\
+    , \"req4\"]]\n    \n    # Test 4: Remaining partial\n    batcher.append(\"req6\")\n    # assert batcher.get_batches()\
+    \ == [[\"req5\", \"req6\"]]\n    \n    print(\"Tests initialized. Implement the logic to pass them.\")\n\n# test_batcher()"
+  tests:
+  - name: empty
+    code: 'b = RequestBatcher(2)
+
+      assert b.get_batches() == []'
+  - name: partial_stays
+    code: 'b = RequestBatcher(2)
+
+      b.append(''req1'')
+
+      assert b.get_batches() == []
+
+      b.append(''req2'')
+
+      assert b.get_batches() == [[''req1'', ''req2'']]'
+  - name: multi
+    code: 'b = RequestBatcher(2)
+
+      b.append(''a''); b.append(''b''); b.append(''c''); b.append(''d'')
+
+      assert b.get_batches() == [[''a'', ''b''], [''c'', ''d'']]
+
+      b.append(''e'')
+
+      assert b.get_batches() == []'
+  max_score: 5
+- id: mi_sys_crawler
+  role: ml_infra_engineer
+  skill: systems
+  type: code
+  prompt: Implement a concurrent web crawler using HtmlParser that visits all URLs reachable from startUrl within the same
+    hostname (thread-safe).
+  scaffold: "import threading\nimport time\nfrom typing import List\nfrom collections import deque\nfrom urllib.parse import\
+    \ urlparse\n\n# --- WORKING MOCK PARSER: DO NOT MODIFY ---\nclass HtmlParser:\n    def __init__(self):\n        # Mock\
+    \ site structure for testing\n        self.graph = {\n            \"http://news.google.com\": [\n                \"http://news.google.com/news\"\
+    , \n                \"http://news.google.com/local\",\n                \"http://news.yahoo.com\" # Different hostname\n\
+    \            ],\n            \"http://news.google.com/news\": [\n                \"http://news.google.com/news/topics\"\
+    ,\n                \"http://news.google.com/world\"\n            ],\n            \"http://news.google.com/local\": [\n\
+    \                \"http://news.google.com/news\"\n            ],\n            \"http://news.google.com/news/topics\":\
+    \ [],\n            \"http://news.google.com/world\": []\n        }\n\n    def getUrls(self, url: str) -> List[str]:\n\
+    \        \"\"\"\n        Simulates a blocking network call to fetch URLs from a page.\n        \"\"\"\n        time.sleep(0.05)\
+    \ # Simulate 50ms network latency\n        return self.graph.get(url, [])\n\nclass Solution:\n    def crawl(self, startUrl:\
+    \ str, htmlParser: 'HtmlParser') -> List[str]:\n        # >>> START YOUR IMPLEMENTATION <<<\n        # Goal: Return all\
+    \ URLs reachable from startUrl within the same hostname.\n        # 1. Extract hostname from startUrl (e.g., 'news.google.com')\n\
+    \        # 2. Use a thread-safe set to track visited URLs\n        # 3. Use a thread pool or manual threading to fetch\
+    \ URLs concurrently\n        # 4. Only add URLs with the same hostname to the queue\n        pass\n        # >>> END YOUR\
+    \ IMPLEMENTATION <<<\n\n# Example usage:\n# parser = HtmlParser()\n# sol = Solution()\n# result = sol.crawl(\"http://news.google.com\"\
+    , parser)\n# print(f\"Found {len(result)} URLs: {result}\")"
+  tests:
+  - name: same_host_only
+    code: 'from urllib.parse import urlparse
+
+      parser = HtmlParser()
+
+      sol = Solution()
+
+      result = sol.crawl(''http://news.google.com'', parser)
+
+      assert ''http://news.yahoo.com'' not in result, ''must not cross hostnames''
+
+      assert all(urlparse(u).hostname == ''news.google.com'' for u in result)'
+  - name: covers_graph
+    code: 'parser = HtmlParser()
+
+      sol = Solution()
+
+      result = sol.crawl(''http://news.google.com'', parser)
+
+      expected = {''http://news.google.com'', ''http://news.google.com/news'', ''http://news.google.com/local'', ''http://news.google.com/news/topics'',
+      ''http://news.google.com/world''}
+
+      assert set(result) == expected, f''got {set(result)}'''
+  max_score: 5
+- id: mi_sys_reorder
+  role: ml_infra_engineer
+  skill: systems
+  type: code
+  prompt: Reorder tokens by their expert assignments so tokens for the same expert are contiguous; return sort indices to
+    scatter back later.
+  scaffold: "import torch\n\ndef reorder_tokens(tokens, expert_ids, num_experts):\n    \"\"\"\n    tokens: (N, d_model) tensor\
+    \ of token embeddings\n    expert_ids: (N,) tensor of expert assignments (0 to num_experts-1)\n    num_experts: int\n\
+    \    Returns: \n        reordered_tokens: (N, d_model)\n        sort_indices: (N,) indices used to sort\n    \"\"\"\n\
+    \    # >>> START YOUR IMPLEMENTATION <<<\n    # 1. Sort expert_ids and get the sorting indices\n    # 2. Reorder tokens\
+    \ using these indices\n    # 3. Return reordered tokens and the indices (needed for reversing later)\n    pass\n    #\
+    \ >>> END YOUR IMPLEMENTATION <<<\n\n# Test\nN, d_model, num_experts = 10, 4, 4\ntokens = torch.randn(N, d_model)\nexpert_ids\
+    \ = torch.randint(0, num_experts, (N,))\n# reordered, indices = reorder_tokens(tokens, expert_ids, num_experts)"
+  tests:
+  - name: reorders
+    code: 'import torch
+
+      N, d, ne = 10, 4, 4
+
+      tokens = torch.randn(N, d)
+
+      ids = torch.tensor([3, 1, 2, 1, 0, 3, 0, 2, 1, 2])
+
+      reordered, indices = reorder_tokens(tokens, ids, ne)
+
+      assert reordered.shape == (N, d)
+
+      assert indices.shape == (N,)
+
+      assert torch.equal(reordered, tokens[indices])'
+  - name: sorted_groups
+    code: 'import torch
+
+      N, d, ne = 10, 4, 4
+
+      tokens = torch.randn(N, d)
+
+      ids = torch.tensor([3, 1, 2, 1, 0, 3, 0, 2, 1, 2])
+
+      reordered, indices = reorder_tokens(tokens, ids, ne)
+
+      sorted_ids = ids[indices]
+
+      assert torch.equal(sorted_ids, torch.sort(ids).values), ''tokens must be grouped by expert'''
+  max_score: 5
+- id: mi_sys_cache
+  role: ml_infra_engineer
+  skill: systems
+  type: code
+  prompt: 'Implement a sparsity-aware cache: track popularity per expert, on miss simulate PCIe transfer, evict using a frequency-aware
+    policy (popular experts survive).'
+  scaffold: "import collections\nimport time\n\nclass SparsityAwareCache:\n    def __init__(self, capacity: int, pcie_latency_ms:\
+    \ float = 10.0):\n        self.capacity = capacity\n        self.pcie_latency = pcie_latency_ms\n        self.gpu_cache\
+    \ = collections.OrderedDict() # expert_id -> expert_data\n        self.popularity_scores = collections.defaultdict(int)\
+    \ # historical frequency\n        \n    def access_expert(self, expert_id: int):\n        \"\"\"\n        Accesses an\
+    \ expert. If not in cache, simulates PCIe transfer.\n        Tokens follow a Power Law distribution.\n        \"\"\"\n\
+    \        # >>> START YOUR IMPLEMENTATION <<<\n        # 1. Update popularity_scores for the expert\n        # 2. Check\
+    \ if expert is in gpu_cache\n        # 3. If hit: Move to end (standard LRU behavior)\n        # 4. If miss: \n      \
+    \  #    a. Simulate PCIe transfer latency\n        #    b. If cache full, evict based on a 'Sparsity-Aware' policy\n \
+    \       #    c. Add new expert to cache\n        pass\n        # >>> END YOUR IMPLEMENTATION <<<\n\n    def _simulate_pcie_transfer(self):\n\
+    \        time.sleep(self.pcie_latency / 1000.0)\n\n# Test setup\n# cache = SparsityAwareCache(capacity=5)\n# for i in\
+    \ [1, 2, 3, 1, 4, 1, 5, 1, 6]: # 1 is 'popular'\n#     cache.access_expert(i)"
+  tests:
+  - name: hit_keeps_capacity
+    code: "cache = SparsityAwareCache(capacity=2)\nfor i in [1, 2, 1, 3, 1, 4, 1, 5]:\n    cache.access_expert(i)\nassert\
+      \ len(cache.gpu_cache) <= 2, 'cache exceeded capacity'\nassert 1 in cache.gpu_cache, 'popular expert 1 was evicted'"
+  - name: tracks_popularity
+    code: "cache = SparsityAwareCache(capacity=3)\nfor i in [1, 1, 1, 2, 2, 3]:\n    cache.access_expert(i)\nassert cache.popularity_scores[1]\
+      \ >= cache.popularity_scores[2] >= cache.popularity_scores[3]"
+  max_score: 5

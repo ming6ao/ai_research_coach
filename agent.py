@@ -10,6 +10,7 @@ from core.config import MODEL
 from core.session import Session
 from core.picker import next_task
 from core.report import build_report
+from core.storage import save_assessment, list_assessments
 from evaluators.registry import get_evaluator
 
 
@@ -49,11 +50,18 @@ def submit_answer(task_id: str, answer: str, tool_context: ToolContext) -> dict:
 
 
 def get_report(tool_context: ToolContext) -> dict:
-    """Produce the final skills profile and readiness verdict for the candidate."""
+    """Produce the final skills profile and readiness verdict for the candidate, and persist it."""
     if "session" not in tool_context.state:
         return {"error": "No active assessment. Call start_assessment first."}
     session = Session.from_dict(tool_context.state["session"])
-    return build_report(session)
+    report = build_report(session)
+    report["assessment_id"] = save_assessment(session, report)
+    return report
+
+
+def get_history(limit: int = 20, tool_context: ToolContext = None) -> dict:
+    """Return recently finished assessments stored in the local database."""
+    return {"assessments": list_assessments(limit)}
 
 
 def _task_view(task: dict) -> dict:
@@ -82,5 +90,5 @@ root_agent = Agent(
         "When all tasks are done (next_task is null), call get_report and summarize the verdict and skill gaps for the candidate. "
         "Never evaluate answers yourself; always rely on the tools' results."
     ),
-    tools=[start_assessment, submit_answer, get_report],
+    tools=[start_assessment, submit_answer, get_report, get_history],
 )

@@ -8,7 +8,7 @@ The design is data-driven: adding new questions, skills, or roles is done by edi
 
 ```
 ai_research_coach/
-├── agent.py              # root_agent + 3 tools (orchestrator)
+├── agent.py              # root_agent + 4 tools (orchestrator)
 ├── config/
 │   ├── roles.yaml        # role → skill tree definitions
 │   └── tasks.yaml        # question/task bank (typed)
@@ -16,12 +16,13 @@ ai_research_coach/
 │   ├── config.py         # paths + model selection
 │   ├── session.py        # candidate session state (serialized into ADK state)
 │   ├── picker.py         # which task to ask next (linear now, adaptive later)
-│   └── report.py         # skills profile + readiness verdict
+│   ├── report.py         # skills profile + readiness verdict
+│   └── storage.py        # SQLite persistence of finished assessments
 ├── evaluators/
 │   ├── base.py           # EvaluationResult + Evaluator interface
 │   ├── mcq.py            # multiple-choice (exact match)
 │   ├── open.py           # free-text → LLM judge
-│   ├── code.py           # code run + hidden tests (subprocess)
+│   ├── code.py           # code run + hidden tests (function OR scaffold mode)
 │   └── registry.py       # task_type → evaluator
 └── judge/
     └── llm_judge.py      # rubric-based scoring via Gemini
@@ -33,8 +34,8 @@ ai_research_coach/
 2. **Task loop** — the agent presents one task at a time. Task types:
    - `mcq` — scored by exact match (e.g. letter `B`).
    - `open` — scored by the **LLM judge** against a written rubric (0–max_score).
-   - `code` — candidate code is executed in a subprocess against hidden test cases with a tolerance; partial credit is awarded per passing test.
-3. **Report** — `get_report` aggregates per-skill scores into an overall score, a verdict (`Ready` / `Conditionally ready` / `Not ready`), and a list of skill gaps (< 0.6 fraction).
+   - `code` — candidate code runs in a subprocess against hidden tests; partial credit per passing test. Two modes: **function** (`fn(*args)` vs expected, with tolerance) and **scaffold** (assertion snippets run against a class-based solution).
+3. **Report** — `get_report` aggregates per-skill scores into an overall score, a verdict (`Ready` / `Conditionally ready` / `Not ready`), a list of skill gaps (< 0.6 fraction), and persists the assessment to SQLite.
 
 ## Project structure & setup
 
@@ -47,11 +48,14 @@ python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 ```
 
-### 2. Install ADK
+### 2. Install dependencies
 
 ```bash
-pip install google-adk
+pip install -r requirements.txt
 ```
+
+> Running only on CPU (no CUDA GPU)? Install the CPU-only PyTorch instead:
+> `pip install torch --index-url https://download.pytorch.org/whl/cpu`
 
 ### 3. Set your API key
 
@@ -92,7 +96,7 @@ adk run ai_research_coach
 
 ## How to extend (no code changes)
 
-- **Add a question**: append an entry to `config/tasks.yaml` with a unique `id`, `role`, `skill`, `type`, and the scoring fields (`answer` for mcq, `rubric`+`max_score` for open, `function_name`+`tests`+`tolerance` for code).
+- **Add a question**: append an entry to `config/tasks.yaml` with a unique `id`, `role`, `skill`, `type`, and the scoring fields (`answer` for mcq, `rubric`+`max_score` for open, code fields below).
 - **Add a skill**: add it under the role in `config/roles.yaml`; it will automatically appear in reports.
 - **Add a role**: add a new block in `config/roles.yaml` and tag tasks with that `role`.
 - **Change the model**: set `EVAL_MODEL` in `.env` (e.g. `gemini-3.6-flash`).
@@ -103,9 +107,23 @@ adk run ai_research_coach
 |------|-----------------|---------|
 | `mcq` | `options`, `answer` | exact match, `max_score` (default 1) |
 | `open` | `rubric`, `max_score` | LLM judge 0–`max_score` |
-| `code` | `function_name`, `tests`, `tolerance` | per-test pass, partial credit |
+| `code` (function) | `function_name`, `tests`, `tolerance` | per-test pass, partial credit |
+| `code` (scaffold) | `scaffold`, `tests` | hidden `assert` snippets, partial credit |
 
-`tests` entries use `input` (list of args) and `expected`; comparison allows a float `tolerance`.
+**Function mode** — the candidate implements a single function; `tests` entries use
+`input` (list of args) and `expected`; comparison allows a float `tolerance`.
+
+**Scaffold mode** — for class-based / multi-function tasks (e.g. a `MultiHeadAttention`
+module or a `RequestBatcher`). The candidate edits a full scaffold; `tests` entries each
+carry a hidden `code` snippet that runs against the module's namespace and must not raise.
+Portions of the task bank are ported from
+[learning-ml](https://github.com/ming6ao/learning-ml) `src/questions.json`.
+
+## Persistence
+
+Finished assessments are stored in a local SQLite database at `data/coach.db`
+(created on first use; the `data/` dir is gitignored). After `get_report`, the agent can
+summarize stored history via the `get_history` tool.
 
 ## Scaling roadmap
 
