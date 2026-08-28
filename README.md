@@ -65,7 +65,9 @@ Create a `.env` file in this directory with your Gemini API key:
 echo 'GOOGLE_API_KEY="YOUR_API_KEY"' > .env
 ```
 
-> The default model is `gemini-3.6-flash` (override with the `EVAL_MODEL` env var).
+> Two models are used: **conversations** default to `gemini-3.5-flash-lite`
+> (override with `EVAL_CONV_MODEL`), and the **LLM judge** defaults to `gemini-3.5-flash-lite`
+> (override with `EVAL_MODEL`).
 
 ## Running the agent
 
@@ -99,7 +101,7 @@ adk run ai_research_coach
 - **Add a question**: append an entry to `config/tasks.yaml` with a unique `id`, `role`, `skill`, `type`, and the scoring fields (`answer` for mcq, `rubric`+`max_score` for open, code fields below).
 - **Add a skill**: add it under the role in `config/roles.yaml`; it will automatically appear in reports.
 - **Add a role**: add a new block in `config/roles.yaml` and tag tasks with that `role`.
-- **Change the model**: set `EVAL_MODEL` in `.env` (e.g. `gemini-3.6-flash`).
+- **Change the model**: set `EVAL_CONV_MODEL` (conversations) or `EVAL_MODEL` (judge) in `.env` (e.g. `gemini-3.5-flash-lite`).
 
 ## Task type reference
 
@@ -124,6 +126,23 @@ Portions of the task bank are ported from
 Finished assessments are stored in a local SQLite database at `data/coach.db`
 (created on first use; the `data/` dir is gitignored). After `get_report`, the agent can
 summarize stored history via the `get_history` tool.
+
+## Resilience & retry
+
+Transient failures (rate limits `429`, server errors `5xx`, timeouts `408/504`) are handled at
+every layer:
+
+- **Model API** — both the agent's model (`Gemini(...)` with `retry_options`) and the LLM judge
+  client use exponential backoff retries (5 attempts, 1s → 30s, jitter) on retryable HTTP codes.
+  Tune via env vars: `EVAL_RETRY_ATTEMPTS`, `EVAL_RETRY_INITIAL_DELAY`, `EVAL_RETRY_MAX_DELAY`.
+- **Judge** — if the model call still fails after retries, `score_open` raises
+  `JudgeRetryableError` instead of returning a `0`. The candidate is **never** silently scored 0
+  due to a transient error.
+- **Idempotent tools** — `submit_answer` returns the stored result for an already-scored task
+  (no double-counting), and `start_assessment` resumes an in-progress session. If a turn fails
+  after a tool ran, simply re-sending the last message continues safely.
+- **Agent guidance** — on a "Transient evaluation failure" the agent is instructed to ask the
+  candidate to resend their last answer and call the tool again, rather than inventing a score.
 
 ## Scaling roadmap
 

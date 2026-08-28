@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 REQUIRED = ["GOOGLE_API_KEY"]
-MODEL = os.getenv("EVAL_MODEL", "gemini-3.6-flash")
+from core.config import MODEL
 
 
 def check_env_vars():
