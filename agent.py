@@ -11,6 +11,7 @@ from core.config import CONV_MODEL, http_retry_options
 from core.session import Session
 from core.picker import next_task
 from core.score import update_skill_score
+from core.feedback import generate_feedback
 from core.report import build_report
 from core.storage import save_assessment, list_assessments
 from evaluators.registry import get_evaluator
@@ -100,9 +101,13 @@ def submit_answer(task_id: str, answer: str, tool_context: ToolContext) -> dict:
     # Save updated session
     tool_context.state["session"] = session.to_dict()
 
+    # Generate learning feedback
+    feedback = generate_feedback(task, answer, result.to_dict())
+
     nxt = next_task(session)
     return {
         "result": result.to_dict(),
+        "feedback": feedback,
         "next_task": _task_view(nxt) if nxt else None,
         "remaining": len(session.tasks) - session.index,
         "skill_update": {
@@ -153,6 +158,8 @@ root_agent = Agent(
         "('ml_researcher' or 'ml_infra_engineer'). Present one task at a time from the returned 'first_task'/'next_task'. "
         "For mcq tasks show the options and collect the letter; for open/code tasks collect the free-text answer. "
         "Call submit_answer with the task id and the candidate's answer, then present the next task returned. "
+        "IMPORTANT: After each answer, present the feedback from the response to help the user learn. "
+        "The feedback explains why the answer was correct/incorrect and provides educational context. "
         "When all tasks are done (next_task is null), call get_report and summarize the verdict and skill gaps for the candidate. "
         "Never evaluate answers yourself; always rely on the tools' results. "
         "If a tool returns an error containing 'Transient evaluation failure', a temporary API problem occurred: "
