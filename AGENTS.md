@@ -81,6 +81,13 @@ EVAL_RETRY_MAX_DELAY=30.0       # Max backoff (seconds)
 - Typecheck: `tsc -b` (project references: `tsconfig.app.json`, `tsconfig.node.json`)
 - State: Zustand store (`frontend/src/stores/assessmentStore.ts`)
 
+## Dependencies
+
+- **Prefer zero new dependencies.** Exhaust all options using existing packages, transitive deps, or hand-rolled solutions before adding a new one.
+- **Check transitive deps first.** Run `npm ls <pkg>` or `pip show <pkg>` to see if a needed library is already available indirectly (e.g. `highlight.js` via `rehype-highlight`).
+- **If a new dep is unavoidable, ask the user to choose** between the candidate options (include trade-offs: bundle size, maintenance status, API surface).
+- Never add a dependency for a single small feature that can be implemented in a few lines of code.
+
 ## Gotchas
 
 - `.venv` is the virtualenv; `run.sh` uses `.venv/bin/uvicorn` directly
