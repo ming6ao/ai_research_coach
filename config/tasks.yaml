@@ -3,6 +3,8 @@ tasks:
   role: ml_researcher
   skill: ml_fundamentals
   type: mcq
+  difficulty: 1
+  dimension: recall
   prompt: Which statement best describes overfitting?
   options:
   - A. Model performs well on training and test data
@@ -15,6 +17,8 @@ tasks:
   role: ml_researcher
   skill: ml_fundamentals
   type: open
+  difficulty: 2
+  dimension: conceptual
   prompt: Explain the bias-variance tradeoff and how it relates to model complexity.
   rubric: Should define bias and variance, explain their inverse relationship, and connect to under/overfitting as complexity
     increases.
@@ -23,6 +27,8 @@ tasks:
   role: ml_researcher
   skill: deep_learning
   type: open
+  difficulty: 2
+  dimension: conceptual
   prompt: Explain the vanishing gradient problem and list three mitigation strategies.
   rubric: 'Should name the problem (gradients shrink in deep nets) and give >=2 of: ReLU/leaky ReLU, residual connections,
     batch/layer normalization, careful init, LSTM/gating.'
@@ -31,6 +37,8 @@ tasks:
   role: ml_researcher
   skill: math_stats
   type: mcq
+  difficulty: 1
+  dimension: math
   prompt: For a random variable X with variance Var(X)=4, what is Var(3X+2)?
   options:
   - A. 4
@@ -43,6 +51,8 @@ tasks:
   role: ml_researcher
   skill: experimentation
   type: open
+  difficulty: 3
+  dimension: research
   prompt: You changed two hyperparameters and got a 2% accuracy lift. How would you determine if the improvement is real and
     not noise?
   rubric: Should mention multiple seeds/runs, validation splits, statistical significance/confidence intervals, and controlling
@@ -52,6 +62,8 @@ tasks:
   role: ml_infra_engineer
   skill: systems
   type: mcq
+  difficulty: 2
+  dimension: recall
   prompt: Which technique best reduces communication overhead in data-parallel distributed training?
   options:
   - A. Increase batch size only on one GPU
@@ -64,6 +76,8 @@ tasks:
   role: ml_infra_engineer
   skill: mlops
   type: open
+  difficulty: 2
+  dimension: conceptual
   prompt: Describe the components of a CI/CD pipeline for deploying an ML model to production.
   rubric: 'Should mention: data/feature validation, training job, model registry, automated tests, staging canary deploy,
     monitoring/rollback.'
@@ -72,6 +86,8 @@ tasks:
   role: ml_infra_engineer
   skill: cloud
   type: open
+  difficulty: 2
+  dimension: conceptual
   prompt: When would you choose a container (e.g. Docker) over a serverless function for serving a model, and why?
   rubric: Should note long-running/stateful workloads, large models/GPU, cold-start latency, custom deps, and steady traffic
     favor containers.
@@ -80,6 +96,8 @@ tasks:
   role: ml_infra_engineer
   skill: data_eng
   type: mcq
+  difficulty: 1
+  dimension: recall
   prompt: Which is the best fit for processing a continuous stream of events with low latency?
   options:
   - A. Nightly batch MapReduce
@@ -92,6 +110,8 @@ tasks:
   role: ml_infra_engineer
   skill: infra_coding
   type: code
+  difficulty: 1
+  dimension: coding
   prompt: 'Implement a function that takes a list of (key, value) pairs and returns a dict counting occurrences of each key.
     Signature: def count_keys(pairs):'
   function_name: count_keys
@@ -115,6 +135,8 @@ tasks:
   role: ml_researcher
   skill: deep_learning
   type: code
+  difficulty: 3
+  dimension: coding
   prompt: Implement the full training step (zero gradients, forward pass, loss, backward pass, optimizer step) for an MLP
     using PyTorch. Fill in the markers in the class/scaffold.
   scaffold: "import torch\nimport torch.nn as nn\nimport torch.optim as optim\n\n# --- FIXED STRUCTURE: DO NOT MODIFY ---\n\
@@ -171,6 +193,8 @@ tasks:
   role: ml_researcher
   skill: deep_learning
   type: code
+  difficulty: 4
+  dimension: coding
   prompt: 'Implement a memory-efficient Multi-Head Attention block from scratch in PyTorch: projections, head reshape, scaled
     dot-product attention, concat, and output projection.'
   scaffold: "import torch\nimport torch.nn as nn\nimport torch.nn.functional as F\nimport math\n\nclass MultiHeadAttention(nn.Module):\n\
@@ -213,6 +237,8 @@ tasks:
   role: ml_researcher
   skill: deep_learning
   type: code
+  difficulty: 4
+  dimension: coding
   prompt: 'Implement Batch Normalization for a 2D input (batch, features): normalize with batch statistics during training,
     update running stats, scale/shift with gamma/beta.'
   scaffold: "import torch\nimport torch.nn as nn\n\nclass CustomBatchNorm1d(nn.Module):\n    def __init__(self, num_features,\
@@ -260,6 +286,8 @@ tasks:
   role: ml_researcher
   skill: research_coding
   type: code
+  difficulty: 2
+  dimension: coding
   prompt: Implement a numerically stable softmax that subtracts the max before exponentiation to avoid overflow.
   scaffold: "import torch\n\ndef stable_softmax(x, dim=-1):\n    \"\"\"\n    Computes softmax in a numerically stable way.\n\
     \    x: input tensor\n    dim: dimension along which to compute softmax\n    \"\"\"\n    # >>> START YOUR IMPLEMENTATION\
@@ -297,6 +325,8 @@ tasks:
   role: ml_researcher
   skill: deep_learning
   type: code
+  difficulty: 4
+  dimension: coding
   prompt: Implement cross-entropy loss from scratch using the log-sum-exp trick for stability (no F.cross_entropy).
   scaffold: "import torch\nimport torch.nn.functional as F\n\ndef custom_cross_entropy(logits, target):\n    \"\"\"\n    logits:\
     \ (batch_size, num_classes)\n    target: (batch_size,) containing class indices\n    \"\"\"\n    # >>> START YOUR IMPLEMENTATION\
@@ -335,6 +365,8 @@ tasks:
   role: ml_researcher
   skill: ml_fundamentals
   type: code
+  difficulty: 3
+  dimension: coding
   prompt: Implement KNN from scratch in NumPy with a vectorized Euclidean distance, majority vote over the k nearest neighbors.
   scaffold: "import numpy as np\n\ndef knn_predict(X_train, y_train, X_test, k=3):\n    \"\"\"\n    X_train: (N, D) training\
     \ data\n    y_train: (N,) training labels\n    X_test: (M, D) test data\n    k: number of neighbors\n    Returns: (M,)\
@@ -371,6 +403,8 @@ tasks:
   role: ml_researcher
   skill: ml_fundamentals
   type: code
+  difficulty: 3
+  dimension: coding
   prompt: 'Implement the gradient descent update for logistic regression: sigmoid of logits, binary cross-entropy gradients,
     and weight/bias updates.'
   scaffold: "import numpy as np\n\ndef sigmoid(z):\n    return 1 / (1 + np.exp(-z))\n\ndef train_logistic_regression(X, y,\
@@ -407,6 +441,8 @@ tasks:
   role: ml_researcher
   skill: ml_fundamentals
   type: code
+  difficulty: 3
+  dimension: coding
   prompt: 'Implement K-Means: assignment step (nearest centroid) and update step (recompute centroids as means), iterating
     until convergence.'
   scaffold: "import numpy as np\n\ndef k_means(X, k, max_iters=100):\n    \"\"\"\n    X: (N, D) data points\n    k: number\
@@ -431,7 +467,7 @@ tasks:
 
       # each true group should be internally consistent
 
-      assert assignments.shape == (120,)'
+      assert assignments.shape == (120,)'''
   - name: centroids_centered
     code: 'import numpy as np
 
@@ -449,6 +485,8 @@ tasks:
   role: ml_researcher
   skill: ml_fundamentals
   type: code
+  difficulty: 4
+  dimension: coding
   prompt: Implement Gini impurity and find the best feature/threshold split for a decision tree.
   scaffold: "import numpy as np\n\ndef calculate_gini(y):\n    \"\"\"Calculate Gini Impurity for a list of labels.\"\"\"\n\
     \    # >>> START YOUR IMPLEMENTATION <<<\n    pass\n    # >>> END YOUR IMPLEMENTATION <<<\n\ndef find_best_split(X, y):\n\
@@ -488,6 +526,8 @@ tasks:
   role: ml_researcher
   skill: research_coding
   type: code
+  difficulty: 2
+  dimension: coding
   prompt: Implement vectorized Standardization (z-score) and Min-Max Normalization in NumPy, handling division by zero.
   scaffold: "import numpy as np\n\ndef standardize(X):\n    \"\"\"Standardize features to mean=0, std=1.\"\"\"\n    # >>>\
     \ START YOUR IMPLEMENTATION <<<\n    pass\n    # >>> END YOUR IMPLEMENTATION <<<\n\ndef normalize(X):\n    \"\"\"Normalize\
@@ -527,6 +567,8 @@ tasks:
   role: ml_researcher
   skill: experimentation
   type: code
+  difficulty: 2
+  dimension: coding
   prompt: Build a confusion matrix from scratch and compute Precision, Recall, and F1. No scikit-learn.
   scaffold: "import numpy as np\n\ndef compute_metrics(y_true, y_pred):\n    \"\"\"\n    y_true: (N,) ground truth labels\
     \ (0 or 1)\n    y_pred: (N,) predicted labels (0 or 1)\n    \"\"\"\n    # >>> START YOUR IMPLEMENTATION <<<\n    # 1.\
@@ -566,6 +608,8 @@ tasks:
   role: ml_researcher
   skill: research_coding
   type: code
+  difficulty: 2
+  dimension: coding
   prompt: Calculate Intersection over Union (IoU) between two bounding boxes given as [x1, y1, x2, y2].
   scaffold: "def calculate_iou(boxA, boxB):\n    \"\"\"\n    boxA, boxB: list/tuple of [x1, y1, x2, y2]\n    (x1, y1) is top-left,\
     \ (x2, y2) is bottom-right\n    \"\"\"\n    # >>> START YOUR IMPLEMENTATION <<<\n    # 1. Determine the coordinates of\
@@ -590,6 +634,8 @@ tasks:
   role: ml_researcher
   skill: research_coding
   type: code
+  difficulty: 2
+  dimension: coding
   prompt: Write a function to generate n-grams from a text string (lowercase, strip punctuation, split into tokens).
   scaffold: "import re\n\ndef generate_ngrams(text, n):\n    \"\"\"\n    text: input string\n    n: size of n-gram\n    \"\
     \"\"\n    # >>> START YOUR IMPLEMENTATION <<<\n    # 1. Clean text (lowercase, remove punctuation)\n    # 2. Split into\
@@ -617,6 +663,8 @@ tasks:
   role: ml_researcher
   skill: research_coding
   type: code
+  difficulty: 3
+  dimension: coding
   prompt: 'Implement weighted sampling from scratch: normalize weights to probabilities, build cumulative distribution, sample
     with replacement.'
   scaffold: "import numpy as np\n\ndef weighted_sample(items, weights, k=1):\n    \"\"\"\n    items: list of items to sample\
@@ -658,6 +706,8 @@ tasks:
   role: ml_researcher
   skill: deep_learning
   type: code
+  difficulty: 5
+  dimension: coding
   prompt: 'Implement a Top-k router for a Mixture-of-Experts layer: gate logits, top-k selection, softmax over the selected
     experts.'
   scaffold: "import torch\nimport torch.nn as nn\nimport torch.nn.functional as F\n\nclass TopKRouter(nn.Module):\n    def\
@@ -698,11 +748,13 @@ tasks:
   role: ml_researcher
   skill: deep_learning
   type: code
+  difficulty: 5
+  dimension: coding
   prompt: 'Implement the Switch-Transformer load balancing loss: f_i (fraction of tokens per expert) times P_i (mean routing
     probability), scaled by num_experts.'
   scaffold: "import torch\nimport torch.nn.functional as F\n\ndef compute_load_balancing_loss(gate_logits, num_experts):\n\
     \    \"\"\"\n    gate_logits: (batch_size * seq_len, num_experts)\n    num_experts: int\n    Returns: scalar loss\n  \
-    \  \"\"\"\n    # >>> START YOUR IMPLEMENTATION <<<\n    # 1. Compute routing probabilities (softmax)\n    # 2. Calculate\
+    \    \"\"\"\n    # >>> START YOUR IMPLEMENTATION <<<\n    # 1. Compute routing probabilities (softmax)\n    # 2. Calculate\
     \ fraction of tokens dispatched to each expert (f_i)\n    # 3. Calculate mean probability assigned to each expert (P_i)\n\
     \    # 4. Compute the load balancing loss as num_experts * sum(f_i * P_i)\n    pass\n    # >>> END YOUR IMPLEMENTATION\
     \ <<<\n\n# Test\nbatch_size, seq_len, num_experts = 2, 4, 8\nlogits = torch.randn(batch_size * seq_len, num_experts)\n\
@@ -729,6 +781,8 @@ tasks:
   role: ml_infra_engineer
   skill: systems
   type: code
+  difficulty: 3
+  dimension: coding
   prompt: Implement a RequestBatcher that groups incoming requests into full batches of size K; get_batches returns full batches
     and clears them.
   scaffold: "class RequestBatcher:\n    def __init__(self, batch_size: int):\n        self.batch_size = batch_size\n     \
@@ -773,6 +827,8 @@ tasks:
   role: ml_infra_engineer
   skill: systems
   type: code
+  difficulty: 4
+  dimension: coding
   prompt: Implement a concurrent web crawler using HtmlParser that visits all URLs reachable from startUrl within the same
     hostname (thread-safe).
   scaffold: "import threading\nimport time\nfrom typing import List\nfrom collections import deque\nfrom urllib.parse import\
@@ -820,6 +876,8 @@ tasks:
   role: ml_infra_engineer
   skill: systems
   type: code
+  difficulty: 4
+  dimension: coding
   prompt: Reorder tokens by their expert assignments so tokens for the same expert are contiguous; return sort indices to
     scatter back later.
   scaffold: "import torch\n\ndef reorder_tokens(tokens, expert_ids, num_experts):\n    \"\"\"\n    tokens: (N, d_model) tensor\
@@ -865,6 +923,8 @@ tasks:
   role: ml_infra_engineer
   skill: systems
   type: code
+  difficulty: 5
+  dimension: coding
   prompt: 'Implement a sparsity-aware cache: track popularity per expert, on miss simulate PCIe transfer, evict using a frequency-aware
     policy (popular experts survive).'
   scaffold: "import collections\nimport time\n\nclass SparsityAwareCache:\n    def __init__(self, capacity: int, pcie_latency_ms:\

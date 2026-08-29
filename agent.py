@@ -10,6 +10,7 @@ from google.adk.tools import ToolContext
 from core.config import CONV_MODEL, http_retry_options
 from core.session import Session
 from core.picker import next_task
+from core.score import update_skill_score
 from core.report import build_report
 from core.storage import save_assessment, list_assessments
 from evaluators.registry import get_evaluator
@@ -70,14 +71,45 @@ def submit_answer(task_id: str, answer: str, tool_context: ToolContext) -> dict:
         result = get_evaluator(task["type"]).evaluate(task, answer)
     except JudgeRetryableError as e:
         return {"error": f"Transient evaluation failure: {e}. Please ask the candidate to resend their answer and retry."}
+
+    # Update skill state with the new score
+    skill_id = task["skill"]
+    state = session.get_skill_state(skill_id)
+    normalized_score = result.fraction  # Already 0.0 - 1.0
+
+    new_score, new_confidence = update_skill_score(
+        state.score,
+        state.confidence,
+        normalized_score,
+    )
+
+    # Create updated skill state
+    from core.session import SkillState
+    session.skill_states[skill_id] = SkillState(
+        score=new_score,
+        confidence=new_confidence,
+        questions_answered=state.questions_answered + 1,
+        evidence=state.evidence + [result.rationale],
+    )
+
+    # Track asked question and store result
+    session.asked_task_ids.add(task_id)
     session.results.append(result)
     session.index += 1
+
+    # Save updated session
     tool_context.state["session"] = session.to_dict()
+
     nxt = next_task(session)
     return {
         "result": result.to_dict(),
         "next_task": _task_view(nxt) if nxt else None,
         "remaining": len(session.tasks) - session.index,
+        "skill_update": {
+            "skill": skill_id,
+            "new_score": new_score,
+            "new_confidence": new_confidence,
+        },
     }
 
 
@@ -104,6 +136,8 @@ def _task_view(task: dict) -> dict:
         "skill": task["skill"],
         "type": task["type"],
         "prompt": task["prompt"],
+        "difficulty": task.get("difficulty", 1),
+        "dimension": task.get("dimension", "conceptual"),
     }
     if task["type"] == "mcq":
         view["options"] = task.get("options", [])
