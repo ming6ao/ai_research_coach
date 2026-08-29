@@ -1,111 +1,429 @@
 tasks:
-- id: mr_ml_01
+- id: mr_ml_03
   role: ml_researcher
   skill: ml_fundamentals
-  type: mcq
-  difficulty: 1
-  dimension: recall
-  prompt: Which statement best describes overfitting?
-  options:
-  - A. Model performs well on training and test data
-  - B. Model memorizes training data and generalizes poorly to unseen data
-  - C. Model underperforms on training data
-  - D. Model has too few parameters
-  answer: B
-  max_score: 1
-- id: mr_ml_02
-  role: ml_researcher
-  skill: ml_fundamentals
-  type: open
+  type: code
   difficulty: 2
-  dimension: conceptual
-  prompt: Explain the bias-variance tradeoff and how it relates to model complexity.
-  rubric: Should define bias and variance, explain their inverse relationship, and connect to under/overfitting as complexity
-    increases.
+  dimension: coding
+  prompt: 'Implement overfitting detection from training and validation loss curves. Return the 0-based
+    epoch index of the first local minimum of the validation loss (the epoch where validation loss stops
+    improving and starts rising again while training loss keeps decreasing). Return -1 if no overfitting
+    is detected. Signature: def detect_overfitting(train_losses, val_losses):'
+  function_name: detect_overfitting
+  tests:
+  - input:
+    - - 0.9
+      - 0.5
+      - 0.3
+      - 0.2
+      - 0.15
+      - 0.12
+      - 0.1
+    - - 0.9
+      - 0.55
+      - 0.38
+      - 0.3
+      - 0.28
+      - 0.29
+      - 0.33
+    expected: 4
+  - input:
+    - - 0.9
+      - 0.5
+      - 0.3
+      - 0.2
+      - 0.15
+    - - 0.9
+      - 0.55
+      - 0.4
+      - 0.32
+      - 0.28
+    expected: -1
+  - input:
+    - - 0.9
+      - 0.5
+      - 0.48
+      - 0.4
+      - 0.3
+      - 0.2
+    - - 0.9
+      - 0.6
+      - 0.5
+      - 0.52
+      - 0.45
+      - 0.42
+    expected: 2
+  tolerance: 0
   max_score: 5
-- id: mr_dl_01
+- id: mr_ml_04
+  role: ml_researcher
+  skill: ml_fundamentals
+  type: code
+  difficulty: 3
+  dimension: coding
+  prompt: 'Illustrate the bias-variance tradeoff with polynomial regression. Fit polynomials of each
+    requested degree on a train split and return a dict mapping each degree to a (train_mse, val_mse)
+    tuple so the degree that generalizes best (lowest validation error) can be identified.'
+  scaffold: |
+    import numpy as np
+
+    def poly_error_curves(X, y, degrees, val_frac=0.2):
+        """
+        X: (N,) 1D feature values
+        y: (N,) target values
+        degrees: list of polynomial degrees to try
+        Returns: dict mapping degree -> (train_mse, val_mse)
+        """
+        # >>> START YOUR IMPLEMENTATION <<<
+        # 1. Deterministically split data: the last int(len(X) * val_frac) rows are validation
+        # 2. For each degree: fit with np.polyfit on the train split only
+        # 3. Predict on train and validation, compute mean squared error for each
+        # 4. Collect {degree: (train_mse, val_mse)}
+        pass
+        # >>> END YOUR IMPLEMENTATION <<<
+  tests:
+  - name: u_shape
+    code: |
+      import numpy as np
+      np.random.seed(7)
+      X = np.linspace(-3, 3, 60)
+      y = 0.5 * X**2 - X + 1 + 0.2 * np.random.randn(60)
+      results = dict(poly_error_curves(X, y, [1, 2, 5]))
+      assert results[1][0] >= results[2][0], 'train error must drop as degree grows (underfit = high bias)'
+      assert results[2][1] < results[1][1], 'degree 2 should generalize better than degree 1'
+      assert results[2][1] <= results[5][1] + 1e-9, 'overfit degree 5 should not beat degree 2 on validation'
+  - name: exact_fit
+    code: |
+      import numpy as np
+      X = np.linspace(-2, 2, 40)
+      y = X**3 - X + 1
+      results = dict(poly_error_curves(X, y, [1, 3, 6]))
+      assert results[6][0] <= results[3][0] + 1e-9, 'higher degree must fit train at least as well'
+      assert results[3][1] < results[1][1], 'degree 3 should beat degree 1 on validation'
+  max_score: 5
+- id: mr_dl_02
   role: ml_researcher
   skill: deep_learning
-  type: open
-  difficulty: 2
-  dimension: conceptual
-  prompt: Explain the vanishing gradient problem and list three mitigation strategies.
-  rubric: 'Should name the problem (gradients shrink in deep nets) and give >=2 of: ReLU/leaky ReLU, residual connections,
-    batch/layer normalization, careful init, LSTM/gating.'
+  type: code
+  difficulty: 3
+  dimension: coding
+  prompt: 'Detect the vanishing gradient problem in a deep network. Compute the L2 gradient norm of each
+    layer with parameters, ordered from the output layer back to the input layer, and report whether
+    gradients vanish (the earliest layer''s norm is much smaller than the output layer''s).'
+  scaffold: |
+    import torch
+    import torch.nn as nn
+
+    def layer_gradient_norms(model, x, target):
+        """
+        Returns a list of L2 gradient norms, one per layer with parameters,
+        ordered from the output layer back to the input layer.
+        """
+        # >>> START YOUR IMPLEMENTATION <<<
+        # 1. Zero all gradients
+        # 2. Forward pass and compute MSE loss between model(x) and target
+        # 3. Backward pass
+        # 4. For each child layer with parameters, compute the combined L2 norm of
+        #    that layer's weight and bias gradients, reversing to output -> input order
+        pass
+        # >>> END YOUR IMPLEMENTATION <<<
+
+    def has_vanishing_gradient(norms, threshold=0.05):
+        """
+        Return True if the input-side (earliest) layer gradient norm is less than
+        `threshold` times the output-side (latest) layer norm.
+        """
+        # >>> START YOUR IMPLEMENTATION <<<
+        pass
+        # >>> END YOUR IMPLEMENTATION <<<
+
+    # Test setup
+    model = nn.Sequential(
+        nn.Linear(10, 64), nn.ReLU(),
+        nn.Linear(64, 64), nn.ReLU(),
+        nn.Linear(64, 1),
+    )
+    x = torch.randn(4, 10)
+    target = torch.randn(4, 1)
+    # norms = layer_gradient_norms(model, x, target)
+  tests:
+  - name: per_layer_norms
+    code: |
+      import torch, torch.nn as nn
+      torch.manual_seed(0)
+      model = nn.Sequential(nn.Linear(10, 8), nn.ReLU(), nn.Linear(8, 1))
+      x = torch.randn(4, 10)
+      t = torch.randn(4, 1)
+      norms = layer_gradient_norms(model, x, t)
+      assert len(norms) == 2, f'one norm per linear layer, got {len(norms)}'
+      assert all(n > 0 for n in norms)
+  - name: vanishing_detected
+    code: |
+      import torch, torch.nn as nn
+      torch.manual_seed(11)
+      mods = [nn.Linear(10, 64)]
+      for _ in range(11):
+          mods += [nn.Tanh(), nn.Linear(64, 64)]
+      mods += [nn.Tanh(), nn.Linear(64, 1)]
+      model = nn.Sequential(*mods)
+      x = torch.randn(4, 10)
+      t = torch.randn(4, 1)
+      norms = layer_gradient_norms(model, x, t)
+      assert len(norms) == 13, f'one norm per linear layer, got {len(norms)}'
+      assert has_vanishing_gradient(norms, threshold=0.05), f'norms={norms}'
   max_score: 5
-- id: mr_math_01
+- id: mr_math_02
   role: ml_researcher
   skill: math_stats
-  type: mcq
+  type: code
   difficulty: 1
-  dimension: math
-  prompt: For a random variable X with variance Var(X)=4, what is Var(3X+2)?
-  options:
-  - A. 4
-  - B. 12
-  - C. 36
-  - D. 14
-  answer: C
-  max_score: 1
-- id: mr_exp_01
+  dimension: coding
+  prompt: 'Implement population and sample variance from scratch (no numpy). Recall that variance scales
+    quadratically under linear transforms: Var(a*X+b) == a**2 * Var(X). Signature:
+    def variance(X, ddof=0): where X is a list of numbers, ddof=0 gives population variance (divide by n)
+    and ddof=1 gives sample variance (divide by n-1).'
+  function_name: variance
+  tests:
+  - input:
+    - [2, 4, 4, 4, 5, 5, 7, 9]
+    expected: 4
+  - input:
+    - [2, 4, 4, 4, 5, 5, 7, 9]
+    - 1
+    expected: 4.571428571428571
+  - input:
+    - [10, 20, 30, 40, 50]
+    expected: 200
+  tolerance: 1e-9
+  max_score: 5
+- id: mr_exp_02
   role: ml_researcher
   skill: experimentation
-  type: open
+  type: code
   difficulty: 3
-  dimension: research
-  prompt: You changed two hyperparameters and got a 2% accuracy lift. How would you determine if the improvement is real and
-    not noise?
-  rubric: Should mention multiple seeds/runs, validation splits, statistical significance/confidence intervals, and controlling
-    confounding variables.
+  dimension: coding
+  prompt: 'Determine whether an observed accuracy lift is real and not noise using a permutation test.
+    Implement a two-sided permutation test on the difference of means (treatment - control) and return
+    the p-value: the fraction of randomly re-shuffled splits whose difference of means is at least as
+    extreme in absolute value as the observed difference.'
+  scaffold: |
+    import numpy as np
+
+    def permutation_pvalue(control, treatment, n_permutations=1000, seed=0):
+        """
+        control: array of control run scores
+        treatment: array of treatment run scores
+        n_permutations: number of random shuffles
+        seed: RNG seed for reproducibility
+        Returns: two-sided p-value (float in [0, 1])
+        """
+        # >>> START YOUR IMPLEMENTATION <<<
+        # 1. Observed difference = mean(treatment) - mean(control)
+        # 2. Pool both samples, then for each permutation: shuffle, split into
+        #    groups of the same sizes, recompute the difference of means
+        # 3. p-value = (#permuted differences with abs >= abs(observed)) / n_permutations
+        pass
+        # >>> END YOUR IMPLEMENTATION <<<
+  tests:
+  - name: significant
+    code: |
+      import numpy as np
+      rng = np.random.RandomState(0)
+      control = rng.normal(0.85, 0.03, 100)
+      treatment = rng.normal(0.87, 0.03, 100)  # real ~2% lift
+      p = permutation_pvalue(control, treatment, n_permutations=500)
+      assert p < 0.05, f'p={p}'
+  - name: not_significant
+    code: |
+      import numpy as np
+      rng = np.random.RandomState(1)
+      a = rng.normal(0.85, 0.03, 100)
+      b = rng.normal(0.85, 0.03, 100)  # no real difference
+      p = permutation_pvalue(a, b, n_permutations=500)
+      assert p > 0.05, f'p={p}'
   max_score: 5
-- id: mi_sys_01
+- id: mi_sys_02
   role: ml_infra_engineer
   skill: systems
-  type: mcq
+  type: code
   difficulty: 2
-  dimension: recall
-  prompt: Which technique best reduces communication overhead in data-parallel distributed training?
-  options:
-  - A. Increase batch size only on one GPU
-  - B. Gradient accumulation with less frequent syncs / gradient compression
-  - C. Disable the network
-  - D. Use a single large model replica
-  answer: B
-  max_score: 1
-- id: mi_mlops_01
+  dimension: coding
+  prompt: 'Implement top-k gradient compression, a technique that reduces communication overhead in
+    data-parallel training. Given a 1D list of gradient values, zero out all entries except the k with
+    the largest absolute value (ties keep the earlier index) and return the compressed list.'
+  function_name: topk_compress
+  tests:
+  - input:
+    - [0.1, -0.5, 0.9, 0.3, -0.8]
+    - 2
+    expected: [0.0, 0.0, 0.9, 0.0, -0.8]
+  - input:
+    - [0.2, -0.2, 0.1, -0.1]
+    - 3
+    expected: [0.2, -0.2, 0.1, 0.0]
+  tolerance: 0
+  max_score: 5
+- id: mi_mlops_02
   role: ml_infra_engineer
   skill: mlops
-  type: open
-  difficulty: 2
-  dimension: conceptual
-  prompt: Describe the components of a CI/CD pipeline for deploying an ML model to production.
-  rubric: 'Should mention: data/feature validation, training job, model registry, automated tests, staging canary deploy,
-    monitoring/rollback.'
+  type: code
+  difficulty: 3
+  dimension: coding
+  prompt: 'Implement a ModelRegistry for ML deployment: register versions, promote one to production
+    (with rollback to the previous version), and gate canary deployments on the observed error rate.'
+  scaffold: |
+    class ModelRegistry:
+        def __init__(self):
+            self.versions = {}    # version_id -> 'registered' (production versions tracked separately)
+            self.production = None
+            self._history = []    # stack of previous production version ids
+            # >>> START YOUR IMPLEMENTATION <<<
+            pass
+            # >>> END YOUR IMPLEMENTATION <<<
+
+        def register(self, version_id: str) -> None:
+            # >>> START YOUR IMPLEMENTATION <<<
+            # Add version_id as 'registered'; raise ValueError if it already exists
+            pass
+            # >>> END YOUR IMPLEMENTATION <<<
+
+        def promote(self, version_id: str) -> None:
+            # >>> START YOUR IMPLEMENTATION <<<
+            # Promote a registered version to production. If a version is already in
+            # production, push it onto the history stack first.
+            pass
+            # >>> END YOUR IMPLEMENTATION <<<
+
+        def rollback(self) -> None:
+            # >>> START YOUR IMPLEMENTATION <<<
+            # Restore the most recent previous production version from the history
+            # stack (set production to None if the stack is empty).
+            pass
+            # >>> END YOUR IMPLEMENTATION <<<
+
+        def canary_gate(self, canary_error_rate: float, baseline_error_rate: float, threshold: float = 0.01) -> bool:
+            """
+            Return True if the canary is safe to promote: canary_error_rate must
+            not exceed baseline_error_rate + threshold.
+            """
+            # >>> START YOUR IMPLEMENTATION <<<
+            pass
+            # >>> END YOUR IMPLEMENTATION <<<
+  tests:
+  - name: lifecycle
+    code: |
+      r = ModelRegistry()
+      r.register('v1')
+      r.register('v2')
+      try:
+          r.register('v1')
+          raise AssertionError('duplicate id must raise ValueError')
+      except ValueError:
+          pass
+      r.promote('v1')
+      assert r.production == 'v1'
+      r.promote('v2')
+      assert r.production == 'v2'
+      r.rollback()
+      assert r.production == 'v1'
+      r.rollback()
+      assert r.production is None
+  - name: canary_gate
+    code: |
+      r = ModelRegistry()
+      assert r.canary_gate(0.02, 0.015, 0.01) is True, 'within threshold should pass'
+      assert r.canary_gate(0.03, 0.015, 0.01) is False, 'exceeds threshold should fail'
+      assert r.canary_gate(0.012, 0.015, 0.01) is True, 'better than baseline should pass'
   max_score: 5
-- id: mi_cloud_01
+- id: mi_cloud_02
   role: ml_infra_engineer
   skill: cloud
-  type: open
+  type: code
   difficulty: 2
-  dimension: conceptual
-  prompt: When would you choose a container (e.g. Docker) over a serverless function for serving a model, and why?
-  rubric: Should note long-running/stateful workloads, large models/GPU, cold-start latency, custom deps, and steady traffic
-    favor containers.
+  dimension: coding
+  prompt: 'Recommend a model-serving strategy given workload characteristics. Return "container" or
+    "serverless". Rules: GPU models, steady/high traffic (>= 50 req/s), or cold-start-sensitive
+    workloads (>= 500 ms acceptable cold start) favor containers; low, bursty, cold-start-tolerant
+    traffic favors serverless. Signature: def recommend_serving(req_per_sec, peak_ratio, cold_start_ms, needs_gpu):'
+  function_name: recommend_serving
+  tests:
+  - input:
+    - 500
+    - 1.2
+    - 200
+    - true
+    expected: container
+  - input:
+    - 5
+    - 20.0
+    - 200
+    - false
+    expected: serverless
+  - input:
+    - 100
+    - 3.0
+    - 800
+    - false
+    expected: container
+  - input:
+    - 10
+    - 2.0
+    - 900
+    - false
+    expected: container
+  tolerance: 0
   max_score: 5
-- id: mi_data_01
+- id: mi_data_02
   role: ml_infra_engineer
   skill: data_eng
-  type: mcq
-  difficulty: 1
-  dimension: recall
-  prompt: Which is the best fit for processing a continuous stream of events with low latency?
-  options:
-  - A. Nightly batch MapReduce
-  - B. A streaming system (e.g. Kafka + Flink)
-  - C. A static CSV dump
-  - D. Manual SQL export
-  answer: B
-  max_score: 1
+  type: code
+  difficulty: 2
+  dimension: coding
+  prompt: 'Implement a streaming SlidingWindow aggregator for low-latency event processing: add(value)
+    appends an event and drops the oldest once the window is full; get_sum() and get_mean() return the
+    aggregate over the last N events.'
+  scaffold: |
+    class SlidingWindow:
+        def __init__(self, size: int):
+            self.size = size
+            # >>> START YOUR IMPLEMENTATION <<<
+            # Initialize a buffer to hold the window events
+            pass
+            # >>> END YOUR IMPLEMENTATION <<<
+
+        def add(self, value: float) -> None:
+            # >>> START YOUR IMPLEMENTATION <<<
+            # Append value; if the window is full, drop the oldest event
+            pass
+            # >>> END YOUR IMPLEMENTATION <<<
+
+        def get_sum(self) -> float:
+            # >>> START YOUR IMPLEMENTATION <<<
+            # Return the sum of events currently in the window
+            pass
+            # >>> END YOUR IMPLEMENTATION <<<
+
+        def get_mean(self) -> float:
+            # >>> START YOUR IMPLEMENTATION <<<
+            # Return the mean of events currently in the window (0.0 when empty)
+            pass
+            # >>> END YOUR IMPLEMENTATION <<<
+  tests:
+  - name: window_sum
+    code: |
+      w = SlidingWindow(3)
+      w.add(1); w.add(2); w.add(3)
+      assert w.get_sum() == 6
+      assert w.get_mean() == 2.0
+      w.add(10)  # drops 1
+      assert w.get_sum() == 15
+      assert w.get_mean() == 5.0
+  - name: empty_window
+    code: |
+      w = SlidingWindow(2)
+      assert w.get_sum() == 0
+      assert w.get_mean() == 0.0
+  max_score: 5
 - id: mi_code_01
   role: ml_infra_engineer
   skill: infra_coding

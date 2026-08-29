@@ -173,6 +173,7 @@ export default function App() {
               <ReportView />
             ) : currentTask ? (
               <TaskPanel
+                key={currentTask.id}
                 task={currentTask}
                 onSubmit={submitAnswer}
                 disabled={loading}

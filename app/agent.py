@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -137,6 +138,26 @@ def get_history(limit: int = 20, tool_context: ToolContext = None) -> dict:
     return {"assessments": list_assessments(limit)}
 
 
+def _build_code_stub(task: dict):
+    """Build an editor scaffold for a code task.
+
+    Scaffold-mode tasks already carry a `scaffold`. For function-mode tasks
+    (no scaffold) we generate a stub from the signature mentioned in the prompt
+    so the coding area is pre-filled instead of blank.
+    """
+    if task.get("type") != "code":
+        return None
+    if task.get("scaffold"):
+        return task["scaffold"]
+    m = re.search(r"def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)", task.get("prompt", ""))
+    if m:
+        name, params = m.group(1), m.group(2)
+        return f"def {name}({params}):\n    # TODO: implement {name}\n    pass\n"
+    if task.get("function_name"):
+        return f"def {task['function_name']}(*args, **kwargs):\n    # TODO: implement {task['function_name']}\n    pass\n"
+    return None
+
+
 def _task_view(task: dict) -> dict:
     if task is None:
         return None
@@ -147,7 +168,7 @@ def _task_view(task: dict) -> dict:
         "prompt": task["prompt"],
         "difficulty": task.get("difficulty", 1),
         "dimension": task.get("dimension", "conceptual"),
-        "scaffold": task.get("scaffold"),
+        "scaffold": _build_code_stub(task),
     }
     if task["type"] == "mcq":
         view["options"] = task.get("options", [])
