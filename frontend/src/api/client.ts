@@ -83,9 +83,10 @@ export interface Report {
   questions_answered: number;
 }
 
-async function api<T>(path: string, body?: unknown): Promise<T> {
+async function api<T>(path: string, body?: unknown, method?: string): Promise<T> {
+  const effectiveMethod = method ?? (body !== undefined ? 'POST' : 'GET');
   const res = await fetch(`${BASE}${path}`, {
-    method: body !== undefined ? 'POST' : 'GET',
+    method: effectiveMethod,
     headers: { 'Content-Type': 'application/json' },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
@@ -96,11 +97,14 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
   return res.json();
 }
 
-export interface ActiveSession {
-  session_id: string;
+export interface UnifiedSession {
+  id: string;
   candidate: string;
   role: string;
+  status: 'active' | 'completed';
   updated_at: string;
+  score: number | null;
+  verdict: string | null;
 }
 
 export const apiClient = {
@@ -113,15 +117,18 @@ export const apiClient = {
   report: (session_id: string) =>
     api<Report>('/report', { session_id }),
 
-  history: (limit = 20) =>
-    api<{ assessments: unknown[] }>(`/history?limit=${limit}`),
+  listSessions: (candidate: string) =>
+    api<{ sessions: UnifiedSession[] }>(`/sessions?candidate=${encodeURIComponent(candidate)}`),
 
-  listActiveSessions: () =>
-    api<{ sessions: ActiveSession[] }>('/sessions/active'),
+  openSession: (id: string, status: 'active' | 'completed') =>
+    api<ResumeResponse>('/session/open', { id, status }),
 
-  findLastSession: (candidate: string) =>
-    api<{ session_id: string | null }>(`/session/last?candidate=${encodeURIComponent(candidate)}`),
+  deleteActiveSession: (session_id: string) =>
+    api<{ ok: boolean }>(`/sessions/active/${session_id}`, undefined, 'DELETE'),
 
-  resumeSession: (session_id: string) =>
-    api<ResumeResponse>('/session/resume', { session_id }),
+  deleteAssessment: (assessment_id: string) =>
+    api<{ ok: boolean }>(`/assessments/${assessment_id}`, undefined, 'DELETE'),
+
+  clearCandidateData: (candidate: string) =>
+    api<{ ok: boolean; deleted: number }>(`/sessions/clear/${encodeURIComponent(candidate)}`, undefined, 'DELETE'),
 };

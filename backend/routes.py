@@ -32,8 +32,9 @@ class ReportRequest(BaseModel):
     session_id: str
 
 
-class ResumeRequest(BaseModel):
-    session_id: str
+class SessionOpenRequest(BaseModel):
+    id: str
+    status: str  # "active" or "completed"
 
 
 class _FakeToolContext:
@@ -66,23 +67,40 @@ def list_active_sessions():
     return {"sessions": store.list_active()}
 
 
-@router.post("/session/resume")
-def resume_session(req: ResumeRequest):
+@router.post("/session/open")
+def open_session(req: SessionOpenRequest):
     from core.session import Session
     from core.picker import next_task
     from app.agent import _task_view
 
     store = get_store()
-    state = store.get(req.session_id)
-    if state is None:
-        raise HTTPException(status_code=404, detail="Session not found.")
 
-    session = Session.from_dict(state["session"])
-    feedback_list = state.get("_feedback_list", [])
+    if req.status == "active":
+        state = store.get(req.id)
+        if state is None:
+            raise HTTPException(status_code=404, detail="Session not found.")
+        session = Session.from_dict(state["session"])
+        feedback_list = state.get("_feedback_list", [])
+        session_id = req.id
+    elif req.status == "completed":
+        from core.storage import get_assessment, delete_assessment
+        assessment = get_assessment(req.id)
+        if assessment is None:
+            raise HTTPException(status_code=404, detail="Assessment not found.")
+        session_state = assessment.get("session")
+        if session_state is None:
+            raise HTTPException(status_code=400, detail="Assessment has no session data to restore.")
+        session_id = store.create(session_state["candidate"], session_state["role"])
+        store.save(session_id, {"session": session_state})
+        delete_assessment(req.id)
+        session = Session.from_dict(session_state)
+        feedback_list = []
+    else:
+        raise HTTPException(status_code=400, detail="status must be 'active' or 'completed'")
 
     task = next_task(session)
     return {
-        "session_id": req.session_id,
+        "session_id": session_id,
         "candidate": session.candidate,
         "role": session.role,
         "role_name": session.role_cfg["name"],
@@ -237,3 +255,67 @@ def get_report(req: ReportRequest):
 def get_history(limit: int = 20):
     from core.storage import list_assessments
     return {"assessments": list_assessments(limit)}
+
+
+@router.get("/sessions")
+def list_sessions(candidate: str):
+    store = get_store()
+    from core.storage import list_assessments_by_candidate
+
+    active = store.list_by_candidate(candidate)
+    completed = list_assessments_by_candidate(candidate)
+
+    sessions = []
+    for s in active:
+        sessions.append({
+            "id": s["session_id"],
+            "candidate": s["candidate"],
+            "role": s["role"],
+            "status": "active",
+            "updated_at": s["updated_at"],
+            "score": None,
+            "verdict": None,
+        })
+    for a in completed:
+        sessions.append({
+            "id": a["id"],
+            "candidate": a["candidate"],
+            "role": a["role"],
+            "status": "completed",
+            "updated_at": a["finished_at"],
+            "score": a["overall_score"],
+            "verdict": a["verdict"],
+        })
+
+    sessions.sort(key=lambda s: s["updated_at"], reverse=True)
+    return {"sessions": sessions}
+
+
+@router.delete("/sessions/active/{session_id}")
+def delete_active_session(session_id: str):
+    store = get_store()
+    state = store.get(session_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    store.delete(session_id)
+    return {"ok": True}
+
+
+@router.delete("/assessments/{assessment_id}")
+def delete_assessment_endpoint(assessment_id: str):
+    from core.storage import delete_assessment
+    if not delete_assessment(assessment_id):
+        raise HTTPException(status_code=404, detail="Assessment not found.")
+    return {"ok": True}
+
+
+@router.delete("/sessions/clear/{candidate}")
+def clear_candidate_data(candidate: str):
+    store = get_store()
+    from core.storage import delete_assessments_by_candidate
+    active_deleted = store.delete_by_candidate(candidate)
+    assessments_deleted = delete_assessments_by_candidate(candidate)
+    return {
+        "ok": True,
+        "deleted": active_deleted + assessments_deleted,
+    }

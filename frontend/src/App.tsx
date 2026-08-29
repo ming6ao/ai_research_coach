@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAssessmentStore } from './stores/assessmentStore';
-import { apiClient, type ActiveSession } from './api/client';
+import { apiClient, type UnifiedSession } from './api/client';
 import { Header } from './components/Header/Header';
 import { TaskPanel } from './components/TaskPanel/TaskPanel';
 import { FeedbackPanel } from './components/FeedbackPanel/FeedbackPanel';
@@ -22,16 +22,25 @@ function StartScreen() {
   const { startAssessment, resumeSession, loading } = useAssessmentStore();
   const [name, setName] = useState('');
   const [role, setRole] = useState('ml_researcher');
-  const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
-  const [selectedSession, setSelectedSession] = useState('');
-  const [loadingSessions, setLoadingSessions] = useState(true);
+  const [sessions, setSessions] = useState<UnifiedSession[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+
+  const loadSessions = useCallback((candidate: string) => {
+    if (!candidate.trim()) {
+      setSessions([]);
+      return;
+    }
+    setLoadingSessions(true);
+    apiClient.listSessions(candidate.trim())
+      .then((res) => setSessions(res.sessions))
+      .catch(() => setSessions([]))
+      .finally(() => setLoadingSessions(false));
+  }, []);
 
   useEffect(() => {
-    apiClient.listActiveSessions().then((res) => {
-      setActiveSessions(res.sessions);
-      setLoadingSessions(false);
-    }).catch(() => setLoadingSessions(false));
-  }, []);
+    const t = setTimeout(() => loadSessions(name), 300);
+    return () => clearTimeout(t);
+  }, [name, loadSessions]);
 
   const handleStart = () => {
     if (name.trim()) {
@@ -39,10 +48,28 @@ function StartScreen() {
     }
   };
 
-  const handleResume = () => {
-    if (selectedSession) {
-      resumeSession(selectedSession);
+  const handleClickSession = (session: UnifiedSession) => {
+    apiClient.openSession(session.id, session.status).then((res) => {
+      resumeSession(res);
+    });
+  };
+
+  const handleDelete = async (session: UnifiedSession) => {
+    if (!window.confirm('Delete this session?')) return;
+    if (session.status === 'active') {
+      await apiClient.deleteActiveSession(session.id);
+    } else {
+      await apiClient.deleteAssessment(session.id);
     }
+    setSessions((prev) => prev.filter((s) => s.id !== session.id));
+  };
+
+  const handleClearAll = async () => {
+    const target = name.trim();
+    if (!target) return;
+    if (!window.confirm(`Delete ALL sessions and assessments for "${target}"? This cannot be undone.`)) return;
+    await apiClient.clearCandidateData(target);
+    setSessions([]);
   };
 
   return (
@@ -57,36 +84,60 @@ function StartScreen() {
           </p>
         </div>
 
-        {/* Resume existing session */}
-        {activeSessions.length > 0 && (
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-[var(--color-text-muted)]">
+            Candidate Name
+          </label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleStart()}
+            placeholder="Enter your name"
+            className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-border-focus)] focus:outline-none"
+          />
+        </div>
+
+        {sessions.length > 0 && (
           <div className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] p-4">
             <label className="mb-2 block text-xs font-semibold text-[var(--color-text-muted)]">
-              Resume a Previous Session
+              My Sessions
             </label>
-            <div className="space-y-2">
-              <select
-                value={selectedSession}
-                onChange={(e) => setSelectedSession(e.target.value)}
-                className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2.5 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-border-focus)] focus:outline-none"
-              >
-                <option value="">
-                  {loadingSessions ? 'Loading sessions...' : 'Select a session'}
-                </option>
-                {activeSessions.map((s) => (
-                  <option key={s.session_id} value={s.session_id}>
-                    {s.candidate} — {roleLabels[s.role] ?? s.role} — {new Date(s.updated_at).toLocaleString()}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={handleResume}
-                disabled={!selectedSession || loading}
-                className="w-full rounded-lg border border-[var(--color-accent)] bg-[var(--color-accent)]/10 px-4 py-2.5 text-sm font-semibold text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)]/20 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Resume
-              </button>
+            <div className="space-y-1.5">
+              {sessions.map((s) => (
+                <div key={s.id} className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleClickSession(s)}
+                    disabled={loading}
+                    className="min-w-0 flex-1 truncate rounded border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2 text-left text-sm text-[var(--color-text-primary)] hover:border-[var(--color-accent)]/50"
+                  >
+                    <span className={`mr-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                      s.status === 'active'
+                        ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
+                        : 'bg-[var(--color-success)]/15 text-[var(--color-success)]'
+                    }`}>
+                      {s.status === 'active' ? 'ACTIVE' : 'DONE'}
+                    </span>
+                    {roleLabels[s.role] ?? s.role}
+                    {s.score != null && ` — ${(s.score * 100).toFixed(0)}%`}
+                    {' — '}
+                    {new Date(s.updated_at).toLocaleString()}
+                  </button>
+                  <button
+                    onClick={() => handleDelete(s)}
+                    className="shrink-0 rounded border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-2 py-2 text-xs text-[var(--color-text-muted)] hover:border-[var(--color-error)] hover:text-[var(--color-error)]"
+                    title="Delete session"
+                  >
+                    &#x2715;
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
+        )}
+
+        {loadingSessions && (
+          <p className="text-center text-xs text-[var(--color-text-muted)]">Loading sessions...</p>
         )}
 
         <div className="relative">
@@ -100,50 +151,44 @@ function StartScreen() {
           </div>
         </div>
 
-        <div className="space-y-4">
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-[var(--color-text-muted)]">
-              Candidate Name
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleStart()}
-              placeholder="Enter your name"
-              className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-border-focus)] focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-[var(--color-text-muted)]">
-              Target Role
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {roles.map((r) => (
-                <button
-                  key={r.value}
-                  onClick={() => setRole(r.value)}
-                  className={`rounded-lg border px-4 py-3 text-sm font-medium transition-all ${
-                    role === r.value
-                      ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]'
-                      : 'border-[var(--color-border-default)] bg-[var(--color-bg-primary)] text-[var(--color-text-secondary)] hover:border-[var(--color-accent)]/50'
-                  }`}
-                >
-                  {r.label}
-                </button>
-              ))}
-            </div>
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-[var(--color-text-muted)]">
+            Target Role
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {roles.map((r) => (
+              <button
+                key={r.value}
+                onClick={() => setRole(r.value)}
+                className={`rounded-lg border px-4 py-3 text-sm font-medium transition-all ${
+                  role === r.value
+                    ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]'
+                    : 'border-[var(--color-border-default)] bg-[var(--color-bg-primary)] text-[var(--color-text-secondary)] hover:border-[var(--color-accent)]/50'
+                }`}
+              >
+                {r.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        <button
-          onClick={handleStart}
-          disabled={loading || !name.trim()}
-          className="w-full rounded-lg bg-[var(--color-accent)] py-3 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {loading ? 'Starting...' : 'Begin Assessment'}
-        </button>
+        <div className="space-y-2">
+          <button
+            onClick={handleStart}
+            disabled={loading || !name.trim()}
+            className="w-full rounded-lg bg-[var(--color-accent)] py-3 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {loading ? 'Starting...' : 'Begin Assessment'}
+          </button>
+
+          <button
+            onClick={handleClearAll}
+            disabled={loading || !name.trim()}
+            className="w-full rounded-lg border border-[var(--color-error)]/40 py-2.5 text-sm font-medium text-[var(--color-error)] transition-colors hover:bg-[var(--color-error)]/10 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Clear All My Data
+          </button>
+        </div>
       </div>
     </div>
   );

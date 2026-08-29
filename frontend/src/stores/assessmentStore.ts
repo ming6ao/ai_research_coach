@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { apiClient } from '../api/client';
-import type { Task, EvaluationResult, Report, FeedbackEntry } from '../api/client';
+import type { Task, EvaluationResult, Report, FeedbackEntry, ResumeResponse } from '../api/client';
 
 export interface LogEntry {
   id: number;
@@ -35,7 +35,7 @@ interface AssessmentState {
   submitted: boolean;
 
   startAssessment: (name: string, role: string) => Promise<void>;
-  resumeSession: (sessionId: string) => Promise<boolean>;
+  resumeSession: (response: ResumeResponse) => void;
   submitAnswer: (taskId: string, answer: string) => Promise<void>;
   loadReport: () => Promise<void>;
   addLog: (message: string) => void;
@@ -82,34 +82,23 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
     set((s) => ({ chatLog: [...s.chatLog, entry] }));
   },
 
-  resumeSession: async (sessionId: string) => {
-    set({ loading: true, error: null });
-    try {
-      const res = await apiClient.resumeSession(sessionId);
-      const results = res.results.map(toResultWithFeedback);
-      set({
-        sessionId: res.session_id,
-        candidate: res.candidate,
-        role: res.role,
-        roleName: res.role_name,
-        currentTask: res.current_task,
-        taskIndex: res.task_index,
-        totalTasks: res.total_tasks,
-        results,
-        skillStates: res.skill_states,
-        report: null,
-        submitted: false,
-      });
-      localStorage.setItem(SESSION_KEY, res.session_id);
-      get().addLog(`Resumed assessment for ${res.candidate} (${res.task_index}/${res.total_tasks})`);
-      return true;
-    } catch {
-      localStorage.removeItem(SESSION_KEY);
-      set({ sessionId: null });
-      return false;
-    } finally {
-      set({ loading: false });
-    }
+  resumeSession: (res: ResumeResponse) => {
+    const results = res.results.map(toResultWithFeedback);
+    set({
+      sessionId: res.session_id,
+      candidate: res.candidate,
+      role: res.role,
+      roleName: res.role_name,
+      currentTask: res.current_task,
+      taskIndex: res.task_index,
+      totalTasks: res.total_tasks,
+      results,
+      skillStates: res.skill_states,
+      report: null,
+      submitted: false,
+    });
+    localStorage.setItem(SESSION_KEY, res.session_id);
+    get().addLog(`Resumed assessment for ${res.candidate} (${res.task_index}/${res.total_tasks})`);
   },
 
   startAssessment: async (name, role) => {
