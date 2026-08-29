@@ -143,6 +143,7 @@ def _task_view(task: dict) -> dict:
         "prompt": task["prompt"],
         "difficulty": task.get("difficulty", 1),
         "dimension": task.get("dimension", "conceptual"),
+        "scaffold": task.get("scaffold"),
     }
     if task["type"] == "mcq":
         view["options"] = task.get("options", [])

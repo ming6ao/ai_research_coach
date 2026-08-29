@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import Editor from '@monaco-editor/react';
 import type { Task } from '../../api/client';
 
@@ -10,14 +10,9 @@ interface Props {
 
 export function CodeTask({ task, onSubmit, disabled }: Props) {
   const [code, setCode] = useState(task.scaffold ?? '');
-  const editorRef = useRef<unknown>(null);
 
-  useEffect(() => {
-    setCode(task.scaffold ?? '');
-  }, [task.id]);
-
-  const handleEditorMount = (editor: unknown) => {
-    editorRef.current = editor;
+  const handleEditorMount = (_editor: unknown) => {
+    // ref kept for potential future focus/imperative actions
   };
 
   const handleSubmit = () => {

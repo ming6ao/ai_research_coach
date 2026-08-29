@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAssessmentStore } from './stores/assessmentStore';
 import { apiClient, type ActiveSession } from './api/client';
 import { Header } from './components/Header/Header';
@@ -152,11 +152,6 @@ function StartScreen() {
 export default function App() {
   const { currentTask, report, submitAnswer, loadReport, loading, sessionId } =
     useAssessmentStore();
-  const [feedbackWidth, setFeedbackWidth] = useState(384);
-
-  const handleResize = useCallback((w: number) => {
-    setFeedbackWidth(w);
-  }, []);
 
   if (!sessionId) {
     return (
@@ -172,7 +167,7 @@ export default function App() {
       <Header />
 
       <div className="flex min-h-0 flex-1">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col" style={{ minWidth: 280 }}>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto p-6">
             {report ? (
               <ReportView />
@@ -201,11 +196,10 @@ export default function App() {
           <ChatLog />
         </div>
 
-        <Splitter onResize={handleResize} initialWidth={384} minWidth={280} maxWidth={800} />
+        <Splitter />
 
         <div
-          className="hidden shrink-0 overflow-y-auto lg:block"
-          style={{ width: feedbackWidth }}
+          className="hidden lg:block flex-1 overflow-y-auto"
         >
           <FeedbackPanel />
         </div>

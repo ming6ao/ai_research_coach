@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 
 interface Props {
-  onResize: (width: number) => void;
+  onResize?: (width: number) => void;
   initialWidth?: number;
   minWidth?: number;
   maxWidth?: number;
@@ -25,7 +25,7 @@ export function Splitter({ onResize, initialWidth = 384, minWidth = 280, maxWidt
       const rect = container.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const clamped = Math.min(maxWidth, Math.max(minWidth, rect.width - x));
-      onResize(clamped);
+      onResize?.(clamped);
     };
 
     const handleMouseUp = () => setDragging(false);
