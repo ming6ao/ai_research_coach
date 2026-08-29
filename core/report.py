@@ -29,8 +29,7 @@ def build_report(session: Session) -> dict:
         importance = skill_cfg.get("importance", 3)
 
         # Calculate score as fraction (0.0 - 1.0)
-        # For MCQ: score is 0 or 1, so fraction is direct
-        # For open/code: score is 0-5, so fraction is score/5
+        # For code tasks: score is 0-max_score, so fraction is score/max_score
         # We use the normalized score from SkillState which is already 0-1
         fraction = state.score
 

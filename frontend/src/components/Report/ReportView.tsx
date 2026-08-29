@@ -1,4 +1,3 @@
-import ReactMarkdown from 'react-markdown';
 import { useAssessmentStore } from '../../stores/assessmentStore';
 
 const skillLabels: Record<string, string> = {

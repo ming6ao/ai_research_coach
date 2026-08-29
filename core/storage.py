@@ -12,12 +12,10 @@ CREATE TABLE IF NOT EXISTS assessments (
     id TEXT PRIMARY KEY,
     candidate TEXT NOT NULL,
     role TEXT NOT NULL,
-    started_at TEXT NOT NULL,
     finished_at TEXT NOT NULL,
     overall_score REAL,
     verdict TEXT,
-    report_json TEXT,
-    session_json TEXT
+    report_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_assessments_candidate ON assessments (candidate);
 """
@@ -44,19 +42,17 @@ def save_assessment(session, report: dict) -> str:
         conn.execute(
             """
             INSERT INTO assessments
-              (id, candidate, role, started_at, finished_at, overall_score, verdict, report_json, session_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (id, candidate, role, finished_at, overall_score, verdict, report_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 aid,
                 session.candidate,
                 session.role,
                 _utcnow(),
-                _utcnow(),
                 report.get("overall_score"),
                 report.get("verdict"),
                 json.dumps(report),
-                json.dumps(session.to_dict()),
             ),
         )
     return aid
@@ -84,17 +80,3 @@ def list_assessments(limit: int = 50) -> list:
         }
         for r in rows
     ]
-
-
-def get_assessment(assessment_id: str) -> dict:
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT report_json, session_json FROM assessments WHERE id = ?",
-            (assessment_id,),
-        ).fetchone()
-    if row is None:
-        return None
-    return {
-        "report": json.loads(row[0]),
-        "session": json.loads(row[1]),
-    }

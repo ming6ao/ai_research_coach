@@ -1,18 +1,5 @@
 import { useAssessmentStore } from '../../stores/assessmentStore';
 
-const skillLabels: Record<string, string> = {
-  ml_fundamentals: 'ML Fundamentals',
-  deep_learning: 'Deep Learning',
-  math_stats: 'Math & Stats',
-  experimentation: 'Experimentation',
-  systems: 'Systems',
-  mlops: 'MLOps',
-  cloud: 'Cloud',
-  data_eng: 'Data Engineering',
-  infra_coding: 'Infra Coding',
-  research_coding: 'Research Coding',
-};
-
 export function Header() {
   const { roleName, candidate, taskIndex, totalTasks, skillStates, currentTask, report } = useAssessmentStore();
 
@@ -57,9 +44,6 @@ export function Header() {
         <div className="flex items-center gap-6">
           {currentTask && (
             <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
-              <span className="rounded bg-[var(--color-bg-tertiary)] px-2 py-0.5 font-mono uppercase">
-                {currentTask.type}
-              </span>
               <span>{currentTask.skill}</span>
               <span>&middot;</span>
               <span>Difficulty {currentTask.difficulty}</span>

@@ -3,11 +3,9 @@ const BASE = '/api';
 export interface Task {
   id: string;
   skill: string;
-  type: 'mcq' | 'open' | 'code';
+  type: 'code';
   prompt: string;
   difficulty: number;
-  dimension: string;
-  options?: string[];
   scaffold?: string;
   function_name?: string;
 }

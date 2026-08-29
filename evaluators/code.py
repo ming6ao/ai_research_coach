@@ -4,7 +4,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
-from evaluators.base import Evaluator, EvaluationResult
+from evaluators.base import EvaluationResult
 
 FUNCTION_HARNESS = """
 import os, json, importlib.util, math
@@ -58,7 +58,7 @@ except Exception as e:
 """
 
 
-class CodeEvaluator(Evaluator):
+class CodeEvaluator:
     def evaluate(self, task: dict, answer: str) -> EvaluationResult:
         max_score = task.get("max_score", 5)
         tests = task.get("tests", [])

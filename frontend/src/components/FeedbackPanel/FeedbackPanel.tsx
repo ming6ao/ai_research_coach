@@ -6,6 +6,7 @@ import renderMathInElement from 'katex/dist/contrib/auto-render';
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/vs2015.css';
 import { useAssessmentStore } from '../../stores/assessmentStore';
+import type { ResultWithFeedback } from '../../stores/assessmentStore';
 
 hljs.registerLanguage('python', python);
 
@@ -62,7 +63,7 @@ function FeedbackItem({
   index,
   isLatest,
 }: {
-  entry: ReturnType<typeof useAssessmentStore>['results'][number];
+  entry: ResultWithFeedback;
   index: number;
   isLatest: boolean;
 }) {
@@ -124,32 +125,19 @@ function FeedbackItem({
       </div>
 
       {/* User answer */}
-      {type === 'mcq' ? (
-        <p className="mb-3 text-base text-[var(--color-text-muted)]">
-          Answer: <span className="font-semibold text-[var(--color-text-primary)]">{userAnswer}</span>
-        </p>
-      ) : type === 'code' ? (
-        <div className="mb-3">
-          <p className="text-sm font-medium text-[var(--color-text-muted)]">Your answer:</p>
-          <div className="mt-2 overflow-auto rounded-lg border border-[var(--color-border-default)]">
-            <pre className="m-0 p-3 text-[14px] leading-[1.5] [tab-size:4]" style={{ background: '#1e1e1e', fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
-              <code
-                className="language-python"
-                dangerouslySetInnerHTML={{
-                  __html: hljs.highlight(userAnswer ?? '', { language: 'python' }).value,
-                }}
-              />
-            </pre>
-          </div>
-        </div>
-      ) : (
-        <div className="mb-3">
-          <p className="text-sm font-medium text-[var(--color-text-muted)]">Your answer:</p>
-          <pre className="mt-2 rounded bg-[var(--color-bg-primary)] px-4 py-3 font-mono text-base text-[var(--color-text-secondary)] overflow-auto">
-            {userAnswer}
+      <div className="mb-3">
+        <p className="text-sm font-medium text-[var(--color-text-muted)]">Your answer:</p>
+        <div className="mt-2 overflow-auto rounded-lg border border-[var(--color-border-default)]">
+          <pre className="m-0 p-3 text-[14px] leading-[1.5] [tab-size:4]" style={{ background: '#1e1e1e', fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
+            <code
+              className="language-python"
+              dangerouslySetInnerHTML={{
+                __html: hljs.highlight(userAnswer ?? '', { language: 'python' }).value,
+              }}
+            />
           </pre>
         </div>
-      )}
+      </div>
 
       {/* Feedback */}
       {feedback && (

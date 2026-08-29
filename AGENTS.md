@@ -36,24 +36,22 @@ adk web --port 8000
 
 - **Entry point**: `app/agent.py` defines `root_agent` (ADK Agent with 4 tools)
 - **Config-driven**: Roles/tasks in `config/roles.yaml` and `config/tasks.yaml` — no code changes to extend
-- **Evaluators**: `evaluators/registry.py` maps task type → evaluator (mcq, open, code)
-- **Code eval**: Runs candidate code in subprocess with 15s timeout (`evaluators/code.py`)
+- **Code eval**: `evaluators/code.py` runs candidate code in subprocess with 15s timeout (function OR scaffold mode)
+- **Feedback**: `core/feedback.py` generates LLM-based learning feedback after each answer
 - **Persistence**: SQLite at `data/coach.db` (gitignored)
-- **Models**: `EVAL_CONV_MODEL` (agent) and `EVAL_MODEL` (judge) default to `gemini-3.5-flash-lite`
+- **Models**: `EVAL_CONV_MODEL` (agent) and `EVAL_MODEL` (feedback) default to `gemini-3.5-flash-lite`
 
 ## Extending Without Code Changes
 
-- **Add question**: Append to `config/tasks.yaml` with unique `id`, `role`, `skill`, `type`, and scoring fields
+- **Add question**: Append to `config/tasks.yaml` with unique `id`, `role`, `skill`, and code scoring fields
 - **Add skill**: Add under role in `config/roles.yaml`
 - **Add role**: New block in `config/roles.yaml`, then tag tasks with that `role`
 - **Change model**: Set `EVAL_CONV_MODEL` or `EVAL_MODEL` in `.env`
 
 ## Task Types & Required Fields
 
-| Type | Required | Scoring |
+| Mode | Required | Scoring |
 |------|----------|---------|
-| `mcq` | `options`, `answer` | Exact match (letter) |
-| `open` | `rubric`, `max_score` | LLM judge 0–max_score |
 | `code` (function) | `function_name`, `tests`, `tolerance` | Per-test pass, partial credit |
 | `code` (scaffold) | `scaffold`, `tests` | Hidden assertions, partial credit |
 
@@ -61,7 +59,7 @@ adk web --port 8000
 
 ```bash
 GOOGLE_API_KEY=...              # Required
-EVAL_MODEL=gemini-3.5-flash-lite   # LLM judge model
+EVAL_MODEL=gemini-3.5-flash-lite   # Feedback model
 EVAL_CONV_MODEL=gemini-3.5-flash-lite  # Conversation model
 EVAL_RETRY_ATTEMPTS=5           # Retry attempts (all layers)
 EVAL_RETRY_INITIAL_DELAY=1.0    # Initial backoff (seconds)
@@ -71,7 +69,6 @@ EVAL_RETRY_MAX_DELAY=30.0       # Max backoff (seconds)
 ## Retry / Resilience
 
 - All model calls use exponential backoff (5 attempts, 1s→30s, jitter) on 408/429/5xx
-- Transient judge failures raise `JudgeRetryableError` — agent instructed to ask candidate to resend
 - Tools are idempotent: `submit_answer` returns stored result if already scored; `start_assessment` resumes in-progress session
 
 ## Frontend Notes

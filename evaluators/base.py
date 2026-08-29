@@ -1,4 +1,3 @@
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 
@@ -26,9 +25,3 @@ class EvaluationResult:
     @classmethod
     def from_dict(cls, d):
         return cls(d["task_id"], d["skill"], d["score"], d["max_score"], d["rationale"])
-
-
-class Evaluator(ABC):
-    @abstractmethod
-    def evaluate(self, task: dict, answer: str) -> EvaluationResult:
-        ...

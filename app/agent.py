@@ -19,8 +19,7 @@ from core.score import update_skill_score
 from core.feedback import generate_feedback
 from core.report import build_report
 from core.storage import save_assessment, list_assessments
-from evaluators.registry import get_evaluator
-from judge.llm_judge import JudgeRetryableError
+from evaluators.code import CodeEvaluator
 
 
 def start_assessment(candidate_name: str, target_role: str, tool_context: ToolContext) -> dict:
@@ -55,8 +54,6 @@ def submit_answer(task_id: str, answer: str, tool_context: ToolContext) -> dict:
     """Submit an answer for the current task. Returns the score and the next task (or none if finished).
 
     Idempotent: if the task already has a recorded result, the stored result is returned without re-evaluating.
-    If the evaluation fails transiently (e.g. judge rate limit), no result is recorded and an error is returned
-    so the caller can ask the candidate to resend.
     """
     if "session" not in tool_context.state:
         return {"error": "No active assessment. Call start_assessment first."}
@@ -73,10 +70,7 @@ def submit_answer(task_id: str, answer: str, tool_context: ToolContext) -> dict:
             "remaining": len(session.tasks) - session.index,
             "note": "Answer was already recorded; returning the stored result.",
         }
-    try:
-        result = get_evaluator(task["type"]).evaluate(task, answer)
-    except JudgeRetryableError as e:
-        return {"error": f"Transient evaluation failure: {e}. Please ask the candidate to resend their answer and retry."}
+    result = CodeEvaluator().evaluate(task, answer)
 
     # Update skill state with the new score
     skill_id = task["skill"]
@@ -145,8 +139,6 @@ def _build_code_stub(task: dict):
     (no scaffold) we generate a stub from the signature mentioned in the prompt
     so the coding area is pre-filled instead of blank.
     """
-    if task.get("type") != "code":
-        return None
     if task.get("scaffold"):
         return task["scaffold"]
     m = re.search(r"def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)", task.get("prompt", ""))
@@ -161,18 +153,14 @@ def _build_code_stub(task: dict):
 def _task_view(task: dict) -> dict:
     if task is None:
         return None
-    view = {
+    return {
         "id": task["id"],
         "skill": task["skill"],
-        "type": task["type"],
+        "type": "code",
         "prompt": task["prompt"],
         "difficulty": task.get("difficulty", 1),
-        "dimension": task.get("dimension", "conceptual"),
         "scaffold": _build_code_stub(task),
     }
-    if task["type"] == "mcq":
-        view["options"] = task.get("options", [])
-    return view
 
 
 root_agent = Agent(
@@ -181,16 +169,12 @@ root_agent = Agent(
     description="Evaluates a candidate's AI/ML understanding and coding skills for ML Researcher or ML Infra Engineer roles.",
     instruction=(
         "You are an evaluation coach. To assess a candidate, call start_assessment with their name and target role "
-        "('ml_researcher' or 'ml_infra_engineer'). Present one task at a time from the returned 'first_task'/'next_task'. "
-        "For mcq tasks show the options and collect the letter; for open/code tasks collect the free-text answer. "
-        "Call submit_answer with the task id and the candidate's answer, then present the next task returned. "
+        "('ml_researcher' or 'ml_infra_engineer'). Present one coding task at a time from the returned 'first_task'/'next_task'. "
+        "Collect the candidate's code solution and call submit_answer with the task id and their answer. "
         "IMPORTANT: After each answer, present the feedback from the response to help the user learn. "
         "The feedback explains why the answer was correct/incorrect and provides educational context. "
         "When all tasks are done (next_task is null), call get_report and summarize the verdict and skill gaps for the candidate. "
-        "Never evaluate answers yourself; always rely on the tools' results. "
-        "If a tool returns an error containing 'Transient evaluation failure', a temporary API problem occurred: "
-        "do NOT invent a score. Explain the problem to the candidate, ask them to resend their last answer, "
-        "then call submit_answer again with the same task id and answer."
+        "Never evaluate answers yourself; always rely on the tools' results."
     ),
     tools=[start_assessment, submit_answer, get_report, get_history],
 )

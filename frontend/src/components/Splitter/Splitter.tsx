@@ -7,7 +7,7 @@ interface Props {
   maxWidth?: number;
 }
 
-export function Splitter({ onResize, initialWidth = 384, minWidth = 280, maxWidth = 600 }: Props) {
+export function Splitter({ onResize, initialWidth: _initialWidth = 384, minWidth = 280, maxWidth = 600 }: Props) {
   const [dragging, setDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 

@@ -136,8 +136,7 @@ def submit_answer(req: SubmitRequest):
     from core.picker import next_task
     from core.score import update_skill_score
     from core.feedback import generate_feedback
-    from evaluators.registry import get_evaluator
-    from judge.llm_judge import JudgeRetryableError
+    from evaluators.code import CodeEvaluator
     from app.agent import _task_view
 
     store = get_store()
@@ -162,10 +161,7 @@ def submit_answer(req: SubmitRequest):
             "note": "Already answered.",
         }
 
-    try:
-        result = get_evaluator(task["type"]).evaluate(task, req.answer)
-    except JudgeRetryableError as e:
-        raise HTTPException(status_code=503, detail=f"Transient evaluation failure: {e}")
+    result = CodeEvaluator().evaluate(task, req.answer)
 
     skill_id = task["skill"]
     state_obj = session.get_skill_state(skill_id)
@@ -191,7 +187,7 @@ def submit_answer(req: SubmitRequest):
     feedback_entry = {
         "task_id": task["id"],
         "prompt": task["prompt"],
-        "type": task["type"],
+        "type": "code",
         "skill": task["skill"],
         "user_answer": req.answer,
         "result": result.to_dict(),
