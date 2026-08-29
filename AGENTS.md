@@ -34,8 +34,11 @@ adk web --port 8000
 
 ## Architecture Essentials
 
-- **Entry point**: `app/agent.py` defines `root_agent` (ADK Agent with 4 tools)
+- **Entry point**: `app/agent.py` defines `root_agent` (ADK Agent with 5 tools)
 - **Config-driven**: Roles/tasks in `config/roles.yaml` and `config/tasks.yaml` — no code changes to extend
+- **Adaptive picker**: `core/picker.py` selects the next question to maximize expected information gain (Bayesian posterior variance reduction) per unit of expected time, weighted by skill importance and coverage
+- **Bayesian scoring**: `core/score.py` keeps a Gaussian belief `N(mean, variance)` per skill; the judge's raw score is discounted by viewed hints before the conjugate update
+- **Hints**: `core/hints.py` — tasks declare ordered hints; weak candidates get them pre-revealed, others request them on demand; viewed hints reduce effective mastery
 - **Code eval**: `evaluators/judge.py` evaluates candidate code via a single structured LLM call (score + rationale + feedback)
 - **Feedback**: Integrated into the judge call — no separate feedback step
 - **Persistence**: SQLite at `data/coach.db` (gitignored)
@@ -43,10 +46,11 @@ adk web --port 8000
 
 ## Extending Without Code Changes
 
-- **Add question**: Append to `config/tasks.yaml` with unique `id`, `role`, `skill`, and `prompt`
+- **Add question**: Append to `config/tasks.yaml` with unique `id`, `role`, `skill`, and `prompt` (+ optional `hints` and `expected_time_min`)
 - **Add skill**: Add under role in `config/roles.yaml`
 - **Add role**: New block in `config/roles.yaml`, then tag tasks with that `role`
 - **Change model**: Set `EVAL_CONV_MODEL` or `EVAL_MODEL` in `.env`
+- **Change time budget**: set `max_time_min` on a role in `config/roles.yaml`
 
 ## Task Types & Required Fields
 
@@ -54,6 +58,14 @@ adk web --port 8000
 |------|----------|---------|
 | `code` (function) | `prompt` | LLM judge returns score (0..max_score) + rationale + feedback |
 | `code` (scaffold) | `scaffold`, `prompt` | LLM judge returns score (0..max_score) + rationale + feedback |
+
+Optional per task: `hints` (ordered list with `id`, `text`, `weight` 0..1, and `reveal_threshold` ability below which the engine pre-reveals it) and `expected_time_min` (overrides the difficulty-based time prior).
+
+## Scoring / Adaptive Behavior
+
+- Skill ability is a Gaussian belief (`N(mean, variance)`). The mean is the reported skill score; `1 - σ/σ_max` is the reported confidence.
+- Effective score = `raw_fraction − Σ weight(viewed hints)`, clamped to [0, 1] — solving correctly with many hints yields lower mastery.
+- `next_task` maximizes `EIG · importance · coverage / expected_time`, so it drills into informative, important, uncovered skills with cheap questions. It stops at max questions, the role time budget (`max_time_min`), or once all important skills are pinned (`variance < 0.01`) after the minimum question count.
 
 ## Environment Variables
 

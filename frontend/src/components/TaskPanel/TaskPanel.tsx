@@ -3,7 +3,7 @@ import { CodeTask } from './CodeTask';
 
 interface Props {
   task: Task;
-  onSubmit: (taskId: string, answer: string) => void;
+  onSubmit: (taskId: string, answer: string, hintsUsed: string[]) => void;
   disabled: boolean;
 }
 

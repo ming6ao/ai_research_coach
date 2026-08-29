@@ -1,5 +1,12 @@
 const BASE = '/api';
 
+export interface Hint {
+  id: string;
+  text: string;
+  weight: number;
+  pre_revealed: boolean;
+}
+
 export interface Task {
   id: string;
   skill: string;
@@ -7,6 +14,7 @@ export interface Task {
   prompt: string;
   difficulty: number;
   scaffold?: string;
+  hints?: Hint[];
 }
 
 export interface EvaluationResult {
@@ -21,6 +29,7 @@ export interface SkillUpdate {
   skill: string;
   new_score: number;
   new_confidence: number;
+  hints_used?: string[];
 }
 
 export interface StartResponse {
@@ -60,6 +69,7 @@ export interface FeedbackEntry {
   user_answer: string;
   result: EvaluationResult;
   feedback: string;
+  hints_used?: string[];
 }
 
 export interface SkillBreakdown {
@@ -110,8 +120,8 @@ export const apiClient = {
   start: (candidate_name: string, target_role: string) =>
     api<StartResponse>('/start', { candidate_name, target_role }),
 
-  submit: (session_id: string, task_id: string, answer: string) =>
-    api<SubmitResponse>('/submit', { session_id, task_id, answer }),
+  submit: (session_id: string, task_id: string, answer: string, hints_used: string[] = []) =>
+    api<SubmitResponse>('/submit', { session_id, task_id, answer, hints_used }),
 
   report: (session_id: string) =>
     api<Report>('/report', { session_id }),

@@ -26,6 +26,7 @@ class SubmitRequest(BaseModel):
     session_id: str
     task_id: str
     answer: str
+    hints_used: Optional[List[str]] = None
 
 
 class ReportRequest(BaseModel):
@@ -106,7 +107,7 @@ def open_session(req: SessionOpenRequest):
         "role_name": session.role_cfg["name"],
         "total_tasks": len(session.tasks),
         "task_index": session.index,
-        "current_task": _task_view(task) if task else None,
+        "current_task": _task_view(task, session) if task else None,
         "results": feedback_list,
         "skill_states": {
             k: {"score": v.score, "confidence": v.confidence, "questions_answered": v.questions_answered}
@@ -137,7 +138,7 @@ def start_assessment(req: StartRequest):
     store.save(session_id, ctx.state)
 
     task = next_task(session)
-    first_task = _task_view(task) if task else None
+    first_task = _task_view(task, session) if task else None
 
     return {
         "session_id": session_id,
@@ -152,7 +153,8 @@ def start_assessment(req: StartRequest):
 def submit_answer(req: SubmitRequest):
     from core.session import Session, SkillState
     from core.picker import next_task
-    from core.score import update_skill_score
+    from core.score import bayesian_update, effective_score, measurement_variance
+    from core.hints import hint_penalty
     from evaluators.judge import LLMJudge
     from app.agent import _task_view
 
@@ -173,26 +175,32 @@ def submit_answer(req: SubmitRequest):
         nxt = next_task(session)
         return {
             "result": existing.to_dict(),
-            "next_task": _task_view(nxt) if nxt else None,
+            "next_task": _task_view(nxt, session) if nxt else None,
             "remaining": len(session.tasks) - session.index,
             "note": "Already answered.",
         }
 
     result, feedback = LLMJudge().evaluate(task, req.answer)
 
+    requested = session.viewed_hints.get(req.task_id, [])
+    viewed = list(dict.fromkeys(list(req.hints_used or []) + requested))
+
     skill_id = task["skill"]
     state_obj = session.get_skill_state(skill_id)
-    normalized_score = result.fraction
 
-    new_score, new_confidence = update_skill_score(
-        state_obj.score, state_obj.confidence, normalized_score,
+    penalty = hint_penalty(task, viewed)
+    observation = effective_score(result.fraction, penalty)
+    obs_variance = measurement_variance(task.get("difficulty", 1), state_obj.score)
+    new_score, new_variance = bayesian_update(
+        state_obj.score, state_obj.variance, observation, obs_variance
     )
 
     session.skill_states[skill_id] = SkillState(
         score=new_score,
-        confidence=new_confidence,
+        variance=new_variance,
         questions_answered=state_obj.questions_answered + 1,
         evidence=state_obj.evidence + [result.rationale],
+        hints_used=state_obj.hints_used + viewed,
     )
 
     session.asked_task_ids.add(req.task_id)
@@ -207,6 +215,7 @@ def submit_answer(req: SubmitRequest):
         "user_answer": req.answer,
         "result": result.to_dict(),
         "feedback": feedback,
+        "hints_used": viewed,
     }
     feedback_list.append(feedback_entry)
 
@@ -218,12 +227,13 @@ def submit_answer(req: SubmitRequest):
     return {
         "result": result.to_dict(),
         "feedback": feedback,
-        "next_task": _task_view(nxt) if nxt else None,
+        "next_task": _task_view(nxt, session) if nxt else None,
         "remaining": len(session.tasks) - session.index,
         "skill_update": {
             "skill": skill_id,
             "new_score": new_score,
-            "new_confidence": new_confidence,
+            "new_confidence": session.get_skill_state(skill_id).confidence,
+            "hints_used": viewed,
         },
     }
 

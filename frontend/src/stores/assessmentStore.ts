@@ -36,7 +36,7 @@ interface AssessmentState {
 
   startAssessment: (name: string, role: string) => Promise<void>;
   resumeSession: (response: ResumeResponse) => void;
-  submitAnswer: (taskId: string, answer: string) => Promise<void>;
+  submitAnswer: (taskId: string, answer: string, hintsUsed?: string[]) => Promise<void>;
   loadReport: () => Promise<void>;
   addLog: (message: string) => void;
 }
@@ -130,13 +130,13 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
     }
   },
 
-  submitAnswer: async (taskId, answer) => {
+  submitAnswer: async (taskId, answer, hintsUsed = []) => {
     const { sessionId, results } = get();
     if (!sessionId) return;
     set({ loading: true, error: null, submitted: true });
     get().addLog(`Submitting answer for task ${taskId}...`);
     try {
-      const res = await apiClient.submit(sessionId, taskId, answer);
+      const res = await apiClient.submit(sessionId, taskId, answer, hintsUsed);
 
       // Find the task details we need for the feedback entry
       const currentTask = get().currentTask;

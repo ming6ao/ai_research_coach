@@ -2,6 +2,7 @@ roles:
   ml_researcher:
     name: ML Researcher
     description: Designs models, runs experiments, and advances ML methods.
+    max_time_min: 45
     skills:
       - id: ml_fundamentals
         name: ML Fundamentals
@@ -27,6 +28,7 @@ roles:
   ml_infra_engineer:
     name: ML Infra Engineer
     description: Builds training/inference platforms, pipelines, and distributed systems.
+    max_time_min: 45
     skills:
       - id: systems
         name: Systems & Distributed Computing

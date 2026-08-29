@@ -1,80 +1,88 @@
-"""Adaptive question selection algorithm.
+"""Information-efficient adaptive question selection.
 
-Selects the next question based on:
-1. Skill importance and current confidence
-2. Difficulty matching to current competency level
-3. Avoiding重复 questions
-4. Termination conditions
+Selects the next question to maximize expected information gain (posterior
+variance reduction of the per-skill ability belief) per unit of expected
+assessment time, weighted by skill importance and skill coverage.
+
+Termination balances a hard question/time cap against pinning down every
+important skill's ability estimate.
 """
 
 from typing import Optional
 
-from core.session import Session, SkillState
-from core.score import score_to_difficulty
+from core.session import Session
+from core.score import expected_variance_reduction, measurement_variance
 
 
 # Termination configuration
 MAX_QUESTIONS = 25
 MIN_QUESTIONS = 15
-CONFIDENCE_THRESHOLD = 0.7
-COVERAGE_TARGET = 0.8  # 80% of important skills must meet confidence threshold
-IMPORTANT_SKILL_THRESHOLD = 4  # Skills with importance >= 4 are "important"
+IMPORTANT_SKILL_THRESHOLD = 4
+VARIANCE_TOLERANCE = 0.01  # sigma ~ 0.1 => ability estimate is effectively pinned
+
+DEFAULT_MAX_TIME_MIN = 45.0
+
+# Static expected-time model (minutes) used as the cost of a question.
+TIME_BASE_MIN = 4.0
+TIME_PER_DIFFICULTY = 1.2
+TIME_PER_100_WORDS = 1.0
+TIME_NO_SCAFFOLD_EXTRA = 0.5
+
+# Coverage boost applied to skills that have never been probed, so every
+# important skill is measured instead of only the cheapest/earliest ones.
+COVERAGE_BONUS = 3.0
 
 
 def next_task(session: Session) -> Optional[dict]:
-    """Select next task based on adaptive priority scoring.
-
-    Algorithm:
-    1. Filter out already-asked tasks
-    2. Check termination conditions
-    3. Score each available task by priority
-    4. Return highest-scoring task
-    """
-    # 1. Get available tasks (not yet asked)
+    """Select next task maximizing expected information gain per unit time."""
     available = [t for t in session.tasks if t["id"] not in session.asked_task_ids]
     if not available:
         return None
 
-    # 2. Check termination conditions
     if _should_terminate(session):
         return None
 
-    # 3. Score each available task
-    scored_tasks = []
-    for task in available:
-        task_score = _compute_task_score(task, session)
-        scored_tasks.append((task_score, task))
-
-    # 4. Select highest scoring task (with tie-breaking by difficulty)
-    scored_tasks.sort(key=lambda x: (x[0], -x[1].get("difficulty", 1)), reverse=True)
-    return scored_tasks[0][1]
+    scored = sorted(
+        ((_utility(t, session), t) for t in available),
+        key=lambda x: x[0],
+        reverse=True,
+    )
+    return scored[0][1]
 
 
-def _compute_task_score(task: dict, session: Session) -> float:
-    """Compute priority score for a task.
-
-    Score = priority * difficulty_match
-    where:
-        priority = importance * (1 - confidence)
-        difficulty_match = how well task difficulty matches current skill level
-    """
+def _utility(task: dict, session: Session) -> float:
+    """Utility = (expected variance reduction * importance * coverage) / cost."""
     skill_id = task["skill"]
     state = session.get_skill_state(skill_id)
-
-    # Get skill importance from role config
     importance = _get_skill_importance(skill_id, session)
 
-    # Priority: high importance + low confidence = high priority
-    priority = importance * (1 - state.confidence)
+    obs_variance = measurement_variance(task.get("difficulty", 1), state.score)
+    information = expected_variance_reduction(state.variance, obs_variance)
 
-    # Difficulty match bonus
-    task_difficulty = task.get("difficulty", 1)
-    target_difficulty = score_to_difficulty(state.score)
-    diff_distance = abs(task_difficulty - target_difficulty)
-    diff_bonus = 1.0 - (diff_distance / 4.0)  # Normalize to 0-1
+    coverage = COVERAGE_BONUS if state.questions_answered == 0 else 1.0
+    cost = expected_time(task)
 
-    # Final score: prioritize priority, with difficulty match as secondary factor
-    return priority * (0.7 + 0.3 * diff_bonus)
+    return (information * importance * coverage) / cost
+
+
+def expected_time(task: dict) -> float:
+    """Expected minutes to complete a task (static prior).
+
+    A task can override the model with an explicit `expected_time_min`.
+    """
+    override = task.get("expected_time_min")
+    if override:
+        return float(override)
+
+    prompt_words = len(task.get("prompt", "").split())
+    minutes = (
+        TIME_BASE_MIN
+        + TIME_PER_DIFFICULTY * task.get("difficulty", 1)
+        + TIME_PER_100_WORDS * prompt_words / 100.0
+    )
+    if not task.get("scaffold"):
+        minutes += TIME_NO_SCAFFOLD_EXTRA
+    return minutes
 
 
 def _get_skill_importance(skill_id: str, session: Session) -> int:
@@ -85,34 +93,42 @@ def _get_skill_importance(skill_id: str, session: Session) -> int:
     return 3  # Default importance
 
 
+def _elapsed_time(session: Session) -> float:
+    """Sum of expected times for the tasks already administered."""
+    return sum(
+        expected_time(t) for t in session.tasks if t["id"] in session.asked_task_ids
+    )
+
+
+def _max_time_min(session: Session) -> float:
+    return float(session.role_cfg.get("max_time_min", DEFAULT_MAX_TIME_MIN))
+
+
 def _should_terminate(session: Session) -> bool:
-    """Check if interview should terminate.
+    """Check whether the assessment should stop.
 
     Termination conditions:
     1. Maximum questions reached
-    2. Minimum questions answered AND 80% of important skills have sufficient confidence
+    2. Expected time budget exhausted
+    3. Minimum questions answered AND every important skill's ability is pinned
     """
-    # Always stop at max questions
     if session.index >= MAX_QUESTIONS:
         return True
 
-    # Don't terminate before minimum questions
+    if _elapsed_time(session) >= _max_time_min(session):
+        return True
+
     if session.index < MIN_QUESTIONS:
         return False
 
-    # Check if enough important skills have sufficient confidence
     important_skills = [
         s for s in session.role_cfg.get("skills", [])
         if s.get("importance", 3) >= IMPORTANT_SKILL_THRESHOLD
     ]
-
     if not important_skills:
         return False
 
-    confident_count = sum(
-        1 for s in important_skills
-        if session.get_skill_state(s["id"]).confidence >= CONFIDENCE_THRESHOLD
+    return all(
+        session.get_skill_state(s["id"]).variance < VARIANCE_TOLERANCE
+        for s in important_skills
     )
-
-    coverage = confident_count / len(important_skills)
-    return coverage >= COVERAGE_TARGET

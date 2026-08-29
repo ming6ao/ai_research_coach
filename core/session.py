@@ -2,33 +2,46 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Set
 
 from core.config import load_yaml
-from core.score import INITIAL_SCORE, INITIAL_CONFIDENCE
+from core.score import INITIAL_SCORE, INITIAL_VARIANCE, confidence_from_variance
 from evaluators.base import EvaluationResult
 
 
 @dataclass
 class SkillState:
-    """Tracks score and confidence for a single skill."""
+    """Gaussian belief over a single skill's mastery plus supporting metadata.
+
+    `score` is the posterior mean (mu) of mastery on [0, 1]; `variance` is the
+    posterior uncertainty used by the question picker. `confidence` is derived
+    from the variance so the report/UI can keep using it as-is.
+    """
     score: float = INITIAL_SCORE
-    confidence: float = INITIAL_CONFIDENCE
+    variance: float = INITIAL_VARIANCE
     questions_answered: int = 0
     evidence: List[str] = field(default_factory=list)
+    hints_used: List[str] = field(default_factory=list)
+
+    @property
+    def confidence(self) -> float:
+        return confidence_from_variance(self.variance)
 
     def to_dict(self):
         return {
             "score": self.score,
+            "variance": self.variance,
             "confidence": self.confidence,
             "questions_answered": self.questions_answered,
             "evidence": self.evidence,
+            "hints_used": self.hints_used,
         }
 
     @classmethod
     def from_dict(cls, d):
         return cls(
             score=d.get("score", INITIAL_SCORE),
-            confidence=d.get("confidence", INITIAL_CONFIDENCE),
+            variance=d.get("variance", INITIAL_VARIANCE),
             questions_answered=d.get("questions_answered", 0),
             evidence=d.get("evidence", []),
+            hints_used=d.get("hints_used", []),
         )
 
 
@@ -41,6 +54,7 @@ class Session:
     results: List[EvaluationResult] = field(default_factory=list)
     skill_states: Dict[str, SkillState] = field(default_factory=dict)
     asked_task_ids: Set[str] = field(default_factory=set)
+    viewed_hints: Dict[str, List[str]] = field(default_factory=dict)
 
     def __post_init__(self):
         if not self.tasks:
@@ -74,6 +88,7 @@ class Session:
             "results": [r.to_dict() for r in self.results],
             "skill_states": {k: v.to_dict() for k, v in self.skill_states.items()},
             "asked_task_ids": list(self.asked_task_ids),
+            "viewed_hints": self.viewed_hints,
         }
 
     @classmethod
@@ -84,4 +99,5 @@ class Session:
             k: SkillState.from_dict(v) for k, v in d.get("skill_states", {}).items()
         }
         s.asked_task_ids = set(d.get("asked_task_ids", []))
+        s.viewed_hints = dict(d.get("viewed_hints", {}))
         return s

@@ -17,7 +17,9 @@ ai_research_coach/
 │   ├── config.py         # paths + model selection
 │   ├── feedback.py       # LLM-generated learning feedback
 │   ├── session.py        # candidate session state (serialized into ADK state)
-│   ├── picker.py         # which task to ask next (adaptive priority)
+│   ├── picker.py         # next question: max information gain per unit time
+│   ├── hints.py          # adaptive hint selection + hint penalty
+│   ├── score.py          # Bayesian ability estimation (Gaussian belief)
 │   ├── report.py         # skills profile + readiness verdict
 │   └── storage.py        # SQLite persistence of finished assessments
 └── evaluators/
@@ -93,7 +95,7 @@ adk run app
 
 ## How to extend (no code changes)
 
-- **Add a question**: append an entry to `config/tasks.yaml` with a unique `id`, `role`, `skill`, and the code scoring fields (`function_name`/`scaffold`, `tests`, `tolerance`/`max_score`).
+- **Add a question**: append an entry to `config/tasks.yaml` with a unique `id`, `role`, `skill`, and the code scoring fields (`function_name`/`scaffold`, `tests`, `tolerance`/`max_score`). Optionally add `hints` (ordered list of `{id, text, weight, reveal_threshold}`) and `expected_time_min`.
 - **Add a skill**: add it under the role in `config/roles.yaml`; it will automatically appear in reports.
 - **Add a role**: add a new block in `config/roles.yaml` and tag tasks with that `role`.
 - **Change the model**: set `EVAL_CONV_MODEL` (conversations) or `EVAL_MODEL` (feedback) in `.env` (e.g. `gemini-3.5-flash-lite`).

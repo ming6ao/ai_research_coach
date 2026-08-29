@@ -13,9 +13,10 @@ from google.adk.models import Gemini
 from google.adk.tools import ToolContext
 
 from core.config import CONV_MODEL, http_retry_options
-from core.session import Session
+from core.session import Session, SkillState
 from core.picker import next_task
-from core.score import update_skill_score
+from core.score import bayesian_update, effective_score, measurement_variance
+from core.hints import select_hints, hint_penalty, next_hidden_hint
 
 from core.report import build_report
 from core.storage import save_assessment, list_assessments
@@ -35,7 +36,7 @@ def start_assessment(candidate_name: str, target_role: str, tool_context: ToolCo
             "message": f"Resumed existing assessment for {session.role_cfg['name']}.",
             "total_tasks": len(session.tasks),
             "completed": session.index,
-            "next_task": _task_view(task) if task else None,
+            "next_task": _task_view(task, session) if task else None,
         }
     try:
         session = Session(candidate_name, target_role)
@@ -46,12 +47,16 @@ def start_assessment(candidate_name: str, target_role: str, tool_context: ToolCo
     return {
         "message": f"Assessment started for {session.role_cfg['name']}.",
         "total_tasks": len(session.tasks),
-        "first_task": _task_view(task),
+        "first_task": _task_view(task, session),
     }
 
 
-def submit_answer(task_id: str, answer: str, tool_context: ToolContext) -> dict:
+def submit_answer(task_id: str, answer: str, hints_used: list = None, tool_context: ToolContext = None) -> dict:
     """Submit an answer for the current task. Returns the score and the next task (or none if finished).
+
+    `hints_used` is an optional list of hint ids the candidate viewed/requested for this task;
+    those hints reduce the effective mastery reflected in the skill score. Any hints requested
+    via the `request_hint` tool are included automatically.
 
     Idempotent: if the task already has a recorded result, the stored result is returned without re-evaluating.
     """
@@ -66,30 +71,31 @@ def submit_answer(task_id: str, answer: str, tool_context: ToolContext) -> dict:
         nxt = next_task(session)
         return {
             "result": existing.to_dict(),
-            "next_task": _task_view(nxt) if nxt else None,
+            "next_task": _task_view(nxt, session) if nxt else None,
             "remaining": len(session.tasks) - session.index,
             "note": "Answer was already recorded; returning the stored result.",
         }
     result, feedback = LLMJudge().evaluate(task, answer)
 
-    # Update skill state with the new score
+    # Merge hints requested through the tool with any passed explicitly.
+    requested = session.viewed_hints.get(task_id, [])
+    viewed = list(dict.fromkeys(list(hints_used or []) + requested))
+
     skill_id = task["skill"]
     state = session.get_skill_state(skill_id)
-    normalized_score = result.fraction  # Already 0.0 - 1.0
 
-    new_score, new_confidence = update_skill_score(
-        state.score,
-        state.confidence,
-        normalized_score,
-    )
+    # Hint-adjusted mastery: a correct answer solved with many hints counts for less.
+    penalty = hint_penalty(task, viewed)
+    observation = effective_score(result.fraction, penalty)
+    obs_variance = measurement_variance(task.get("difficulty", 1), state.score)
+    new_score, new_variance = bayesian_update(state.score, state.variance, observation, obs_variance)
 
-    # Create updated skill state
-    from core.session import SkillState
     session.skill_states[skill_id] = SkillState(
         score=new_score,
-        confidence=new_confidence,
+        variance=new_variance,
         questions_answered=state.questions_answered + 1,
         evidence=state.evidence + [result.rationale],
+        hints_used=state.hints_used + viewed,
     )
 
     # Track asked question and store result
@@ -104,13 +110,40 @@ def submit_answer(task_id: str, answer: str, tool_context: ToolContext) -> dict:
     return {
         "result": result.to_dict(),
         "feedback": feedback,
-        "next_task": _task_view(nxt) if nxt else None,
+        "next_task": _task_view(nxt, session) if nxt else None,
         "remaining": len(session.tasks) - session.index,
         "skill_update": {
             "skill": skill_id,
             "new_score": new_score,
-            "new_confidence": new_confidence,
+            "new_confidence": session.get_skill_state(skill_id).confidence,
+            "hints_used": viewed,
         },
+    }
+
+
+def request_hint(task_id: str, tool_context: ToolContext) -> dict:
+    """Reveal the next hidden hint for the current task (in the chat flow).
+
+    Requested hints are recorded against the session and automatically counted
+    when the answer is submitted, reducing the effective mastery for the task.
+    """
+    if "session" not in tool_context.state:
+        return {"error": "No active assessment. Call start_assessment first."}
+    session = Session.from_dict(tool_context.state["session"])
+    task = next((t for t in session.tasks if t["id"] == task_id), None)
+    if task is None:
+        return {"error": f"Task {task_id} not found in this assessment."}
+    ability = session.get_skill_state(task["skill"]).score
+    viewed = session.viewed_hints.get(task_id, [])
+    hint = next_hidden_hint(task, viewed, ability)
+    if hint is None:
+        return {"task_id": task_id, "hint": None, "message": "No more hints available for this task."}
+    session.viewed_hints.setdefault(task_id, []).append(hint["id"])
+    tool_context.state["session"] = session.to_dict()
+    return {
+        "task_id": task_id,
+        "hint": {"id": hint["id"], "text": hint["text"], "weight": hint.get("weight", 0.15)},
+        "remaining": len(task.get("hints", [])) - len(viewed) - 1,
     }
 
 
@@ -145,9 +178,10 @@ def _build_code_stub(task: dict):
     return None
 
 
-def _task_view(task: dict) -> dict:
+def _task_view(task: dict, session: Session) -> dict:
     if task is None:
         return None
+    ability = session.get_skill_state(task["skill"]).score
     return {
         "id": task["id"],
         "skill": task["skill"],
@@ -155,6 +189,7 @@ def _task_view(task: dict) -> dict:
         "prompt": task["prompt"],
         "difficulty": task.get("difficulty", 1),
         "scaffold": _build_code_stub(task),
+        "hints": select_hints(task, ability),
     }
 
 
@@ -165,11 +200,14 @@ root_agent = Agent(
     instruction=(
         "You are an evaluation coach. To assess a candidate, call start_assessment with their name and target role "
         "('ml_researcher' or 'ml_infra_engineer'). Present one coding task at a time from the returned 'first_task'/'next_task'. "
-        "Collect the candidate's code solution and call submit_answer with the task id and their answer. "
+        "Each task includes a 'hints' list; present the pre_revealed hints (pre_revealed is true) as optional help before the candidate "
+        "starts, and offer the others as requestable. If the candidate asks for help, call request_hint and show the returned hint. "
+        "Collect the candidate's code solution and call submit_answer with the task id, their answer, and the list of hint ids the "
+        "candidate viewed (the pre-revealed ids plus any requested via request_hint). "
         "IMPORTANT: After each answer, present the feedback from the response to help the user learn. "
         "The feedback explains why the answer was correct/incorrect and provides educational context. "
         "When all tasks are done (next_task is null), call get_report and summarize the verdict and skill gaps for the candidate. "
         "Never evaluate answers yourself; always rely on the tools' results."
     ),
-    tools=[start_assessment, submit_answer, get_report, get_history],
+    tools=[start_assessment, submit_answer, request_hint, get_report, get_history],
 )

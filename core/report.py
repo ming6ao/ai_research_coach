@@ -39,6 +39,7 @@ def build_report(session: Session) -> dict:
             "confidence": state.confidence,
             "questions_answered": state.questions_answered,
             "evidence": state.evidence,
+            "hints_used": len(state.hints_used),
             "importance": importance,
         }
 
