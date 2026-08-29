@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { Children, useEffect, useRef, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
-import renderMathInElement from 'katex/dist/contrib/auto-render';
+import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/vs2015.css';
 import { useAssessmentStore } from '../../stores/assessmentStore';
@@ -64,19 +64,6 @@ function FeedbackItem({
   index: number;
   isLatest: boolean;
 }) {
-  const feedbackRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (feedbackRef.current) {
-      renderMathInElement(feedbackRef.current, {
-        delimiters: [
-          { left: '$$', right: '$$', display: true },
-          { left: '$', right: '$', display: false },
-        ],
-      });
-    }
-  });
-
   const { result, feedback, prompt, type, skill, userAnswer } = entry;
   const pct = result.max_score > 0 ? (result.score / result.max_score) * 100 : 0;
   const barColor =
@@ -131,7 +118,7 @@ function FeedbackItem({
 
       {/* Feedback */}
       {feedback && (
-        <div ref={feedbackRef} className="prose prose-invert prose-lg max-w-none text-base my-4">
+        <div className="prose prose-invert prose-lg max-w-none text-base my-4">
           <ReactMarkdown
             components={{
               pre({ children }) {
@@ -153,24 +140,103 @@ function FeedbackItem({
                   </code>
                 );
               },
+              p: ({ children }) => <p>{splitMathChildren(children)}</p>,
+              li: ({ children }) => <li>{splitMathChildren(children)}</li>,
+              h1: ({ children }) => <h1>{splitMathChildren(children)}</h1>,
+              h2: ({ children }) => <h2>{splitMathChildren(children)}</h2>,
+              h3: ({ children }) => <h3>{splitMathChildren(children)}</h3>,
+              h4: ({ children }) => <h4>{splitMathChildren(children)}</h4>,
+              strong: ({ children }) => <strong>{splitMathChildren(children)}</strong>,
+              em: ({ children }) => <em>{splitMathChildren(children)}</em>,
+              blockquote: ({ children }) => (
+                <blockquote>{splitMathChildren(children)}</blockquote>
+              ),
             }}
           >
             {feedback}
           </ReactMarkdown>
         </div>
       )}
-
-      {/* Evaluator rationale */}
-      {result.rationale && (
-        <div className="mt-3 rounded bg-[var(--color-bg-primary)] px-4 py-3">
-          <p className="text-sm font-semibold uppercase text-[var(--color-text-muted)]">
-            Evaluator
-          </p>
-          <p className="text-base text-[var(--color-text-secondary)]">
-            {result.rationale}
-          </p>
-        </div>
-      )}
     </div>
+  );
+}
+
+function splitMathChildren(children: ReactNode): ReactNode {
+  return Children.map(children, (child) =>
+    typeof child === 'string' ? <MathText text={child} /> : child,
+  );
+}
+
+const MATH_DELIMITERS = [
+  { left: '$$', right: '$$', display: true },
+  { left: '$', right: '$', display: false },
+];
+
+interface MathSegment {
+  type: 'text' | 'math';
+  value: string;
+  display: boolean;
+}
+
+function splitMath(text: string): MathSegment[] {
+  const segments: MathSegment[] = [];
+  let rest = text;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    let next: { left: string; right: string; display: boolean; index: number } | null = null;
+    for (const d of MATH_DELIMITERS) {
+      const index = rest.indexOf(d.left);
+      if (index !== -1 && (next === null || index < next.index)) {
+        next = { ...d, index };
+      }
+    }
+    if (next === null) break;
+    if (next.index > 0) {
+      segments.push({ type: 'text', value: rest.slice(0, next.index), display: false });
+      rest = rest.slice(next.index);
+    }
+    const end = rest.indexOf(next.right, next.left.length);
+    if (end === -1) break;
+    segments.push({
+      type: 'math',
+      value: rest.slice(next.left.length, end),
+      display: next.display,
+    });
+    rest = rest.slice(end + next.right.length);
+  }
+  if (rest !== '') {
+    segments.push({ type: 'text', value: rest, display: false });
+  }
+  return segments;
+}
+
+function InlineMath({ latex, display }: { latex: string; display: boolean }) {
+  let html: string | null = null;
+  try {
+    html = katex.renderToString(latex, { throwOnError: false, displayMode: display });
+  } catch {
+    html = null;
+  }
+  if (html === null) {
+    return <>{latex}</>;
+  }
+  return <span dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+function MathText({ text }: { text: string }) {
+  const segments = splitMath(text);
+  if (segments.length === 1 && segments[0].type === 'text') {
+    return <>{text}</>;
+  }
+  return (
+    <>
+      {segments.map((segment, i) =>
+        segment.type === 'math' ? (
+          <InlineMath key={i} latex={segment.value} display={segment.display} />
+        ) : (
+          segment.value
+        ),
+      )}
+    </>
   );
 }
