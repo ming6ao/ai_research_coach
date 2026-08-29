@@ -8,7 +8,8 @@ The design is data-driven: adding new questions, skills, or roles is done by edi
 
 ```
 ai_research_coach/
-├── agent.py              # root_agent + 4 tools (orchestrator)
+├── app/
+│   └── agent.py          # root_agent + 4 tools (orchestrator)
 ├── config/
 │   ├── roles.yaml        # role → skill tree definitions
 │   └── tasks.yaml        # question/task bank (typed)
@@ -39,7 +40,7 @@ ai_research_coach/
 
 ## Project structure & setup
 
-This folder is an ADK agent project (it contains `agent.py` with a `root_agent`).
+This folder is an ADK agent project (it contains `app/agent.py` with a `root_agent`).
 
 ### 1. Create and activate a virtual environment
 
@@ -75,10 +76,9 @@ ADK provides both a command-line and a web interface for development.
 
 ### Web interface (recommended for testing)
 
-Run `adk web` from the **parent directory** of this folder (i.e. from `repos/` if this project lives at `repos/ai_research_coach/`):
+Run `adk web` from **this project directory** (since `agent.py` is in `app/` subdirectory):
 
 ```bash
-cd ..
 adk web --port 8000
 ```
 
@@ -91,8 +91,10 @@ The agent will call `start_assessment`, walk through each task, collect answers,
 ### Command-line interface
 
 ```bash
-adk run ai_research_coach
+adk run app
 ```
+
+> Run `adk run` from the project directory (agent is in `app/`).
 
 > `adk web` is for development/debugging only — not for production deployment.
 

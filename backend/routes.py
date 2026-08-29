@@ -70,7 +70,7 @@ def list_active_sessions():
 def resume_session(req: ResumeRequest):
     from core.session import Session
     from core.picker import next_task
-    from agent import _task_view
+    from app.agent import _task_view
 
     store = get_store()
     state = store.get(req.session_id)
@@ -101,7 +101,7 @@ def resume_session(req: ResumeRequest):
 def start_assessment(req: StartRequest):
     from core.session import Session
     from core.picker import next_task
-    from agent import _task_view
+    from app.agent import _task_view
 
     store = get_store()
     session_id = store.create(req.candidate_name, req.target_role)
@@ -138,7 +138,7 @@ def submit_answer(req: SubmitRequest):
     from core.feedback import generate_feedback
     from evaluators.registry import get_evaluator
     from judge.llm_judge import JudgeRetryableError
-    from agent import _task_view
+    from app.agent import _task_view
 
     store = get_store()
     state = store.get(req.session_id)

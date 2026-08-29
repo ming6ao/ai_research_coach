@@ -1,7 +1,11 @@
 import os
 import sys
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Ensure project root is importable
+_root = Path(__file__).resolve().parent.parent
+if str(_root) not in sys.path:
+    sys.path.insert(0, str(_root))
 
 from google.adk.agents.llm_agent import Agent
 from google.adk.models import Gemini
