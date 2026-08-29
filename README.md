@@ -1,21 +1,20 @@
 # AI Research Coach
 
-An evaluation agent built with the [Agent Development Kit (ADK)](https://adk.dev) that assesses a candidate's coding skills for ML Researcher or ML Infra Engineer roles.
+An evaluation agent built with the [Agent Development Kit (ADK)](https://adk.dev) that assesses a candidate's AI/ML coding skills against a unified skill tree — every candidate is evaluated the same way, with no role selection.
 
-The design is data-driven: adding new questions, skills, or roles is done by editing config files — not code. It starts simple (CLI/web chat + local code runner) and is structured to scale into a sandboxed, adaptive, multi-candidate platform.
+The design is data-driven: adding new questions or skills is done by editing config files — not code. It starts simple (CLI/web chat + local code runner) and is structured to scale into a sandboxed, adaptive, multi-candidate platform.
 
 ## Architecture
 
 ```
 ai_research_coach/
 ├── app/
-│   └── agent.py          # root_agent + 4 tools (orchestrator)
+│   └── agent.py          # root_agent + 5 tools (orchestrator)
 ├── config/
-│   ├── roles.yaml        # role → skill tree definitions
-│   └── tasks.yaml        # question/task bank (code only)
+│   ├── skills.yaml       # unified skill tree (importance, max_time_min)
+│   └── tasks.yaml        # question/task bank (code only, with optional hints)
 ├── core/
 │   ├── config.py         # paths + model selection
-│   ├── feedback.py       # LLM-generated learning feedback
 │   ├── session.py        # candidate session state (serialized into ADK state)
 │   ├── picker.py         # next question: max information gain per unit time
 │   ├── hints.py          # adaptive hint selection + hint penalty
@@ -24,13 +23,13 @@ ai_research_coach/
 │   └── storage.py        # SQLite persistence of finished assessments
 └── evaluators/
     ├── base.py           # EvaluationResult
-    └── code.py           # code run + hidden tests (function OR scaffold mode)
+    └── judge.py          # LLM judge (score + rationale + feedback)
 ```
 
 ### Evaluation flow
 
-1. **Intake** — `start_assessment` loads the target role's skill tree and task list.
-2. **Task loop** — the agent presents one coding task at a time. The candidate writes code in an editor; the solution runs in a subprocess against hidden tests with partial credit per passing test. Two modes: **function** (`fn(*args)` vs expected, with tolerance) and **scaffold** (assertion snippets run against a class-based solution).
+1. **Intake** — `start_assessment` loads the unified skill tree and the full task bank. Every candidate is evaluated the same way.
+2. **Task loop** — the adaptive picker selects one coding task at a time to maximize expected information gain per unit time. The candidate writes code in an editor and may view hints (which reduce effective mastery). The LLM judge returns a score, rationale, and feedback.
 3. **Report** — `get_report` aggregates per-skill scores into an overall score, a verdict (`Ready` / `Conditionally ready` / `Not ready`), a list of skill gaps (< 0.6 fraction), and persists the assessment to SQLite.
 
 ## Project structure & setup
@@ -79,7 +78,7 @@ adk web --port 8000
 
 Open `http://localhost:8000`, select **ai_research_coach** in the top-left, and start chatting. Example opening message:
 
-> Evaluate candidate "Alice" for the ml_researcher role.
+> Evaluate candidate "Alice".
 
 The agent will call `start_assessment`, walk through each task, collect answers, and finish with `get_report`.
 
@@ -95,9 +94,8 @@ adk run app
 
 ## How to extend (no code changes)
 
-- **Add a question**: append an entry to `config/tasks.yaml` with a unique `id`, `role`, `skill`, and the code scoring fields (`function_name`/`scaffold`, `tests`, `tolerance`/`max_score`). Optionally add `hints` (ordered list of `{id, text, weight, reveal_threshold}`) and `expected_time_min`.
-- **Add a skill**: add it under the role in `config/roles.yaml`; it will automatically appear in reports.
-- **Add a role**: add a new block in `config/roles.yaml` and tag tasks with that `role`.
+- **Add a question**: append an entry to `config/tasks.yaml` with a unique `id`, `skill`, and the code scoring fields (`function_name`/`scaffold`, `tests`, `tolerance`/`max_score`). Optionally add `hints` (ordered list of `{id, text, weight, reveal_threshold}`) and `expected_time_min`.
+- **Add a skill**: add a block in `config/skills.yaml` (id, name, description, importance); it will automatically appear in reports.
 - **Change the model**: set `EVAL_CONV_MODEL` (conversations) or `EVAL_MODEL` (feedback) in `.env` (e.g. `gemini-3.5-flash-lite`).
 
 ## Task type reference
@@ -139,7 +137,7 @@ HTTP codes. Tune via env vars: `EVAL_RETRY_ATTEMPTS`, `EVAL_RETRY_INITIAL_DELAY`
 - **Phase 0 (current)**: ADK agent + config task bank + local code runner + text report.
 - **Phase 1**: replace the code evaluator's local subprocess with a real sandbox (e.g. container / e2b) and timed execution.
 - **Phase 2**: make `picker` adaptive (drill into weak skills); add a web UI and richer rubrics.
-- **Phase 3**: persistent storage + analytics across candidates; multi-role benchmarking; anti-cheat.
+- **Phase 3**: persistent storage + analytics across candidates; benchmarking; anti-cheat.
 
 ## References
 

@@ -19,7 +19,6 @@ router = APIRouter(prefix="/api", tags=["assessment"])
 
 class StartRequest(BaseModel):
     candidate_name: str
-    target_role: str
 
 
 class SubmitRequest(BaseModel):
@@ -91,7 +90,7 @@ def open_session(req: SessionOpenRequest):
         session_state = assessment.get("session")
         if session_state is None:
             raise HTTPException(status_code=400, detail="Assessment has no session data to restore.")
-        session_id = store.create(session_state["candidate"], session_state["role"])
+        session_id = store.create(session_state["candidate"])
         store.save(session_id, {"session": session_state})
         delete_assessment(req.id)
         session = Session.from_dict(session_state)
@@ -103,8 +102,6 @@ def open_session(req: SessionOpenRequest):
     return {
         "session_id": session_id,
         "candidate": session.candidate,
-        "role": session.role,
-        "role_name": session.role_cfg["name"],
         "total_tasks": len(session.tasks),
         "task_index": session.index,
         "current_task": _task_view(task, session) if task else None,
@@ -123,16 +120,12 @@ def start_assessment(req: StartRequest):
     from app.agent import _task_view
 
     store = get_store()
-    session_id = store.create(req.candidate_name, req.target_role)
+    session_id = store.create(req.candidate_name)
 
     state = {}
     ctx = _FakeToolContext(state)
 
-    try:
-        session = Session(req.candidate_name, req.target_role)
-    except ValueError as e:
-        store.delete(session_id)
-        raise HTTPException(status_code=400, detail=str(e))
+    session = Session(req.candidate_name)
 
     ctx.state["session"] = session.to_dict()
     store.save(session_id, ctx.state)
@@ -142,10 +135,9 @@ def start_assessment(req: StartRequest):
 
     return {
         "session_id": session_id,
-        "message": f"Assessment started for {session.role_cfg['name']}.",
+        "message": f"Assessment started for {session.candidate}.",
         "total_tasks": len(session.tasks),
         "first_task": first_task,
-        "role_name": session.role_cfg["name"],
     }
 
 
@@ -277,7 +269,6 @@ def list_sessions(candidate: str):
         sessions.append({
             "id": s["session_id"],
             "candidate": s["candidate"],
-            "role": s["role"],
             "status": "active",
             "updated_at": s["updated_at"],
             "score": None,
@@ -287,7 +278,6 @@ def list_sessions(candidate: str):
         sessions.append({
             "id": a["id"],
             "candidate": a["candidate"],
-            "role": a["role"],
             "status": "completed",
             "updated_at": a["finished_at"],
             "score": a["overall_score"],

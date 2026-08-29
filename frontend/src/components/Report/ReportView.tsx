@@ -5,12 +5,11 @@ const skillLabels: Record<string, string> = {
   deep_learning: 'Deep Learning',
   math_stats: 'Math & Stats',
   experimentation: 'Experimentation',
+  coding: 'Programming & Implementation',
   systems: 'Systems',
   mlops: 'MLOps',
   cloud: 'Cloud',
   data_eng: 'Data Engineering',
-  infra_coding: 'Infra Coding',
-  research_coding: 'Research Coding',
 };
 
 export function ReportView() {
@@ -37,7 +36,7 @@ export function ReportView() {
             Assessment Report
           </h2>
           <p className="text-sm text-[var(--color-text-secondary)]">
-            {report.candidate} &middot; {report.role}
+            {report.candidate} &middot; {report.title}
           </p>
         </div>
 

@@ -1,6 +1,5 @@
 tasks:
 - id: mr_ml_03
-  role: ml_researcher
   skill: ml_fundamentals
   difficulty: 2
   prompt: 'Implement overfitting detection from training and validation loss curves.
@@ -28,7 +27,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_ml_04
-  role: ml_researcher
   skill: ml_fundamentals
   difficulty: 3
   prompt: Illustrate the bias-variance tradeoff with polynomial regression. Fit 
@@ -63,7 +61,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_dl_02
-  role: ml_researcher
   skill: deep_learning
   difficulty: 3
   prompt: Detect the vanishing gradient problem in a deep network. Compute the 
@@ -105,7 +102,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_math_02
-  role: ml_researcher
   skill: math_stats
   difficulty: 1
   prompt: 'Implement population and sample variance from scratch (no numpy). Recall
@@ -131,7 +127,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_exp_02
-  role: ml_researcher
   skill: experimentation
   difficulty: 3
   prompt: 'Determine whether an observed accuracy lift is real and not noise using
@@ -168,13 +163,19 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mi_sys_02
-  role: ml_infra_engineer
   skill: systems
   difficulty: 2
   prompt: Implement top-k gradient compression, a technique that reduces 
     communication overhead in data-parallel training. Given a 1D list of 
     gradient values, zero out all entries except the k with the largest absolute
     value (ties keep the earlier index) and return the compressed list.
+  scaffold: "import numpy as np\n\ndef topk_compress(grads, k):\n    \"\"\"\n    grads:
+    1D list/array of gradient values\n    k: number of entries to keep\n    Returns:
+    compressed list with all but the top-k (by absolute value) entries zeroed\n  \
+    \  \"\"\"\n    # >>> START YOUR IMPLEMENTATION <<<\n    # 1. Find the indices
+    of the k entries with the largest absolute value\n    # 2. Build the output with
+    only those entries preserved (ties keep the earlier index)\n    pass\n    # >>>
+    END YOUR IMPLEMENTATION <<<\n"
   max_score: 5
   hints:
   - id: h1
@@ -193,7 +194,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mi_mlops_02
-  role: ml_infra_engineer
   skill: mlops
   difficulty: 3
   prompt: 'Implement a ModelRegistry for ML deployment: register versions, promote
@@ -241,7 +241,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mi_cloud_02
-  role: ml_infra_engineer
   skill: cloud
   difficulty: 2
   prompt: 'Recommend a model-serving strategy given workload characteristics. Return
@@ -268,7 +267,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mi_data_02
-  role: ml_infra_engineer
   skill: data_eng
   difficulty: 2
   prompt: 'Implement a streaming SlidingWindow aggregator for low-latency event processing:
@@ -303,8 +301,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mi_code_01
-  role: ml_infra_engineer
-  skill: infra_coding
+  skill: coding
   difficulty: 1
   prompt: 'Implement a function that takes a list of (key, value) pairs and returns
     a dict counting occurrences of each key. Signature: def count_keys(pairs):'
@@ -325,7 +322,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_dl_mlp
-  role: ml_researcher
   skill: deep_learning
   difficulty: 3
   prompt: Implement the full training step (zero gradients, forward pass, loss, 
@@ -360,7 +356,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_dl_mha
-  role: ml_researcher
   skill: deep_learning
   difficulty: 4
   prompt: 'Implement a memory-efficient Multi-Head Attention block from scratch in
@@ -400,7 +395,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_dl_bn
-  role: ml_researcher
   skill: deep_learning
   difficulty: 4
   prompt: 'Implement Batch Normalization for a 2D input (batch, features): normalize
@@ -439,8 +433,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_rc_softmax
-  role: ml_researcher
-  skill: research_coding
+  skill: coding
   difficulty: 2
   prompt: Implement a numerically stable softmax that subtracts the max before 
     exponentiation to avoid overflow.
@@ -465,7 +458,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_dl_ce
-  role: ml_researcher
   skill: deep_learning
   difficulty: 4
   prompt: Implement cross-entropy loss from scratch using the log-sum-exp trick 
@@ -494,7 +486,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_ml_knn
-  role: ml_researcher
   skill: ml_fundamentals
   difficulty: 3
   prompt: Implement KNN from scratch in NumPy with a vectorized Euclidean 
@@ -527,7 +518,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_ml_lr
-  role: ml_researcher
   skill: ml_fundamentals
   difficulty: 3
   prompt: 'Implement the gradient descent update for logistic regression: sigmoid
@@ -561,7 +551,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_ml_kmeans
-  role: ml_researcher
   skill: ml_fundamentals
   difficulty: 3
   prompt: 'Implement K-Means: assignment step (nearest centroid) and update step (recompute
@@ -595,7 +584,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_ml_tree
-  role: ml_researcher
   skill: ml_fundamentals
   difficulty: 4
   prompt: Implement Gini impurity and find the best feature/threshold split for 
@@ -628,8 +616,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_rc_scaling
-  role: ml_researcher
-  skill: research_coding
+  skill: coding
   difficulty: 2
   prompt: Implement vectorized Standardization (z-score) and Min-Max 
     Normalization in NumPy, handling division by zero.
@@ -656,7 +643,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_exp_metrics
-  role: ml_researcher
   skill: experimentation
   difficulty: 2
   prompt: Build a confusion matrix from scratch and compute Precision, Recall, 
@@ -685,8 +671,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_rc_iou
-  role: ml_researcher
-  skill: research_coding
+  skill: coding
   difficulty: 2
   prompt: Calculate Intersection over Union (IoU) between two bounding boxes 
     given as [x1, y1, x2, y2].
@@ -716,8 +701,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_rc_ngram
-  role: ml_researcher
-  skill: research_coding
+  skill: coding
   difficulty: 2
   prompt: Write a function to generate n-grams from a text string (lowercase, 
     strip punctuation, split into tokens).
@@ -745,8 +729,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_rc_sampling
-  role: ml_researcher
-  skill: research_coding
+  skill: coding
   difficulty: 3
   prompt: 'Implement weighted sampling from scratch: normalize weights to probabilities,
     build cumulative distribution, sample with replacement.'
@@ -775,7 +758,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_dl_router
-  role: ml_researcher
   skill: deep_learning
   difficulty: 5
   prompt: 'Implement a Top-k router for a Mixture-of-Experts layer: gate logits, top-k
@@ -811,7 +793,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mr_dl_lb
-  role: ml_researcher
   skill: deep_learning
   difficulty: 5
   prompt: 'Implement the Switch-Transformer load balancing loss: f_i (fraction of
@@ -843,7 +824,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mi_sys_batcher
-  role: ml_infra_engineer
   skill: systems
   difficulty: 3
   prompt: Implement a RequestBatcher that groups incoming requests into full 
@@ -885,7 +865,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mi_sys_crawler
-  role: ml_infra_engineer
   skill: systems
   difficulty: 4
   prompt: Implement a concurrent web crawler using HtmlParser that visits all 
@@ -932,7 +911,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mi_sys_reorder
-  role: ml_infra_engineer
   skill: systems
   difficulty: 4
   prompt: Reorder tokens by their expert assignments so tokens for the same 
@@ -966,7 +944,6 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.35
 - id: mi_sys_cache
-  role: ml_infra_engineer
   skill: systems
   difficulty: 5
   prompt: 'Implement a sparsity-aware cache: track popularity per expert, on miss

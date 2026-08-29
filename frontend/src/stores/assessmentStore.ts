@@ -21,8 +21,6 @@ export interface ResultWithFeedback {
 interface AssessmentState {
   sessionId: string | null;
   candidate: string;
-  role: string;
-  roleName: string;
   currentTask: Task | null;
   taskIndex: number;
   totalTasks: number;
@@ -34,7 +32,7 @@ interface AssessmentState {
   error: string | null;
   submitted: boolean;
 
-  startAssessment: (name: string, role: string) => Promise<void>;
+  startAssessment: (name: string) => Promise<void>;
   resumeSession: (response: ResumeResponse) => void;
   submitAnswer: (taskId: string, answer: string, hintsUsed?: string[]) => Promise<void>;
   loadReport: () => Promise<void>;
@@ -60,8 +58,6 @@ const SESSION_KEY = 'ai_coach_session_id';
 export const useAssessmentStore = create<AssessmentState>((set, get) => ({
   sessionId: null,
   candidate: '',
-  role: '',
-  roleName: '',
   currentTask: null,
   taskIndex: 0,
   totalTasks: 0,
@@ -87,8 +83,6 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
     set({
       sessionId: res.session_id,
       candidate: res.candidate,
-      role: res.role,
-      roleName: res.role_name,
       currentTask: res.current_task,
       taskIndex: res.task_index,
       totalTasks: res.total_tasks,
@@ -101,17 +95,15 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
     get().addLog(`Resumed assessment for ${res.candidate} (${res.task_index}/${res.total_tasks})`);
   },
 
-  startAssessment: async (name, role) => {
+  startAssessment: async (name) => {
     set({ loading: true, error: null });
-    get().addLog(`Starting assessment for "${name}" targeting ${role}...`);
+    get().addLog(`Starting assessment for "${name}"...`);
     try {
-      const res = await apiClient.start(name, role);
+      const res = await apiClient.start(name);
       localStorage.setItem(SESSION_KEY, res.session_id);
       set({
         sessionId: res.session_id,
         candidate: name,
-        role,
-        roleName: res.role_name,
         currentTask: res.first_task,
         taskIndex: 0,
         totalTasks: res.total_tasks,

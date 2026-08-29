@@ -6,6 +6,7 @@ import 'highlight.js/styles/vs2015.css';
 import { useAssessmentStore } from '../../stores/assessmentStore';
 import type { ResultWithFeedback } from '../../stores/assessmentStore';
 import { CodeBlock } from '../CodeBlock/CodeBlock';
+import { normalizeMarkdownFences } from '../../lib/markdown';
 
 export function FeedbackPanel() {
   const { results, loading } = useAssessmentStore();
@@ -153,7 +154,7 @@ function FeedbackItem({
               ),
             }}
           >
-            {feedback}
+            {normalizeMarkdownFences(feedback)}
           </ReactMarkdown>
         </div>
       )}

@@ -5,6 +5,8 @@ Generates a competency profile with scores, confidence, and evidence.
 
 from core.session import Session, SkillState
 
+ASSESSMENT_TITLE = "AI/ML Skills Assessment"
+
 
 def build_report(session: Session) -> dict:
     """Build final assessment report.
@@ -12,7 +14,7 @@ def build_report(session: Session) -> dict:
     Returns:
         Dictionary containing:
         - candidate: Candidate name
-        - role: Role name
+        - title: Assessment title
         - overall_score: Weighted overall score (0.0 - 1.0)
         - verdict: Readiness assessment
         - skill_breakdown: Per-skill scores with evidence
@@ -23,7 +25,7 @@ def build_report(session: Session) -> dict:
     total_weighted_score = 0.0
     total_weight = 0.0
 
-    for skill_cfg in session.role_cfg.get("skills", []):
+    for skill_cfg in session.skills_cfg:
         skill_id = skill_cfg["id"]
         state = session.get_skill_state(skill_id)
         importance = skill_cfg.get("importance", 3)
@@ -73,7 +75,7 @@ def build_report(session: Session) -> dict:
 
     return {
         "candidate": session.candidate,
-        "role": session.role_cfg["name"],
+        "title": ASSESSMENT_TITLE,
         "overall_score": overall,
         "verdict": verdict,
         "skill_breakdown": skills,

@@ -10,14 +10,17 @@ SKILLS = [
     "deep_learning",
     "math_stats",
     "experimentation",
-    "research_coding",
+    "coding",
+    "systems",
+    "mlops",
+    "cloud",
+    "data_eng",
 ]
 
 
 def make_task(i, skill, difficulty=2):
     return {
         "id": f"t{i}",
-        "role": "ml_researcher",
         "skill": skill,
         "difficulty": difficulty,
         "prompt": f"Implement function {i}.",
@@ -26,7 +29,7 @@ def make_task(i, skill, difficulty=2):
 
 
 def make_session(tasks):
-    return Session("candidate", "ml_researcher", tasks=tasks)
+    return Session("candidate", tasks=tasks)
 
 
 def test_next_task_none_when_exhausted():
@@ -53,6 +56,7 @@ def test_next_task_prefers_matched_difficulty():
 def test_probes_all_skills_before_revisiting():
     tasks = [make_task(i, skill) for i, skill in enumerate(SKILLS)]
     session = make_session(tasks)
+    session.max_time_min = 1000.0  # keep the 45-min budget from truncating the probe
     seen_skills = []
     for _ in range(len(tasks)):
         task = next_task(session)
@@ -68,7 +72,7 @@ def test_probes_all_skills_before_revisiting():
 
 def test_time_budget_terminates():
     session = make_session([make_task(0, "ml_fundamentals"), make_task(1, "deep_learning")])
-    session.role_cfg["max_time_min"] = 0.0
+    session.max_time_min = 0.0
     assert next_task(session) is None
 
 
@@ -94,3 +98,18 @@ def test_expected_time_model():
     assert hard > base
     override = expected_time({"difficulty": 1, "expected_time_min": 2.5})
     assert override == pytest.approx(2.5)
+
+
+def test_unified_bank_includes_all_former_roles():
+    # A fresh session loads every task (no role filter), so tasks from both
+    # former role trees are eligible for any candidate.
+    session = Session("candidate")
+    skills = {t["skill"] for t in session.tasks}
+    assert len(session.tasks) == 30
+    assert "ml_fundamentals" in skills  # researcher-era skill
+    assert "systems" in skills          # infra-era skill
+    # The picker can choose from any former role in one pass.
+    session.max_time_min = 0.0  # force selection (no termination yet)
+    first = next_task(Session("candidate"))
+    second = next_task(session)
+    assert first is not None and second is None

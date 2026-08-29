@@ -8,20 +8,9 @@ import { ChatLog } from './components/ChatLog/ChatLog';
 import { ReportView } from './components/Report/ReportView';
 import { Splitter } from './components/Splitter/Splitter';
 
-const roles = [
-  { value: 'ml_researcher', label: 'ML Researcher' },
-  { value: 'ml_infra_engineer', label: 'ML Infra Engineer' },
-];
-
-const roleLabels: Record<string, string> = {
-  ml_researcher: 'ML Researcher',
-  ml_infra_engineer: 'ML Infra Engineer',
-};
-
 function StartScreen() {
   const { startAssessment, resumeSession, loading } = useAssessmentStore();
   const [name, setName] = useState('');
-  const [role, setRole] = useState('ml_researcher');
   const [sessions, setSessions] = useState<UnifiedSession[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
 
@@ -44,7 +33,7 @@ function StartScreen() {
 
   const handleStart = () => {
     if (name.trim()) {
-      startAssessment(name.trim(), role);
+      startAssessment(name.trim());
     }
   };
 
@@ -118,7 +107,6 @@ function StartScreen() {
                     }`}>
                       {s.status === 'active' ? 'ACTIVE' : 'DONE'}
                     </span>
-                    {roleLabels[s.role] ?? s.role}
                     {s.score != null && ` — ${(s.score * 100).toFixed(0)}%`}
                     {' — '}
                     {new Date(s.updated_at).toLocaleString()}
@@ -148,27 +136,6 @@ function StartScreen() {
             <span className="bg-[var(--color-bg-secondary)] px-2 text-[var(--color-text-muted)]">
               or start new
             </span>
-          </div>
-        </div>
-
-        <div>
-          <label className="mb-1 block text-xs font-semibold text-[var(--color-text-muted)]">
-            Target Role
-          </label>
-          <div className="grid grid-cols-2 gap-2">
-            {roles.map((r) => (
-              <button
-                key={r.value}
-                onClick={() => setRole(r.value)}
-                className={`rounded-lg border px-4 py-3 text-sm font-medium transition-all ${
-                  role === r.value
-                    ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]'
-                    : 'border-[var(--color-border-default)] bg-[var(--color-bg-primary)] text-[var(--color-text-secondary)] hover:border-[var(--color-accent)]/50'
-                }`}
-              >
-                {r.label}
-              </button>
-            ))}
           </div>
         </div>
 

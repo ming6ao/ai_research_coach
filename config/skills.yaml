@@ -1,0 +1,38 @@
+max_time_min: 45
+skills:
+- id: ml_fundamentals
+  name: ML Fundamentals
+  description: Core ML concepts, algorithms, and theory
+  importance: 5
+- id: deep_learning
+  name: Deep Learning
+  description: Neural network architectures, training, and optimization
+  importance: 5
+- id: math_stats
+  name: Math & Statistics
+  description: Linear algebra, probability, statistical inference
+  importance: 4
+- id: experimentation
+  name: Experimentation & Evaluation
+  description: Experimental design, metrics, statistical significance
+  importance: 4
+- id: coding
+  name: Programming & Implementation
+  description: Python, NumPy, PyTorch, Go, Bash implementation skills
+  importance: 5
+- id: systems
+  name: Systems & Distributed Computing
+  description: OS, networking, distributed systems fundamentals
+  importance: 4
+- id: mlops
+  name: MLOps & Pipelines
+  description: CI/CD, model deployment, monitoring
+  importance: 4
+- id: cloud
+  name: Cloud & Containers
+  description: Docker, Kubernetes, cloud services
+  importance: 4
+- id: data_eng
+  name: Data Engineering
+  description: Data pipelines, streaming, storage
+  importance: 4

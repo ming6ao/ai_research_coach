@@ -16,7 +16,6 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS active_sessions (
     session_id TEXT PRIMARY KEY,
     candidate TEXT NOT NULL,
-    role TEXT NOT NULL,
     session_json TEXT NOT NULL,
     feedback_json TEXT DEFAULT '[]',
     updated_at TEXT NOT NULL
@@ -43,13 +42,13 @@ def _utcnow() -> str:
 class SessionState:
     """SQLite-backed session state store."""
 
-    def create(self, candidate: str, role: str) -> str:
+    def create(self, candidate: str) -> str:
         sid = uuid.uuid4().hex[:12]
         now = _utcnow()
         with _connect() as conn:
             conn.execute(
-                "INSERT INTO active_sessions (session_id, candidate, role, session_json, feedback_json, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (sid, candidate, role, "{}", "[]", now),
+                "INSERT INTO active_sessions (session_id, candidate, session_json, feedback_json, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (sid, candidate, "{}", "[]", now),
             )
         return sid
 
@@ -95,21 +94,21 @@ class SessionState:
     def list_active(self) -> List[Dict[str, Any]]:
         with _connect() as conn:
             rows = conn.execute(
-                "SELECT session_id, candidate, role, updated_at FROM active_sessions ORDER BY updated_at DESC"
+                "SELECT session_id, candidate, updated_at FROM active_sessions ORDER BY updated_at DESC"
             ).fetchall()
         return [
-            {"session_id": r[0], "candidate": r[1], "role": r[2], "updated_at": r[3]}
+            {"session_id": r[0], "candidate": r[1], "updated_at": r[2]}
             for r in rows
         ]
 
     def list_by_candidate(self, candidate: str) -> List[Dict[str, Any]]:
         with _connect() as conn:
             rows = conn.execute(
-                "SELECT session_id, candidate, role, updated_at FROM active_sessions WHERE candidate = ? ORDER BY updated_at DESC",
+                "SELECT session_id, candidate, updated_at FROM active_sessions WHERE candidate = ? ORDER BY updated_at DESC",
                 (candidate,),
             ).fetchall()
         return [
-            {"session_id": r[0], "candidate": r[1], "role": r[2], "updated_at": r[3]}
+            {"session_id": r[0], "candidate": r[1], "updated_at": r[2]}
             for r in rows
         ]
 

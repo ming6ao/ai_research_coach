@@ -37,7 +37,6 @@ export interface StartResponse {
   message: string;
   total_tasks: number;
   first_task: Task | null;
-  role_name: string;
 }
 
 export interface SubmitResponse {
@@ -52,8 +51,6 @@ export interface SubmitResponse {
 export interface ResumeResponse {
   session_id: string;
   candidate: string;
-  role: string;
-  role_name: string;
   total_tasks: number;
   task_index: number;
   current_task: Task | null;
@@ -84,7 +81,7 @@ export interface SkillBreakdown {
 export interface Report {
   assessment_id: string;
   candidate: string;
-  role: string;
+  title: string;
   overall_score: number;
   verdict: string;
   skill_breakdown: Record<string, SkillBreakdown>;
@@ -109,7 +106,6 @@ async function api<T>(path: string, body?: unknown, method?: string): Promise<T>
 export interface UnifiedSession {
   id: string;
   candidate: string;
-  role: string;
   status: 'active' | 'completed';
   updated_at: string;
   score: number | null;
@@ -117,8 +113,8 @@ export interface UnifiedSession {
 }
 
 export const apiClient = {
-  start: (candidate_name: string, target_role: string) =>
-    api<StartResponse>('/start', { candidate_name, target_role }),
+  start: (candidate_name: string) =>
+    api<StartResponse>('/start', { candidate_name }),
 
   submit: (session_id: string, task_id: string, answer: string, hints_used: string[] = []) =>
     api<SubmitResponse>('/submit', { session_id, task_id, answer, hints_used }),

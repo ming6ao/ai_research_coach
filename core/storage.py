@@ -11,7 +11,6 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS assessments (
     id TEXT PRIMARY KEY,
     candidate TEXT NOT NULL,
-    role TEXT NOT NULL,
     finished_at TEXT NOT NULL,
     overall_score REAL,
     verdict TEXT,
@@ -43,13 +42,12 @@ def save_assessment(session, report: dict) -> str:
         conn.execute(
             """
             INSERT INTO assessments
-              (id, candidate, role, finished_at, overall_score, verdict, report_json, session_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              (id, candidate, finished_at, overall_score, verdict, report_json, session_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 aid,
                 session.candidate,
-                session.role,
                 _utcnow(),
                 report.get("overall_score"),
                 report.get("verdict"),
@@ -79,7 +77,7 @@ def list_assessments(limit: int = 50) -> list:
     with _connect() as conn:
         rows = conn.execute(
             """
-            SELECT id, candidate, role, finished_at, overall_score, verdict
+            SELECT id, candidate, finished_at, overall_score, verdict
             FROM assessments
             ORDER BY finished_at DESC
             LIMIT ?
@@ -90,10 +88,9 @@ def list_assessments(limit: int = 50) -> list:
         {
             "id": r[0],
             "candidate": r[1],
-            "role": r[2],
-            "finished_at": r[3],
-            "overall_score": r[4],
-            "verdict": r[5],
+            "finished_at": r[2],
+            "overall_score": r[3],
+            "verdict": r[4],
         }
         for r in rows
     ]
@@ -103,7 +100,7 @@ def list_assessments_by_candidate(candidate: str) -> list:
     with _connect() as conn:
         rows = conn.execute(
             """
-            SELECT id, candidate, role, finished_at, overall_score, verdict
+            SELECT id, candidate, finished_at, overall_score, verdict
             FROM assessments
             WHERE candidate = ?
             ORDER BY finished_at DESC
@@ -114,10 +111,9 @@ def list_assessments_by_candidate(candidate: str) -> list:
         {
             "id": r[0],
             "candidate": r[1],
-            "role": r[2],
-            "finished_at": r[3],
-            "overall_score": r[4],
-            "verdict": r[5],
+            "finished_at": r[2],
+            "overall_score": r[3],
+            "verdict": r[4],
         }
         for r in rows
     ]

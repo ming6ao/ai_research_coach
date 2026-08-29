@@ -47,8 +47,12 @@ class SkillState:
 
 @dataclass
 class Session:
+    """A candidate's assessment session against the unified skill tree.
+
+    All candidates are evaluated the same way: every task in the bank is
+    eligible and the same skill tree is measured for everyone.
+    """
     candidate: str
-    role: str
     tasks: List[dict] = field(default_factory=list)
     index: int = 0
     results: List[EvaluationResult] = field(default_factory=list)
@@ -57,19 +61,15 @@ class Session:
     viewed_hints: Dict[str, List[str]] = field(default_factory=dict)
 
     def __post_init__(self):
+        cfg = load_yaml("skills.yaml")
+        self.skills_cfg = cfg.get("skills", [])
+        self.max_time_min = float(cfg.get("max_time_min", 45.0))
         if not self.tasks:
-            roles = load_yaml("roles.yaml")["roles"]
-            if self.role not in roles:
-                raise ValueError(f"Unknown role: {self.role}")
-            self.role_cfg = roles[self.role]
             all_tasks = load_yaml("tasks.yaml")["tasks"]
-            self.tasks = [t for t in all_tasks if t.get("role") == self.role]
-        else:
-            roles = load_yaml("roles.yaml")["roles"]
-            self.role_cfg = roles[self.role]
+            self.tasks = list(all_tasks)
 
-        # Initialize skill states for all skills in the role
-        for skill in self.role_cfg["skills"]:
+        # Initialize skill states for all skills in the tree
+        for skill in self.skills_cfg:
             if skill["id"] not in self.skill_states:
                 self.skill_states[skill["id"]] = SkillState()
 
@@ -79,10 +79,16 @@ class Session:
             self.skill_states[skill_id] = SkillState()
         return self.skill_states[skill_id]
 
+    def get_skill_cfg(self, skill_id: str) -> dict:
+        """Get the config block for a skill, or an importance-3 default."""
+        for skill in self.skills_cfg:
+            if skill["id"] == skill_id:
+                return skill
+        return {"id": skill_id, "name": skill_id, "importance": 3}
+
     def to_dict(self):
         return {
             "candidate": self.candidate,
-            "role": self.role,
             "tasks": self.tasks,
             "index": self.index,
             "results": [r.to_dict() for r in self.results],
@@ -93,7 +99,7 @@ class Session:
 
     @classmethod
     def from_dict(cls, d):
-        s = cls(candidate=d["candidate"], role=d["role"], tasks=d["tasks"], index=d["index"])
+        s = cls(candidate=d["candidate"], tasks=d["tasks"], index=d["index"])
         s.results = [EvaluationResult.from_dict(r) for r in d["results"]]
         s.skill_states = {
             k: SkillState.from_dict(v) for k, v in d.get("skill_states", {}).items()

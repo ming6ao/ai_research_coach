@@ -86,11 +86,8 @@ def expected_time(task: dict) -> float:
 
 
 def _get_skill_importance(skill_id: str, session: Session) -> int:
-    """Get importance value for a skill from role config."""
-    for skill in session.role_cfg.get("skills", []):
-        if skill["id"] == skill_id:
-            return skill.get("importance", 3)
-    return 3  # Default importance
+    """Get importance value for a skill from the unified skill tree."""
+    return session.get_skill_cfg(skill_id).get("importance", 3)
 
 
 def _elapsed_time(session: Session) -> float:
@@ -101,7 +98,7 @@ def _elapsed_time(session: Session) -> float:
 
 
 def _max_time_min(session: Session) -> float:
-    return float(session.role_cfg.get("max_time_min", DEFAULT_MAX_TIME_MIN))
+    return session.max_time_min
 
 
 def _should_terminate(session: Session) -> bool:
@@ -122,7 +119,7 @@ def _should_terminate(session: Session) -> bool:
         return False
 
     important_skills = [
-        s for s in session.role_cfg.get("skills", [])
+        s for s in session.skills_cfg
         if s.get("importance", 3) >= IMPORTANT_SKILL_THRESHOLD
     ]
     if not important_skills:

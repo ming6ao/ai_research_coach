@@ -25,7 +25,7 @@ class FakeToolContext:
 def start_session(monkeypatch):
     monkeypatch.setattr(agent, "LLMJudge", FakeJudge)
     ctx = FakeToolContext()
-    started = agent.start_assessment("candidate", "ml_researcher", ctx)
+    started = agent.start_assessment("candidate", ctx)
     assert "error" not in started
     return ctx, started
 

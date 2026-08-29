@@ -23,29 +23,28 @@ from core.storage import save_assessment, list_assessments
 from evaluators.judge import LLMJudge
 
 
-def start_assessment(candidate_name: str, target_role: str, tool_context: ToolContext) -> dict:
-    """Begin an evaluation for a candidate targeting a role ('ml_researcher' or 'ml_infra_engineer'). Returns the first task.
+def start_assessment(candidate_name: str, tool_context: ToolContext) -> dict:
+    """Begin an evaluation for a candidate. Returns the first task.
 
-    Idempotent: if a session already exists for the same candidate and role, it resumes it instead of starting over.
+    All candidates are assessed against the same unified skill tree and task
+    bank. Idempotent: if a session already exists for the candidate, it resumes
+    it instead of starting over.
     """
     existing = tool_context.state.get("session")
-    if existing and existing.get("candidate") == candidate_name and existing.get("role") == target_role:
+    if existing and existing.get("candidate") == candidate_name:
         session = Session.from_dict(existing)
         task = next_task(session)
         return {
-            "message": f"Resumed existing assessment for {session.role_cfg['name']}.",
+            "message": f"Resumed existing assessment for {session.candidate}.",
             "total_tasks": len(session.tasks),
             "completed": session.index,
             "next_task": _task_view(task, session) if task else None,
         }
-    try:
-        session = Session(candidate_name, target_role)
-    except ValueError as e:
-        return {"error": str(e)}
+    session = Session(candidate_name)
     tool_context.state["session"] = session.to_dict()
     task = next_task(session)
     return {
-        "message": f"Assessment started for {session.role_cfg['name']}.",
+        "message": f"Assessment started for {session.candidate}.",
         "total_tasks": len(session.tasks),
         "first_task": _task_view(task, session),
     }
@@ -196,10 +195,11 @@ def _task_view(task: dict, session: Session) -> dict:
 root_agent = Agent(
     model=Gemini(model=CONV_MODEL, retry_options=http_retry_options()),
     name="ai_research_coach",
-    description="Evaluates a candidate's AI/ML understanding and coding skills for ML Researcher or ML Infra Engineer roles.",
+    description="Evaluates a candidate's AI/ML understanding and coding skills across a unified skill tree.",
     instruction=(
-        "You are an evaluation coach. To assess a candidate, call start_assessment with their name and target role "
-        "('ml_researcher' or 'ml_infra_engineer'). Present one coding task at a time from the returned 'first_task'/'next_task'. "
+        "You are an evaluation coach. To assess a candidate, call start_assessment with their name. "
+        "All candidates are evaluated identically against the same skill tree. "
+        "Present one coding task at a time from the returned 'first_task'/'next_task'. "
         "Each task includes a 'hints' list; present the pre_revealed hints (pre_revealed is true) as optional help before the candidate "
         "starts, and offer the others as requestable. If the candidate asks for help, call request_hint and show the returned hint. "
         "Collect the candidate's code solution and call submit_answer with the task id, their answer, and the list of hint ids the "

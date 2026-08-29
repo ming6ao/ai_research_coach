@@ -28,7 +28,9 @@ where 0 is completely wrong/empty, {max_score} is correct and complete;
 (this will appear in a report as evidence, so be specific but brief);
   "feedback": educational feedback for the user explaining what went wrong \
 and how to fix it, or why the solution is correct. \
-Use triple-backtick python fenced blocks for any corrected or exemplary code."""
+Use triple-backtick python fenced blocks for any corrected or exemplary code, \
+with a blank line before and after each code block (the opening fence must \
+start on its own line)."""
 
 
 class LLMJudge:

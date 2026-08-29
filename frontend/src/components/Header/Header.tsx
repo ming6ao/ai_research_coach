@@ -1,7 +1,9 @@
 import { useAssessmentStore } from '../../stores/assessmentStore';
 
+const TITLE = 'Skills Assessment';
+
 export function Header() {
-  const { roleName, candidate, taskIndex, totalTasks, skillStates, currentTask, report } = useAssessmentStore();
+  const { candidate, taskIndex, totalTasks, skillStates, currentTask, report } = useAssessmentStore();
 
   const totalScore = Object.values(skillStates).reduce((sum, s) => sum + s.score, 0);
   const skillCount = Object.keys(skillStates).length;
@@ -18,7 +20,7 @@ export function Header() {
               COMPLETE
             </span>
             <span className="text-sm text-[var(--color-text-secondary)]">
-              {candidate} &middot; {report.role}
+              {candidate} &middot; {report.title}
             </span>
           </div>
           <div className="text-sm text-[var(--color-text-secondary)]">
@@ -34,7 +36,7 @@ export function Header() {
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <span className="rounded-full bg-[var(--color-accent)] px-3 py-1 text-xs font-semibold text-white">
-            {roleName || 'Assessment'}
+            {TITLE}
           </span>
           <span className="text-sm text-[var(--color-text-secondary)]">
             {candidate}
