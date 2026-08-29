@@ -1,14 +1,11 @@
 import { useEffect, useRef } from 'react';
-import hljs from 'highlight.js/lib/core';
-import python from 'highlight.js/lib/languages/python';
 import ReactMarkdown from 'react-markdown';
 import renderMathInElement from 'katex/dist/contrib/auto-render';
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/vs2015.css';
 import { useAssessmentStore } from '../../stores/assessmentStore';
 import type { ResultWithFeedback } from '../../stores/assessmentStore';
-
-hljs.registerLanguage('python', python);
+import { CodeBlock } from '../CodeBlock/CodeBlock';
 
 export function FeedbackPanel() {
   const { results, loading } = useAssessmentStore();
@@ -127,22 +124,39 @@ function FeedbackItem({
       {/* User answer */}
       <div className="mb-3">
         <p className="text-sm font-medium text-[var(--color-text-muted)]">Your answer:</p>
-        <div className="mt-2 overflow-auto rounded-lg border border-[var(--color-border-default)]">
-          <pre className="m-0 p-3 text-[14px] leading-[1.5] [tab-size:4]" style={{ background: '#1e1e1e', fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
-            <code
-              className="language-python"
-              dangerouslySetInnerHTML={{
-                __html: hljs.highlight(userAnswer ?? '', { language: 'python' }).value,
-              }}
-            />
-          </pre>
+        <div className="mt-2">
+          <CodeBlock code={userAnswer ?? ''} />
         </div>
       </div>
 
       {/* Feedback */}
       {feedback && (
         <div ref={feedbackRef} className="prose prose-invert prose-lg max-w-none text-base my-4">
-          <ReactMarkdown>{feedback}</ReactMarkdown>
+          <ReactMarkdown
+            components={{
+              pre({ children }) {
+                return <>{children}</>;
+              },
+              code({ className, children, ...props }) {
+                const text = String(children);
+                const lang = /language-(\w+)/.exec(className ?? '')?.[1];
+                const isBlock = Boolean(lang) || text.includes('\n');
+                if (isBlock) {
+                  return <CodeBlock code={text} language={lang ?? 'python'} />;
+                }
+                return (
+                  <code
+                    className="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 font-mono text-[0.9em] text-[var(--color-text-primary)]"
+                    {...props}
+                  >
+                    {children}
+                  </code>
+                );
+              },
+            }}
+          >
+            {feedback}
+          </ReactMarkdown>
         </div>
       )}
 

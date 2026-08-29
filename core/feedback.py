@@ -48,7 +48,9 @@ def generate_feedback(
     system = (
         "You are a helpful ML tutor. Explain what went wrong with the code "
         "and how to fix it. If all tests passed, explain why the solution works. "
-        "Focus on the key concept being tested. Be concise but educational."
+        "Focus on the key concept being tested. Be concise but educational. "
+        "Always wrap any code you show (including a corrected implementation) "
+        "in a triple-backtick python fenced block."
     )
     user = (
         f"Task: {question}\n"
