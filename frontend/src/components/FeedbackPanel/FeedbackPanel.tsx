@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import renderMathInElement from 'katex/dist/contrib/auto-render';
+import 'katex/dist/katex.min.css';
 import { useAssessmentStore } from '../../stores/assessmentStore';
 
 export function FeedbackPanel() {
@@ -59,6 +61,19 @@ function FeedbackItem({
   index: number;
   isLatest: boolean;
 }) {
+  const feedbackRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (feedbackRef.current) {
+      renderMathInElement(feedbackRef.current, {
+        delimiters: [
+          { left: '$$', right: '$$', display: true },
+          { left: '$', right: '$', display: false },
+        ],
+      });
+    }
+  });
+
   const { result, feedback, prompt, type, skill, userAnswer } = entry;
   const pct = result.max_score > 0 ? (result.score / result.max_score) * 100 : 0;
   const barColor =
@@ -119,7 +134,7 @@ function FeedbackItem({
 
       {/* Feedback */}
       {feedback && (
-        <div className="prose prose-invert prose-lg max-w-none text-base my-4">
+        <div ref={feedbackRef} className="prose prose-invert prose-lg max-w-none text-base my-4">
           <ReactMarkdown>{feedback}</ReactMarkdown>
         </div>
       )}
