@@ -153,8 +153,7 @@ def submit_answer(req: SubmitRequest):
     from core.session import Session, SkillState
     from core.picker import next_task
     from core.score import update_skill_score
-    from core.feedback import generate_feedback
-    from evaluators.code import CodeEvaluator
+    from evaluators.judge import LLMJudge
     from app.agent import _task_view
 
     store = get_store()
@@ -179,7 +178,7 @@ def submit_answer(req: SubmitRequest):
             "note": "Already answered.",
         }
 
-    result = CodeEvaluator().evaluate(task, req.answer)
+    result, feedback = LLMJudge().evaluate(task, req.answer)
 
     skill_id = task["skill"]
     state_obj = session.get_skill_state(skill_id)
@@ -199,8 +198,6 @@ def submit_answer(req: SubmitRequest):
     session.asked_task_ids.add(req.task_id)
     session.results.append(result)
     session.index += 1
-
-    feedback = generate_feedback(task, req.answer, result.to_dict())
 
     feedback_entry = {
         "task_id": task["id"],

@@ -16,10 +16,10 @@ from core.config import CONV_MODEL, http_retry_options
 from core.session import Session
 from core.picker import next_task
 from core.score import update_skill_score
-from core.feedback import generate_feedback
+
 from core.report import build_report
 from core.storage import save_assessment, list_assessments
-from evaluators.code import CodeEvaluator
+from evaluators.judge import LLMJudge
 
 
 def start_assessment(candidate_name: str, target_role: str, tool_context: ToolContext) -> dict:
@@ -70,7 +70,7 @@ def submit_answer(task_id: str, answer: str, tool_context: ToolContext) -> dict:
             "remaining": len(session.tasks) - session.index,
             "note": "Answer was already recorded; returning the stored result.",
         }
-    result = CodeEvaluator().evaluate(task, answer)
+    result, feedback = LLMJudge().evaluate(task, answer)
 
     # Update skill state with the new score
     skill_id = task["skill"]
@@ -99,9 +99,6 @@ def submit_answer(task_id: str, answer: str, tool_context: ToolContext) -> dict:
 
     # Save updated session
     tool_context.state["session"] = session.to_dict()
-
-    # Generate learning feedback
-    feedback = generate_feedback(task, answer, result.to_dict())
 
     nxt = next_task(session)
     return {
@@ -145,8 +142,6 @@ def _build_code_stub(task: dict):
     if m:
         name, params = m.group(1), m.group(2)
         return f"def {name}({params}):\n    # TODO: implement {name}\n    pass\n"
-    if task.get("function_name"):
-        return f"def {task['function_name']}(*args, **kwargs):\n    # TODO: implement {task['function_name']}\n    pass\n"
     return None
 
 

@@ -7,7 +7,6 @@ export interface Task {
   prompt: string;
   difficulty: number;
   scaffold?: string;
-  function_name?: string;
 }
 
 export interface EvaluationResult {

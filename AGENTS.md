@@ -36,14 +36,14 @@ adk web --port 8000
 
 - **Entry point**: `app/agent.py` defines `root_agent` (ADK Agent with 4 tools)
 - **Config-driven**: Roles/tasks in `config/roles.yaml` and `config/tasks.yaml` — no code changes to extend
-- **Code eval**: `evaluators/code.py` runs candidate code in subprocess with 15s timeout (function OR scaffold mode)
-- **Feedback**: `core/feedback.py` generates LLM-based learning feedback after each answer
+- **Code eval**: `evaluators/judge.py` evaluates candidate code via a single structured LLM call (score + rationale + feedback)
+- **Feedback**: Integrated into the judge call — no separate feedback step
 - **Persistence**: SQLite at `data/coach.db` (gitignored)
-- **Models**: `EVAL_CONV_MODEL` (agent) and `EVAL_MODEL` (feedback) default to `gemini-3.5-flash-lite`
+- **Models**: `EVAL_CONV_MODEL` (agent) and `EVAL_MODEL` (judge/feedback) default to `gemini-3.5-flash-lite`
 
 ## Extending Without Code Changes
 
-- **Add question**: Append to `config/tasks.yaml` with unique `id`, `role`, `skill`, and code scoring fields
+- **Add question**: Append to `config/tasks.yaml` with unique `id`, `role`, `skill`, and `prompt`
 - **Add skill**: Add under role in `config/roles.yaml`
 - **Add role**: New block in `config/roles.yaml`, then tag tasks with that `role`
 - **Change model**: Set `EVAL_CONV_MODEL` or `EVAL_MODEL` in `.env`
@@ -52,8 +52,8 @@ adk web --port 8000
 
 | Mode | Required | Scoring |
 |------|----------|---------|
-| `code` (function) | `function_name`, `tests`, `tolerance` | Per-test pass, partial credit |
-| `code` (scaffold) | `scaffold`, `tests` | Hidden assertions, partial credit |
+| `code` (function) | `prompt` | LLM judge returns score (0..max_score) + rationale + feedback |
+| `code` (scaffold) | `scaffold`, `prompt` | LLM judge returns score (0..max_score) + rationale + feedback |
 
 ## Environment Variables
 
@@ -88,6 +88,5 @@ EVAL_RETRY_MAX_DELAY=30.0       # Max backoff (seconds)
 ## Gotchas
 
 - `.venv` is the virtualenv; `run.sh` uses `.venv/bin/uvicorn` directly
-- Code evaluator writes candidate code to temp files — requires write access to `/tmp`
 - `data/` directory is gitignored; SQLite DB created on first assessment
 - The `.env` file contains a real API key — do not commit changes to it
