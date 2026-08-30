@@ -10,10 +10,13 @@ import { normalizeMarkdownFences, splitMathChildren } from '../../lib/markdown';
 interface Props {
   task: Task;
   onSubmit: (taskId: string, answer: string, hintsUsed: string[]) => void;
+  onSkip?: () => void;
+  onEndPractice?: () => void;
+  mode: 'assessment' | 'practice';
   disabled: boolean;
 }
 
-export function CodeTask({ task, onSubmit, disabled }: Props) {
+export function CodeTask({ task, onSubmit, onSkip, onEndPractice, mode, disabled }: Props) {
   const [code, setCode] = useState(task.scaffold ?? '');
   const [viewed, setViewed] = useState<Set<string>>(
     () => new Set((task.hints ?? []).filter((h) => h.pre_revealed).map((h) => h.id))
@@ -101,7 +104,7 @@ export function CodeTask({ task, onSubmit, disabled }: Props) {
                 &#43; Request hint
               </button>
             )}
-            {viewed.size > 0 && (
+            {viewed.size > 0 && mode === 'assessment' && (
               <p className="text-xs text-[var(--color-text-muted)]">
                 Using help adjusts your mastery for this task.
               </p>
@@ -136,15 +139,36 @@ export function CodeTask({ task, onSubmit, disabled }: Props) {
 
       <div className="flex items-center justify-between border-t border-[var(--color-border-default)] pt-3">
         <p className="text-xs text-[var(--color-text-muted)]">
-          Write your solution in the editor above, then submit.
+          {mode === 'practice'
+            ? 'Anonymous practice — answers are not submitted or scored.'
+            : 'Write your solution in the editor above, then submit.'}
         </p>
-        <button
-          onClick={handleSubmit}
-          disabled={disabled || !code.trim()}
-          className="rounded-lg bg-[var(--color-accent)] px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Submit
-        </button>
+        {mode === 'practice' ? (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onEndPractice}
+              disabled={disabled}
+              className="rounded-lg border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-focus)] hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              End practice
+            </button>
+            <button
+              onClick={onSkip}
+              disabled={disabled}
+              className="rounded-lg bg-[var(--color-accent)] px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Skip to next question &rarr;
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={handleSubmit}
+            disabled={disabled || !code.trim()}
+            className="rounded-lg bg-[var(--color-accent)] px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Submit
+          </button>
+        )}
       </div>
     </div>
   );

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 import ReactMarkdown from 'react-markdown';
-import { normalizeMarkdownFences } from '../src/lib/markdown.ts';
+import { normalizeMarkdownFences } from '../src/lib/markdown-fences.ts';
 
 test('inserts a newline before a fence glued to prose', () => {
   const input = 'Here is the correct implementation:```python\ndef f():\n    pass\n```';

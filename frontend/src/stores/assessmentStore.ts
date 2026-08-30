@@ -21,6 +21,7 @@ export interface ResultWithFeedback {
 interface AssessmentState {
   sessionId: string | null;
   candidate: string;
+  mode: 'assessment' | 'practice';
   currentTask: Task | null;
   taskIndex: number;
   totalTasks: number;
@@ -32,9 +33,11 @@ interface AssessmentState {
   error: string | null;
   submitted: boolean;
 
-  startAssessment: (name: string) => Promise<void>;
+  startAssessment: (name: string, mode?: 'assessment' | 'practice') => Promise<void>;
   resumeSession: (response: ResumeResponse) => void;
   submitAnswer: (taskId: string, answer: string, hintsUsed?: string[]) => Promise<void>;
+  skipTask: () => Promise<void>;
+  endPractice: () => void;
   loadReport: () => Promise<void>;
   addLog: (message: string) => void;
 }
@@ -58,6 +61,7 @@ const SESSION_KEY = 'ai_coach_session_id';
 export const useAssessmentStore = create<AssessmentState>((set, get) => ({
   sessionId: null,
   candidate: '',
+  mode: 'assessment',
   currentTask: null,
   taskIndex: 0,
   totalTasks: 0,
@@ -82,7 +86,8 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
     const results = res.results.map(toResultWithFeedback);
     set({
       sessionId: res.session_id,
-      candidate: res.candidate,
+      candidate: res.mode === 'practice' ? 'Guest' : res.candidate,
+      mode: res.mode,
       currentTask: res.current_task,
       taskIndex: res.task_index,
       totalTasks: res.total_tasks,
@@ -92,18 +97,19 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       submitted: false,
     });
     localStorage.setItem(SESSION_KEY, res.session_id);
-    get().addLog(`Resumed assessment for ${res.candidate} (${res.task_index}/${res.total_tasks})`);
+    get().addLog(`Resumed ${res.mode === 'practice' ? 'practice' : `assessment for ${res.candidate}`} (${res.task_index}/${res.total_tasks})`);
   },
 
-  startAssessment: async (name) => {
+  startAssessment: async (name, mode = 'assessment') => {
     set({ loading: true, error: null });
-    get().addLog(`Starting assessment for "${name}"...`);
+    get().addLog(mode === 'practice' ? 'Starting practice mode...' : `Starting assessment for "${name}"...`);
     try {
-      const res = await apiClient.start(name);
+      const res = await apiClient.start(mode === 'practice' ? 'guest' : name, mode);
       localStorage.setItem(SESSION_KEY, res.session_id);
       set({
         sessionId: res.session_id,
-        candidate: name,
+        candidate: mode === 'practice' ? 'Guest' : name,
+        mode: res.mode,
         currentTask: res.first_task,
         taskIndex: 0,
         totalTasks: res.total_tasks,
@@ -168,6 +174,49 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
     }
   },
 
+  skipTask: async () => {
+    const { sessionId, currentTask } = get();
+    if (!sessionId || !currentTask) return;
+    set({ loading: true, error: null });
+    get().addLog(`Skipping task ${currentTask.id}...`);
+    try {
+      const res = await apiClient.skip(sessionId, currentTask.id);
+      set({
+        currentTask: res.next_task,
+        taskIndex: get().taskIndex + 1,
+      });
+      get().addLog(`Skipped — ${res.remaining} questions remaining`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      set({ error: msg });
+      get().addLog(`Error: ${msg}`);
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  endPractice: () => {
+    const { sessionId } = get();
+    if (sessionId) {
+      apiClient.deleteActiveSession(sessionId).catch(() => undefined);
+    }
+    localStorage.removeItem(SESSION_KEY);
+    set({
+      sessionId: null,
+      candidate: '',
+      mode: 'assessment',
+      currentTask: null,
+      taskIndex: 0,
+      totalTasks: 0,
+      results: [],
+      skillStates: {},
+      report: null,
+      chatLog: [],
+      error: null,
+      submitted: false,
+    });
+  },
+
   loadReport: async () => {
     const { sessionId } = get();
     if (!sessionId) return;
@@ -187,3 +236,4 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
     }
   },
 }));
+

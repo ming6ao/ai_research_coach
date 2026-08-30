@@ -51,6 +51,9 @@ class Session:
 
     All candidates are evaluated the same way: every task in the bank is
     eligible and the same skill tree is measured for everyone.
+
+    `mode` is either "assessment" (scored, with feedback) or "practice"
+    (anonymous browsing — no submission, no scoring, no feedback).
     """
     candidate: str
     tasks: List[dict] = field(default_factory=list)
@@ -59,6 +62,7 @@ class Session:
     skill_states: Dict[str, SkillState] = field(default_factory=dict)
     asked_task_ids: Set[str] = field(default_factory=set)
     viewed_hints: Dict[str, List[str]] = field(default_factory=dict)
+    mode: str = "assessment"
 
     def __post_init__(self):
         cfg = load_yaml("skills.yaml")
@@ -95,6 +99,7 @@ class Session:
             "skill_states": {k: v.to_dict() for k, v in self.skill_states.items()},
             "asked_task_ids": list(self.asked_task_ids),
             "viewed_hints": self.viewed_hints,
+            "mode": self.mode,
         }
 
     @classmethod
@@ -106,4 +111,5 @@ class Session:
         }
         s.asked_task_ids = set(d.get("asked_task_ids", []))
         s.viewed_hints = dict(d.get("viewed_hints", {}))
+        s.mode = d.get("mode", "assessment")
         return s

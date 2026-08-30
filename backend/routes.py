@@ -2,6 +2,7 @@
 
 import sys
 import json
+import uuid
 from pathlib import Path
 
 _project_root = Path(__file__).resolve().parent.parent
@@ -19,6 +20,7 @@ router = APIRouter(prefix="/api", tags=["assessment"])
 
 class StartRequest(BaseModel):
     candidate_name: str
+    mode: Optional[str] = "assessment"
 
 
 class SubmitRequest(BaseModel):
@@ -26,6 +28,11 @@ class SubmitRequest(BaseModel):
     task_id: str
     answer: str
     hints_used: Optional[List[str]] = None
+
+
+class SkipRequest(BaseModel):
+    session_id: str
+    task_id: str
 
 
 class ReportRequest(BaseModel):
@@ -102,6 +109,7 @@ def open_session(req: SessionOpenRequest):
     return {
         "session_id": session_id,
         "candidate": session.candidate,
+        "mode": session.mode,
         "total_tasks": len(session.tasks),
         "task_index": session.index,
         "current_task": _task_view(task, session) if task else None,
@@ -119,13 +127,20 @@ def start_assessment(req: StartRequest):
     from core.picker import next_task
     from app.agent import _task_view
 
+    mode = (req.mode or "assessment").lower()
+    if mode not in ("assessment", "practice"):
+        raise HTTPException(status_code=400, detail="mode must be 'assessment' or 'practice'.")
+
     store = get_store()
-    session_id = store.create(req.candidate_name)
+    candidate = req.candidate_name
+    if mode == "practice":
+        candidate = f"guest-{uuid.uuid4().hex[:8]}"
+    session_id = store.create(candidate)
 
     state = {}
     ctx = _FakeToolContext(state)
 
-    session = Session(req.candidate_name)
+    session = Session(candidate, mode=mode)
 
     ctx.state["session"] = session.to_dict()
     store.save(session_id, ctx.state)
@@ -135,6 +150,7 @@ def start_assessment(req: StartRequest):
 
     return {
         "session_id": session_id,
+        "mode": mode,
         "message": f"Assessment started for {session.candidate}.",
         "total_tasks": len(session.tasks),
         "first_task": first_task,
@@ -157,6 +173,12 @@ def submit_answer(req: SubmitRequest):
 
     session = Session.from_dict(state["session"])
     feedback_list = state.get("_feedback_list", [])
+
+    if session.mode == "practice":
+        raise HTTPException(
+            status_code=400,
+            detail="Practice (anonymous) sessions cannot be scored. Start an assessed session to submit answers.",
+        )
 
     task = next((t for t in session.tasks if t["id"] == req.task_id), None)
     if task is None:
@@ -230,6 +252,37 @@ def submit_answer(req: SubmitRequest):
     }
 
 
+@router.post("/skip")
+def skip_task(req: SkipRequest):
+    from core.session import Session
+    from core.picker import next_task
+    from app.agent import _task_view
+
+    store = get_store()
+    state = store.get(req.session_id)
+    if state is None:
+        raise HTTPException(status_code=400, detail="No active assessment.")
+
+    session = Session.from_dict(state["session"])
+    if session.mode != "practice":
+        raise HTTPException(
+            status_code=400,
+            detail="Skipping is only available in practice (anonymous) mode.",
+        )
+
+    if req.task_id not in session.asked_task_ids:
+        session.asked_task_ids.add(req.task_id)
+        session.index += 1
+        state["session"] = session.to_dict()
+        store.save(session_id=req.session_id, state=state)
+
+    nxt = next_task(session)
+    return {
+        "next_task": _task_view(nxt, session) if nxt else None,
+        "remaining": len(session.tasks) - session.index,
+    }
+
+
 @router.post("/report")
 def get_report(req: ReportRequest):
     from core.session import Session
@@ -242,6 +295,12 @@ def get_report(req: ReportRequest):
         raise HTTPException(status_code=400, detail="No active assessment.")
 
     session = Session.from_dict(state["session"])
+    if session.mode == "practice":
+        raise HTTPException(
+            status_code=400,
+            detail="Practice (anonymous) sessions have no report. Start an assessed session to get feedback.",
+        )
+
     report = build_report(session)
     report["assessment_id"] = save_assessment(session, report)
 

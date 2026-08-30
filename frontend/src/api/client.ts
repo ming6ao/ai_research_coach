@@ -34,6 +34,7 @@ export interface SkillUpdate {
 
 export interface StartResponse {
   session_id: string;
+  mode: 'assessment' | 'practice';
   message: string;
   total_tasks: number;
   first_task: Task | null;
@@ -48,9 +49,15 @@ export interface SubmitResponse {
   note?: string;
 }
 
+export interface SkipResponse {
+  next_task: Task | null;
+  remaining: number;
+}
+
 export interface ResumeResponse {
   session_id: string;
   candidate: string;
+  mode: 'assessment' | 'practice';
   total_tasks: number;
   task_index: number;
   current_task: Task | null;
@@ -113,11 +120,14 @@ export interface UnifiedSession {
 }
 
 export const apiClient = {
-  start: (candidate_name: string) =>
-    api<StartResponse>('/start', { candidate_name }),
+  start: (candidate_name: string, mode: 'assessment' | 'practice' = 'assessment') =>
+    api<StartResponse>('/start', { candidate_name, mode }),
 
   submit: (session_id: string, task_id: string, answer: string, hints_used: string[] = []) =>
     api<SubmitResponse>('/submit', { session_id, task_id, answer, hints_used }),
+
+  skip: (session_id: string, task_id: string) =>
+    api<SkipResponse>('/skip', { session_id, task_id }),
 
   report: (session_id: string) =>
     api<Report>('/report', { session_id }),
@@ -137,3 +147,4 @@ export const apiClient = {
   clearCandidateData: (candidate: string) =>
     api<{ ok: boolean; deleted: number }>(`/sessions/clear/${encodeURIComponent(candidate)}`, undefined, 'DELETE'),
 };
+

@@ -69,6 +69,13 @@ def test_time_budget_terminates():
     assert next_task(session) is None
 
 
+def test_practice_mode_bypasses_termination():
+    session = make_session([make_task(0, "ml_fundamentals"), make_task(1, "deep_learning")])
+    session.max_time_min = 0.0
+    session.mode = "practice"
+    assert next_task(session) is not None
+
+
 def test_early_termination_when_important_skills_pinned():
     session = make_session([make_task(0, "ml_fundamentals"), make_task(1, "deep_learning")])
     session.index = 15

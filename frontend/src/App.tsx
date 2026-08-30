@@ -8,8 +8,11 @@ import { ChatLog } from './components/ChatLog/ChatLog';
 import { ReportView } from './components/Report/ReportView';
 import { Splitter } from './components/Splitter/Splitter';
 
+type Mode = 'practice' | 'assessment';
+
 function StartScreen() {
   const { startAssessment, resumeSession, loading } = useAssessmentStore();
+  const [tab, setTab] = useState<Mode>('practice');
   const [name, setName] = useState('');
   const [sessions, setSessions] = useState<UnifiedSession[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
@@ -32,8 +35,10 @@ function StartScreen() {
   }, [name, loadSessions]);
 
   const handleStart = () => {
-    if (name.trim()) {
-      startAssessment(name.trim());
+    if (tab === 'practice') {
+      startAssessment('', 'practice');
+    } else if (name.trim()) {
+      startAssessment(name.trim(), 'assessment');
     }
   };
 
@@ -62,7 +67,7 @@ function StartScreen() {
   };
 
   return (
-    <div className="flex h-full items-center justify-center">
+    <div className="flex h-full items-center justify-center overflow-y-auto p-4">
       <div className="w-full max-w-md space-y-6 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-8">
         <div className="text-center">
           <h1 className="mb-1 text-2xl font-bold text-[var(--color-text-primary)]">
@@ -73,102 +78,172 @@ function StartScreen() {
           </p>
         </div>
 
-        <div>
-          <label className="mb-1 block text-xs font-semibold text-[var(--color-text-muted)]">
-            Candidate Name
-          </label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleStart()}
-            placeholder="Enter your name"
-            className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-border-focus)] focus:outline-none"
-          />
+        <div className="grid grid-cols-2 gap-1 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] p-1">
+          {(['practice', 'assessment'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
+                tab === t
+                  ? 'bg-[var(--color-accent)] text-white'
+                  : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
+              }`}
+            >
+              {t === 'practice' ? 'Practice' : 'Assessment'}
+            </button>
+          ))}
         </div>
 
-        {sessions.length > 0 && (
-          <div className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] p-4">
-            <label className="mb-2 block text-xs font-semibold text-[var(--color-text-muted)]">
-              My Sessions
-            </label>
-            <div className="space-y-1.5">
-              {sessions.map((s) => (
-                <div key={s.id} className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleClickSession(s)}
-                    disabled={loading}
-                    className="min-w-0 flex-1 truncate rounded border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2 text-left text-sm text-[var(--color-text-primary)] hover:border-[var(--color-accent)]/50"
-                  >
-                    <span className={`mr-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                      s.status === 'active'
-                        ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
-                        : 'bg-[var(--color-success)]/15 text-[var(--color-success)]'
-                    }`}>
-                      {s.status === 'active' ? 'ACTIVE' : 'DONE'}
-                    </span>
-                    {s.score != null && ` — ${(s.score * 100).toFixed(0)}%`}
-                    {' — '}
-                    {new Date(s.updated_at).toLocaleString()}
-                  </button>
-                  <button
-                    onClick={() => handleDelete(s)}
-                    className="shrink-0 rounded border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-2 py-2 text-xs text-[var(--color-text-muted)] hover:border-[var(--color-error)] hover:text-[var(--color-error)]"
-                    title="Delete session"
-                  >
-                    &#x2715;
-                  </button>
-                </div>
-              ))}
+        {tab === 'practice' ? (
+          <div className="space-y-4">
+            <p className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] p-4 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+              Try real ML interview questions with no setup. Your answers
+              aren&rsquo;t submitted or scored, and no feedback is given &mdash;
+              skip ahead anytime.
+            </p>
+            <button
+              onClick={handleStart}
+              disabled={loading}
+              className="w-full rounded-lg bg-[var(--color-accent)] py-3 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {loading ? 'Starting...' : 'Start Practicing'}
+            </button>
+          </div>
+        ) : (
+          <>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-[var(--color-text-muted)]">
+                Candidate Name
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleStart()}
+                placeholder="Enter your name"
+                className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-border-focus)] focus:outline-none"
+              />
             </div>
-          </div>
+
+            {sessions.length > 0 && (
+              <div className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] p-4">
+                <label className="mb-2 block text-xs font-semibold text-[var(--color-text-muted)]">
+                  My Sessions
+                </label>
+                <div className="space-y-1.5">
+                  {sessions.map((s) => (
+                    <div key={s.id} className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleClickSession(s)}
+                        disabled={loading}
+                        className="min-w-0 flex-1 truncate rounded border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2 text-left text-sm text-[var(--color-text-primary)] hover:border-[var(--color-accent)]/50"
+                      >
+                        <span className={`mr-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                          s.status === 'active'
+                            ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
+                            : 'bg-[var(--color-success)]/15 text-[var(--color-success)]'
+                        }`}>
+                          {s.status === 'active' ? 'ACTIVE' : 'DONE'}
+                        </span>
+                        {s.score != null && ` — ${(s.score * 100).toFixed(0)}%`}
+                        {' — '}
+                        {new Date(s.updated_at).toLocaleString()}
+                      </button>
+                      <button
+                        onClick={() => handleDelete(s)}
+                        className="shrink-0 rounded border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-2 py-2 text-xs text-[var(--color-text-muted)] hover:border-[var(--color-error)] hover:text-[var(--color-error)]"
+                        title="Delete session"
+                      >
+                        &#x2715;
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {loadingSessions && (
+              <p className="text-center text-xs text-[var(--color-text-muted)]">Loading sessions...</p>
+            )}
+
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-[var(--color-border-default)]" />
+              </div>
+              <div className="relative flex justify-center text-xs">
+                <span className="bg-[var(--color-bg-secondary)] px-2 text-[var(--color-text-muted)]">
+                  or start new
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <button
+                onClick={handleStart}
+                disabled={loading || !name.trim()}
+                className="w-full rounded-lg bg-[var(--color-accent)] py-3 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {loading ? 'Starting...' : 'Begin Assessment'}
+              </button>
+
+              <button
+                onClick={handleClearAll}
+                disabled={loading || !name.trim()}
+                className="w-full rounded-lg border border-[var(--color-error)]/40 py-2.5 text-sm font-medium text-[var(--color-error)] transition-colors hover:bg-[var(--color-error)]/10 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Clear All My Data
+              </button>
+            </div>
+          </>
         )}
-
-        {loadingSessions && (
-          <p className="text-center text-xs text-[var(--color-text-muted)]">Loading sessions...</p>
-        )}
-
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-[var(--color-border-default)]" />
-          </div>
-          <div className="relative flex justify-center text-xs">
-            <span className="bg-[var(--color-bg-secondary)] px-2 text-[var(--color-text-muted)]">
-              or start new
-            </span>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <button
-            onClick={handleStart}
-            disabled={loading || !name.trim()}
-            className="w-full rounded-lg bg-[var(--color-accent)] py-3 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {loading ? 'Starting...' : 'Begin Assessment'}
-          </button>
-
-          <button
-            onClick={handleClearAll}
-            disabled={loading || !name.trim()}
-            className="w-full rounded-lg border border-[var(--color-error)]/40 py-2.5 text-sm font-medium text-[var(--color-error)] transition-colors hover:bg-[var(--color-error)]/10 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Clear All My Data
-          </button>
-        </div>
       </div>
     </div>
   );
 }
 
+function OfflineBanner() {
+  const [online, setOnline] = useState(() => navigator.onLine);
+
+  useEffect(() => {
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
+
+  if (online) return null;
+  return (
+    <div className="bg-[var(--color-error)] px-4 py-1.5 text-center text-xs font-medium text-white">
+      You&rsquo;re offline. The app is cached, but practice and assessment need a connection.
+    </div>
+  );
+}
+
 export default function App() {
-  const { currentTask, report, submitAnswer, loadReport, loading, sessionId } =
-    useAssessmentStore();
+  const {
+    currentTask,
+    report,
+    mode,
+    totalTasks,
+    submitAnswer,
+    skipTask,
+    endPractice,
+    loadReport,
+    loading,
+    sessionId,
+  } = useAssessmentStore();
+
+  const isPractice = mode === 'practice';
 
   if (report) {
     return (
       <div className="flex h-screen flex-col">
         <Header />
+      <OfflineBanner />
         <div className="flex min-h-0 flex-1">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <div className="min-h-0 flex-1 overflow-y-auto p-6">
@@ -189,6 +264,7 @@ export default function App() {
     return (
       <div className="flex h-screen flex-col">
         <Header />
+      <OfflineBanner />
         <StartScreen />
       </div>
     );
@@ -197,6 +273,7 @@ export default function App() {
   return (
     <div className="flex h-screen flex-col">
       <Header />
+      <OfflineBanner />
 
       <div className="flex min-h-0 flex-1">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -206,8 +283,24 @@ export default function App() {
                 key={currentTask.id}
                 task={currentTask}
                 onSubmit={submitAnswer}
+                onSkip={isPractice ? skipTask : undefined}
+                onEndPractice={isPractice ? endPractice : undefined}
+                mode={mode}
                 disabled={loading}
               />
+            ) : isPractice ? (
+              <div className="flex h-full flex-col items-center justify-center gap-4">
+                <p className="text-[var(--color-text-secondary)]">
+                  You&rsquo;ve browsed all {totalTasks} practice questions.
+                </p>
+                <button
+                  onClick={endPractice}
+                  disabled={loading}
+                  className="rounded-lg bg-[var(--color-accent)] px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-40"
+                >
+                  Back to start
+                </button>
+              </div>
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-4">
                 <p className="text-[var(--color-text-secondary)]">
@@ -227,13 +320,14 @@ export default function App() {
           <ChatLog />
         </div>
 
-        <Splitter />
-
-        <div
-          className="hidden lg:block flex-1 overflow-y-auto"
-        >
-          <FeedbackPanel />
-        </div>
+        {!isPractice && (
+          <>
+            <Splitter />
+            <div className="hidden lg:block flex-1 overflow-y-auto">
+              <FeedbackPanel />
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
