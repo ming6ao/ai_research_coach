@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import Editor from '@monaco-editor/react';
+import ReactMarkdown from 'react-markdown';
+import 'katex/dist/katex.min.css';
+import 'highlight.js/styles/vs2015.css';
 import type { Task } from '../../api/client';
+import { CodeBlock } from '../CodeBlock/CodeBlock';
+import { normalizeMarkdownFences, splitMathChildren } from '../../lib/markdown';
 
 interface Props {
   task: Task;
@@ -52,9 +57,37 @@ export function CodeTask({ task, onSubmit, disabled }: Props) {
               viewed.has(hint.id) ? (
                 <div
                   key={hint.id}
-                  className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-secondary)]"
+                  className="prose prose-invert prose-sm max-w-none rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-secondary)]"
                 >
-                  {hint.text}
+                  <ReactMarkdown
+                    components={{
+                      pre({ children }) {
+                        return <>{children}</>;
+                      },
+                      code({ className, children, ...props }) {
+                        const text = String(children);
+                        const lang = /language-(\w+)/.exec(className ?? '')?.[1];
+                        const isBlock = Boolean(lang) || text.includes('\n');
+                        if (isBlock) {
+                          return <CodeBlock code={text} language={lang ?? 'python'} />;
+                        }
+                        return (
+                          <code
+                            className="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 font-mono text-[0.9em] text-[var(--color-text-primary)]"
+                            {...props}
+                          >
+                            {children}
+                          </code>
+                        );
+                      },
+                      p: ({ children }) => <p>{splitMathChildren(children)}</p>,
+                      li: ({ children }) => <li>{splitMathChildren(children)}</li>,
+                      strong: ({ children }) => <strong>{splitMathChildren(children)}</strong>,
+                      em: ({ children }) => <em>{splitMathChildren(children)}</em>,
+                    }}
+                  >
+                    {normalizeMarkdownFences(hint.text)}
+                  </ReactMarkdown>
                 </div>
               ) : (
                 <button

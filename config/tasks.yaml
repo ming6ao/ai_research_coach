@@ -22,16 +22,21 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "Iterate through the validation losses from index 1 to len(val_losses)-2
+    text: "Iterate through the validation losses from index `1` to `len(val_losses)-2`
       (the first and last epochs cannot be local minima since they lack both neighbors).
-      For each index i, check if val_losses[i] < val_losses[i-1] and val_losses[i]
-      < val_losses[i+1]."
+      For each index `i`, check if `val_losses[i] < val_losses[i-1]` and `val_losses[i]
+      < val_losses[i+1]`."
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def detect_overfitting(train_losses, val_losses):\n    for i in range(1,
-      len(val_losses) - 1):\n        if val_losses[i] < val_losses[i-1] and val_losses[i]
-      < val_losses[i+1]:\n            return i\n    return -1"
+    text: |
+      ```python
+      def detect_overfitting(train_losses, val_losses):
+          for i in range(1, len(val_losses) - 1):
+              if val_losses[i] < val_losses[i-1] and val_losses[i] < val_losses[i+1]:
+                  return i
+          return -1
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
@@ -70,25 +75,37 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "Use np.polyfit(X_train, y_train, deg) to fit, then np.polyval(coeffs,
-      X) or np.poly1d(coeffs)(X) to predict. MSE = mean((pred - actual)**2).
-      Collect results as {degree: (train_mse, val_mse)}."
+    text: |
+      Use `np.polyfit(X_train, y_train, deg)` to fit, then `np.polyval(coeffs, X)` or `np.poly1d(coeffs)(X)` to predict.
+      $$
+      \text{MSE} = \frac{1}{N}\sum(\hat{y} - y)^2
+      $$
+      Collect results as `{degree: (train_mse, val_mse)}`.
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "split = int(len(X) * val_frac)\nX_train, y_train = X[:-split], y[:-split]\n\
-      X_val, y_val = X[-split:], y[-split:]\nresults = {}\nfor deg in degrees:\n\
-      \    coeffs = np.polyfit(X_train, y_train, deg)\n    train_pred = np.polyval(coeffs,
-      X_train)\n    val_pred = np.polyval(coeffs, X_val)\n    train_mse = np.mean((train_pred
-      - y_train)**2)\n    val_mse = np.mean((val_pred - y_val)**2)\n    results[deg]
-      = (train_mse, val_mse)\nreturn results"
+    text: |
+      ```python
+      split = int(len(X) * val_frac)
+      X_train, y_train = X[:-split], y[:-split]
+      X_val, y_val = X[-split:], y[-split:]
+      results = {}
+      for deg in degrees:
+          coeffs = np.polyfit(X_train, y_train, deg)
+          train_pred = np.polyval(coeffs, X_train)
+          val_pred = np.polyval(coeffs, X_val)
+          train_mse = np.mean((train_pred - y_train)**2)
+          val_mse = np.mean((val_pred - y_val)**2)
+          results[deg] = (train_mse, val_mse)
+      return results
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
-    text: "Edge cases: if split == 0 (very small dataset with large val_frac), there
-      are no training points so handle gracefully. Also ensure degrees is iterable
-      even if empty. The bias-variance pattern is visible when train_mse decreases
-      with degree while val_mse first decreases then increases."
+    text: "Edge cases: if `split == 0` (very small dataset with large `val_frac`), there
+      are no training points so handle gracefully. Also ensure `degrees` is iterable
+      even if empty. The bias-variance pattern is visible when `train_mse` decreases
+      with degree while `val_mse` first decreases then increases."
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_dl_02
@@ -129,18 +146,31 @@ tasks:
     reveal_threshold: 0.65
   - id: h3
     text: "For each layer that has parameters, compute the L2 norm of all its gradients
-      combined: torch.sqrt(sum(p.grad.flatten().pow(2) for p in layer.parameters())).
-      Use reversed(list(model.children())) to go from output to input."
+      combined: `torch.sqrt(sum(p.grad.flatten().pow(2) for p in layer.parameters()))`.
+      Use `reversed(list(model.children()))` to go from output to input."
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def layer_gradient_norms(model, x, target):\n    model.zero_grad()\n    \
-      out = model(x)\n    loss = nn.MSELoss()(out, target)\n    loss.backward()\n \
-      \   norms = []\n    for layer in reversed(list(model.children())):\n        params
-      = list(layer.parameters())\n        if params:\n            norm = torch.sqrt(sum(p.grad.flatten().pow(2)
-      for p in params))\n            norms.append(norm.item())\n    return norms\n\ndef
-      has_vanishing_gradient(norms, threshold=0.05):\n    if not norms:\n        return
-      False\n    return norms[-1] < threshold * norms[0]"
+    text: |
+      ```python
+      def layer_gradient_norms(model, x, target):
+          model.zero_grad()
+          out = model(x)
+          loss = nn.MSELoss()(out, target)
+          loss.backward()
+          norms = []
+          for layer in reversed(list(model.children())):
+              params = list(layer.parameters())
+              if params:
+                  norm = torch.sqrt(sum(p.grad.flatten().pow(2) for p in params))
+                  norms.append(norm.item())
+          return norms
+
+      def has_vanishing_gradient(norms, threshold=0.05):
+          if not norms:
+              return False
+          return norms[-1] < threshold * norms[0]
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
@@ -174,20 +204,29 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "mean = sum(X) / len(X); squared_diffs = [(x - mean) ** 2 for x in X];
-      return sum(squared_diffs) / (len(X) - ddof)"
+    text: |
+      ```
+      mean = sum(X) / len(X)
+      squared_diffs = [(x - mean) ** 2 for x in X]
+      return sum(squared_diffs) / (len(X) - ddof)
+      ```
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def variance(X, ddof=0):\n    n = len(X)\n    mean = sum(X) / n\n   \
-      \ return sum((x - mean) ** 2 for x in X) / (n - ddof)"
+    text: |
+      ```python
+      def variance(X, ddof=0):
+          n = len(X)
+          mean = sum(X) / n
+          return sum((x - mean) ** 2 for x in X) / (n - ddof)
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
-    text: "Edge cases: if X is empty, division by zero occurs so handle gracefully
-      (return 0.0 or raise). If X has one element and ddof=1, division by zero occurs.
-      The property Var(aX+b) = a^2 * Var(X) is a good sanity check: standardizing
-      data (subtract mean, divide by std) should give variance close to 1.0."
+    text: "Edge cases: if `X` is empty, division by zero occurs so handle gracefully
+      (return 0.0 or raise). If `X` has one element and `ddof=1`, division by zero occurs.
+      The property $\\text{Var}(aX+b) = a^2 \\cdot \\text{Var}(X)$ is a good sanity check:
+      standardizing data (subtract mean, divide by std) should give variance close to 1.0."
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_exp_02
@@ -225,18 +264,25 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "observed = treatment.mean() - control.mean(); pooled = np.concatenate([control,
-      treatment]); n_c, n_t = len(control), len(treatment). Use np.random.default_rng(seed)
-      for reproducibility."
+    text: "```python\nobserved = treatment.mean() - control.mean()\npooled = np.concatenate([control,\n  treatment])\nn_c, n_t = len(control), len(treatment)\n```\nUse `np.random.default_rng(seed)` for reproducibility."
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def permutation_pvalue(control, treatment, n_permutations=1000, seed=0):\n\
-      \    rng = np.random.default_rng(seed)\n    observed = treatment.mean() - control.mean()\n\
-      \    pooled = np.concatenate([control, treatment])\n    n_c = len(control)\n\
-      \    count = 0\n    for _ in range(n_permutations):\n        rng.shuffle(pooled)\n\
-      \        diff = pooled[n_c:].mean() - pooled[:n_c].mean()\n        if abs(diff)
-      >= abs(observed):\n            count += 1\n    return count / n_permutations"
+    text: |
+      ```python
+      def permutation_pvalue(control, treatment, n_permutations=1000, seed=0):
+          rng = np.random.default_rng(seed)
+          observed = treatment.mean() - control.mean()
+          pooled = np.concatenate([control, treatment])
+          n_c = len(control)
+          count = 0
+          for _ in range(n_permutations):
+              rng.shuffle(pooled)
+              diff = pooled[n_c:].mean() - pooled[:n_c].mean()
+              if abs(diff) >= abs(observed):
+                  count += 1
+          return count / n_permutations
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
@@ -274,15 +320,21 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "np.argsort(np.abs(grads)) returns indices sorted by magnitude ascending.
-      Reverse with [::-1] to get descending, then take [:k] for the top-k indices.
+    text: "`np.argsort(np.abs(grads))` returns indices sorted by magnitude ascending.
+      Reverse with `[::-1]` to get descending, then take `[:k]` for the top-k indices.
       Ties naturally keep the earlier index because argsort is stable."
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def topk_compress(grads, k):\n    grads = np.asarray(grads)\n    out =
-      np.zeros_like(grads)\n    idx = np.argsort(-np.abs(grads))[:k]\n    out[idx]
-      = grads[idx]\n    return out"
+    text: |
+      ```python
+      def topk_compress(grads, k):
+          grads = np.asarray(grads)
+          out = np.zeros_like(grads)
+          idx = np.argsort(-np.abs(grads))[:k]
+          out[idx] = grads[idx]
+          return out
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
@@ -333,20 +385,31 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "register: check if version_id already in self.versions, raise ValueError
-      if so, otherwise add it. promote: if self.production is not None, append it
-      to self._history, then set self.production = version_id. rollback: pop from
-      self._history if non-empty, else set self.production = None."
+    text: "`register`: check if `version_id` already in `self.versions`, raise `ValueError`
+      if so, otherwise add it. `promote`: if `self.production` is not `None`, append it
+      to `self._history`, then set `self.production = version_id`. `rollback`: pop from
+      `self._history` if non-empty, else set `self.production = None`."
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def register(self, version_id):\n    if version_id in self.versions:\n\
-      \        raise ValueError(f'{version_id} already registered')\n    self.versions[version_id]
-      = 'registered'\n\ndef promote(self, version_id):\n    if self.production is not
-      None:\n        self._history.append(self.production)\n    self.production = version_id\n\
-      \ndef rollback(self):\n    self.production = self._history.pop() if self._history
-      else None\n\ndef canary_gate(self, canary_error_rate, baseline_error_rate, threshold=0.01):\n\
-      \    return canary_error_rate <= baseline_error_rate + threshold"
+    text: |
+      ```python
+      def register(self, version_id):
+          if version_id in self.versions:
+              raise ValueError(f'{version_id} already registered')
+          self.versions[version_id] = 'registered'
+
+      def promote(self, version_id):
+          if self.production is not None:
+              self._history.append(self.production)
+          self.production = version_id
+
+      def rollback(self):
+          self.production = self._history.pop() if self._history else None
+
+      def canary_gate(self, canary_error_rate, baseline_error_rate, threshold=0.01):
+          return canary_error_rate <= baseline_error_rate + threshold
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
@@ -385,9 +448,13 @@ tasks:
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def recommend_serving(req_per_sec, peak_ratio, cold_start_ms, needs_gpu):\n\
-      \    if needs_gpu or req_per_sec >= 50 or cold_start_ms <= 500:\n        return
-      'container'\n    return 'serverless'"
+    text: |
+      ```python
+      def recommend_serving(req_per_sec, peak_ratio, cold_start_ms, needs_gpu):
+          if needs_gpu or req_per_sec >= 50 or cold_start_ms <= 500:
+              return 'container'
+          return 'serverless'
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
@@ -429,13 +496,28 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "from collections import deque; def __init__(self, size): self.size = size;
-      self._buf = deque(maxlen=size); def add(self, value): self._buf.append(value)"
+    text: |
+      ```python
+      from collections import deque
+
+      def __init__(self, size):
+          self.size = size
+          self._buf = deque(maxlen=size)
+
+      def add(self, value):
+          self._buf.append(value)
+      ```
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def get_sum(self):\n    return sum(self._buf)\ndef get_mean(self):\n   \
-    \ return sum(self._buf) / len(self._buf) if self._buf else 0.0"
+    text: |
+      ```python
+      def get_sum(self):
+          return sum(self._buf)
+
+      def get_mean(self):
+          return sum(self._buf) / len(self._buf) if self._buf else 0.0
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
@@ -463,13 +545,24 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "counts = {}; for k, v in pairs: counts[k] = counts.get(k, 0) + 1; return
-      counts"
+    text: |
+      ```python
+      counts = {}
+      for k, v in pairs:
+          counts[k] = counts.get(k, 0) + 1
+      return counts
+      ```
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def count_keys(pairs):\n    counts = {}\n    for k, v in pairs:\n   \
-      \     counts[k] = counts.get(k, 0) + 1\n    return counts"
+    text: |
+      ```python
+      def count_keys(pairs):
+          counts = {}
+          for k, v in pairs:
+              counts[k] = counts.get(k, 0) + 1
+          return counts
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
@@ -510,15 +603,21 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "optimizer.zero_grad() clears gradients; output = model(x) does forward
-      pass; loss = criterion(output, target) computes loss; loss.backward() propagates
-      gradients; optimizer.step() updates weights."
+    text: "`optimizer.zero_grad()` clears gradients; `output = model(x)` does forward
+      pass; `loss = criterion(output, target)` computes loss; `loss.backward()` propagates
+      gradients; `optimizer.step()` updates weights."
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def train_step(model, optimizer, criterion, x, target):\n    optimizer.zero_grad()\n\
-      \    output = model(x)\n    loss = criterion(output, target)\n    loss.backward()\n\
-      \    optimizer.step()"
+    text: |
+      ```python
+      def train_step(model, optimizer, criterion, x, target):
+          optimizer.zero_grad()
+          output = model(x)
+          loss = criterion(output, target)
+          loss.backward()
+          optimizer.step()
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
@@ -564,19 +663,25 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "Scaled dot-product attention: scores = Q @ K.transpose(-2, -1) / sqrt(d_k).
-      Apply mask if provided (scores.masked_fill(mask == 0, -inf)). Then attn = F.softmax(scores,
-      dim=-1) and output = attn @ V."
+    text: "Scaled dot-product attention: $\\text{scores} = Q K^T / \\sqrt{d_k}$.
+      Apply mask if provided (`scores.masked_fill(mask == 0, -inf)`). Then $\\text{attn} = \\text{softmax}(\\text{scores})$
+      and $\\text{output} = \\text{attn} \\cdot V$."
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "Q = self.w_q(q).view(B, L, self.num_heads, self.d_k).transpose(1, 2)\n\
-      K = self.w_k(k).view(B, L, self.num_heads, self.d_k).transpose(1, 2)\nV =
-      self.w_v(v).view(B, L, self.num_heads, self.d_k).transpose(1, 2)\nscores =
-      Q @ K.transpose(-2, -1) / math.sqrt(self.d_k)\nif mask is not None: scores
-      = scores.masked_fill(mask == 0, float('-inf'))\nattn = F.softmax(scores, dim=-1)\n\
-      out = attn @ V\nout = out.transpose(1, 2).contiguous().view(B, L, self.d_model)\n\
-      return self.w_o(out)"
+    text: |
+      ```python
+      Q = self.w_q(q).view(B, L, self.num_heads, self.d_k).transpose(1, 2)
+      K = self.w_k(k).view(B, L, self.num_heads, self.d_k).transpose(1, 2)
+      V = self.w_v(v).view(B, L, self.num_heads, self.d_k).transpose(1, 2)
+      scores = Q @ K.transpose(-2, -1) / math.sqrt(self.d_k)
+      if mask is not None:
+          scores = scores.masked_fill(mask == 0, float('-inf'))
+      attn = F.softmax(scores, dim=-1)
+      out = attn @ V
+      out = out.transpose(1, 2).contiguous().view(B, L, self.d_model)
+      return self.w_o(out)
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
@@ -614,33 +719,41 @@ tasks:
     weight: 0.05
     reveal_threshold: 0.75
   - id: h2
-    text: "During training: compute batch mean and variance (use unbiased=False for
-      the biased estimator), update running_mean and running_var with exponential moving
-      average, then normalize. During eval: use self.running_mean and self.running_var
+    text: "During training: compute batch mean and variance (use `unbiased=False` for
+      the biased estimator), update `running_mean` and `running_var` with exponential moving
+      average, then normalize. During eval: use `self.running_mean` and `self.running_var`
       directly."
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "Training: mean = x.mean(0); var = x.var(0, unbiased=False). Update running:
-      self.running_mean = (1 - m) * self.running_mean + m * mean (same for var).
-      Normalize: x_hat = (x - mean) / sqrt(var + eps). Scale/shift: gamma * x_hat
-      + beta."
+    text: "Training: $\\mu = x.\\text{mean}(0)$; $\\sigma^2 = x.\\text{var}(0, \\text{unbiased}=\\text{False})$.
+      Update running: `self.running_mean = (1 - m) * self.running_mean + m * mean` (same for var).
+      Normalize: $\\hat{x} = \\frac{x - \\mu}{\\sqrt{\\sigma^2 + \\epsilon}}$.
+      Scale/shift: $\\gamma \\hat{x} + \\beta$."
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def forward(self, x):\n    if self.training:\n        mean = x.mean(0)\n\
-      \        var = x.var(0, unbiased=False)\n        self.running_mean = (1 - self.momentum)
-      * self.running_mean + self.momentum * mean\n        self.running_var = (1 -
-      self.momentum) * self.running_var + self.momentum * var\n    else:\n        mean
-      = self.running_mean\n        var = self.running_var\n    x_hat = (x - mean) /
-      torch.sqrt(var + self.eps)\n    return self.gamma * x_hat + self.beta"
+    text: |
+      ```python
+      def forward(self, x):
+          if self.training:
+              mean = x.mean(0)
+              var = x.var(0, unbiased=False)
+              self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean
+              self.running_var = (1 - self.momentum) * self.running_var + self.momentum * var
+          else:
+              mean = self.running_mean
+              var = self.running_var
+          x_hat = (x - mean) / torch.sqrt(var + self.eps)
+          return self.gamma * x_hat + self.beta
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
-    text: "Edge cases: eps prevents division by zero. momentum=0.1 means running stats
-      update slowly (90% old, 10% new). self.training flag (set by model.train()/model.eval())
-      controls which path executes. The biased variance (unbiased=False) divides by
-      N, not N-1, matching PyTorch's BatchNorm1d behavior."
+    text: "Edge cases: `eps` prevents division by zero. `momentum=0.1` means running stats
+      update slowly (90% old, 10% new). `self.training` flag (set by `model.train()`/`model.eval()`)
+      controls which path executes. The biased variance (`unbiased=False`) divides by
+      $N$, not $N-1$, matching PyTorch's `BatchNorm1d` behavior."
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_rc_softmax
@@ -662,25 +775,29 @@ tasks:
     weight: 0.05
     reveal_threshold: 0.75
   - id: h2
-    text: "Subtract x.max(dim=dim, keepdim=True) from x, then exponentiate, then
-      divide by the sum. keepdim=True ensures the max has the right shape for broadcasting."
+    text: "Subtract `x.max(dim=dim, keepdim=True)` from `x`, then exponentiate, then
+      divide by the sum. `keepdim=True` ensures the max has the right shape for broadcasting."
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "shifted = x - x.max(dim=dim, keepdim=True).values; exp_x = torch.exp(shifted);
-      return exp_x / exp_x.sum(dim=dim, keepdim=True)"
+    text: "```python\nshifted = x - x.max(dim=dim, keepdim=True).values\nexp_x = torch.exp(shifted)\nreturn exp_x / exp_x.sum(dim=dim, keepdim=True)\n```"
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def stable_softmax(x, dim=-1):\n    shifted = x - x.max(dim=dim, keepdim=True).values\n\
-      \    exp_x = torch.exp(shifted)\n    return exp_x / exp_x.sum(dim=dim, keepdim=True)"
+    text: |
+      ```python
+      def stable_softmax(x, dim=-1):
+          shifted = x - x.max(dim=dim, keepdim=True).values
+          exp_x = torch.exp(shifted)
+          return exp_x / exp_x.sum(dim=dim, keepdim=True)
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
-    text: "Edge cases: if all inputs are -inf (e.g., masked positions), exp gives
-      0/0 which is NaN. You can handle this by adding a tiny epsilon or using torch.softmax
+    text: "Edge cases: if all inputs are `-inf` (e.g., masked positions), `exp` gives
+      `0/0` which is NaN. You can handle this by adding a tiny epsilon or using `torch.softmax`
       which handles this internally. The max subtraction is mathematically equivalent:
-      (exp(x-c) / sum(exp(x-c))) = exp(x) / sum(exp(x))."
+      $\\frac{\\exp(x-c)}{\\sum \\exp(x-c)} = \\frac{\\exp(x)}{\\sum \\exp(x)}$."
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_dl_ce
@@ -698,32 +815,39 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: "Cross-entropy loss is -log(softmax(logits)[target]). The log-sum-exp trick
-      computes log(sum(exp(x))) in a numerically stable way by subtracting the max
-      first: log(sum(exp(x - max))) + max."
+    text: "Cross-entropy loss is $-\\log(\\text{softmax}(\\text{logits})[\\text{target}])$.
+      The log-sum-exp trick computes $\\log(\\sum e^x)$ in a numerically stable way by
+      subtracting the max first: $\\log(\\sum e^{x - \\max}) + \\max$."
     weight: 0.05
     reveal_threshold: 0.75
   - id: h2
-    text: "First compute log-probabilities: log_probs = logits - logsumexp(logits,
-      dim=1, keepdim=True). Then extract the log-probability of each target class
+    text: "First compute log-probabilities: `log_probs = logits - logsumexp(logits,
+      dim=1, keepdim=True)`. Then extract the log-probability of each target class
       and take the negative mean."
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "log_probs = logits - torch.logsumexp(logits, dim=1, keepdim=True); target_log_probs
-      = log_probs.gather(1, target.unsqueeze(1)).squeeze(1); return -target_log_probs.mean()"
+    text: |
+      ```python
+      log_probs = logits - torch.logsumexp(logits, dim=1, keepdim=True)
+      target_log_probs = log_probs.gather(1, target.unsqueeze(1)).squeeze(1)
+      return -target_log_probs.mean()
+      ```
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def custom_cross_entropy(logits, target):\n    log_probs = logits -
-      torch.logsumexp(logits, dim=1, keepdim=True)\n    return -log_probs.gather(1,
-      target.unsqueeze(1)).mean()"
+    text: |
+      ```python
+      def custom_cross_entropy(logits, target):
+          log_probs = logits - torch.logsumexp(logits, dim=1, keepdim=True)
+          return -log_probs.gather(1, target.unsqueeze(1)).mean()
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
-    text: "Edge cases: if logits has -inf for all classes (e.g., fully masked), logsumexp
-      returns -inf and log_probs becomes NaN. target must contain valid class indices
-      (0 to num_classes-1). gather extracts along dim=1 (the class dimension). The
+    text: "Edge cases: if `logits` has `-inf` for all classes (e.g., fully masked), `logsumexp`
+      returns `-inf` and `log_probs` becomes NaN. `target` must contain valid class indices
+      (`0` to `num_classes-1`). `gather` extracts along `dim=1` (the class dimension). The
       result is a scalar loss averaged over the batch."
     weight: 0.25
     reveal_threshold: 0.20
@@ -757,20 +881,28 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "dists = np.sqrt(((X_test[:, None, :] - X_train[None, :, :]) ** 2).sum(-1));
-      nn_indices = dists.argsort(axis=1)[:, :k]; neighbor_labels = y_train[nn_indices]"
+    text: |
+      ```python
+      dists = np.sqrt(((X_test[:, None, :] - X_train[None, :, :]) ** 2).sum(-1))
+      nn_indices = dists.argsort(axis=1)[:, :k]
+      neighbor_labels = y_train[nn_indices]
+      ```
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def knn_predict(X_train, y_train, X_test, k=3):\n    dists = np.sqrt(((X_test[:,
-      None, :] - X_train[None, :, :]) ** 2).sum(-1))\n    nn_idx = dists.argsort(axis=1)[:,
-      :k]\n    nn_labels = y_train[nn_idx]\n    return np.array([np.bincount(row).argmax()
-      for row in nn_labels])"
+    text: |
+      ```python
+      def knn_predict(X_train, y_train, X_test, k=3):
+          dists = np.sqrt(((X_test[:, None, :] - X_train[None, :, :]) ** 2).sum(-1))
+          nn_idx = dists.argsort(axis=1)[:, :k]
+          nn_labels = y_train[nn_idx]
+          return np.array([np.bincount(row).argmax() for row in nn_labels])
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
-    text: "Edge cases: if k > N (more neighbors than training points), use all training
-      points. For ties in majority vote, np.bincount().argmax() returns the smallest
+    text: "Edge cases: if `k > N` (more neighbors than training points), use all training
+      points. For ties in majority vote, `np.bincount().argmax()` returns the smallest
       class label. The vectorized distance computation avoids Python loops for efficiency.
       For binary classification, ties go to class 0."
     weight: 0.25
@@ -796,32 +928,43 @@ tasks:
   - id: h1
     text: "Logistic regression applies a sigmoid to linear logits to get probabilities,
       then uses binary cross-entropy loss. The gradient of this loss with respect to
-      weights is X^T(p - y)/N, where p is the predicted probability."
+      weights is $X^T(p - y)/N$, where $p$ is the predicted probability."
     weight: 0.05
     reveal_threshold: 0.75
   - id: h2
-    text: "Compute logits = X @ w + b, apply sigmoid to get probabilities p, then
-      compute gradients: grad_w = X.T @ (p - y) / N and grad_b = (p - y).mean().
-      Update: w -= lr * grad_w, b -= lr * grad_b."
+    text: "Compute `logits = X @ w + b`, apply sigmoid to get probabilities `p`, then
+      compute gradients: `grad_w = X.T @ (p - y) / N` and `grad_b = (p - y).mean()`.
+      Update: `w -= lr * grad_w`, `b -= lr * grad_b`."
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "logits = X_batch @ w + b; p = sigmoid(logits); grad_w = X_batch.T @ (p
-      - y_batch) / len(y_batch); grad_b = (p - y_batch).mean(); return w - lr * grad_w,
-      b - lr * grad_b"
+    text: |
+      ```python
+      logits = X_batch @ w + b
+      p = sigmoid(logits)
+      grad_w = X_batch.T @ (p - y_batch) / len(y_batch)
+      grad_b = (p - y_batch).mean()
+      return w - lr * grad_w, b - lr * grad_b
+      ```
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def update_step(X_batch, y_batch, w, b):\n    logits = X_batch @ w +
-      b\n    p = sigmoid(logits)\n    grad_w = X_batch.T @ (p - y_batch) / len(y_batch)\n\
-    \    grad_b = (p - y_batch).mean()\n    return w - lr * grad_w, b - lr * grad_b"
+    text: |
+      ```python
+      def update_step(X_batch, y_batch, w, b):
+          logits = X_batch @ w + b
+          p = sigmoid(logits)
+          grad_w = X_batch.T @ (p - y_batch) / len(y_batch)
+          grad_b = (p - y_batch).mean()
+          return w - lr * grad_w, b - lr * grad_b
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
-    text: "Edge cases: if sigmoid input is very large positive, exp(-z) underflows
-      to 0, giving p=1.0 which is fine numerically. If all y_batch are the same class,
-      gradients still work but learning is slow. The division by len(y_batch) averages
-      the gradient over the batch. lr is captured from the outer scope."
+    text: "Edge cases: if sigmoid input is very large positive, `exp(-z)` underflows
+      to 0, giving `p=1.0` which is fine numerically. If all `y_batch` are the same class,
+      gradients still work but learning is slow. The division by `len(y_batch)` averages
+      the gradient over the batch. `lr` is captured from the outer scope."
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_ml_kmeans
@@ -856,17 +999,34 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "Assignment: dists = ((X[:, None] - centroids[None, :]) ** 2).sum(-1);
-      return dists.argmin(axis=1). Update: for j in range(k): if any assignment ==
-      j: centroids[j] = X[assignments == j].mean(axis=0)"
+    text: |
+      ```python
+      # Assignment
+      dists = ((X[:, None] - centroids[None, :]) ** 2).sum(-1)
+      return dists.argmin(axis=1)
+
+      # Update
+      for j in range(k):
+          if any(assignments == j):
+              centroids[j] = X[assignments == j].mean(axis=0)
+      ```
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def assignment_step(X, centroids):\n    dists = ((X[:, None] - centroids[None,
-      :]) ** 2).sum(-1)\n    return dists.argmin(axis=1)\n\ndef update_step(X, assignments,
-    k):\n    centroids = np.zeros((k, X.shape[1]))\n    for j in range(k):\n       \
-    \ mask = assignments == j\n        if mask.any():\n            centroids[j] =
-      X[mask].mean(axis=0)\n    return centroids"
+    text: |
+      ```python
+      def assignment_step(X, centroids):
+          dists = ((X[:, None] - centroids[None, :]) ** 2).sum(-1)
+          return dists.argmin(axis=1)
+
+      def update_step(X, assignments, k):
+          centroids = np.zeros((k, X.shape[1]))
+          for j in range(k):
+              mask = assignments == j
+              if mask.any():
+                  centroids[j] = X[mask].mean(axis=0)
+          return centroids
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
@@ -895,41 +1055,63 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: "Gini impurity measures how mixed a set of labels are: 1 - sum(p_c^2) where
-      p_c is the fraction of class c. A pure set (all one class) has Gini = 0; a
-      maximally mixed set has the highest Gini."
+    text: "Gini impurity measures how mixed a set of labels are: $1 - \\sum p_c^2$
+      where $p_c$ is the fraction of class $c$. A pure set (all one class) has Gini $= 0$;
+      a maximally mixed set has the highest Gini."
     weight: 0.05
     reveal_threshold: 0.75
   - id: h2
-    text: "For each candidate split (feature i, threshold t), split data into left
-      (X[i] <= t) and right (X[i] > t), compute weighted Gini: (n_left/n)*gini_left
-      + (n_right/n)*gini_right. Choose the split with lowest weighted Gini."
+    text: "For each candidate split (feature $i$, threshold $t$), split data into left
+      ($X[i] \\leq t$) and right ($X[i] > t$), compute weighted Gini: $\\frac{n_{\\text{left}}}{n} \\cdot \\text{gini}_{\\text{left}}
+      + \\frac{n_{\\text{right}}}{n} \\cdot \\text{gini}_{\\text{right}}$. Choose the split with lowest weighted Gini."
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "calculate_gini: counts = np.bincount(y); p = counts / counts.sum(); return
-      1 - (p ** 2).sum(). split_data: left_mask = X[:, feature_idx] <= threshold;
-      return X[left_mask], y[left_mask], X[~left_mask], y[~left_mask]."
+    text: |
+      ```python
+      # calculate_gini
+      counts = np.bincount(y)
+      p = counts / counts.sum()
+      return 1 - (p ** 2).sum()
+
+      # split_data
+      left_mask = X[:, feature_idx] <= threshold
+      return X[left_mask], y[left_mask], X[~left_mask], y[~left_mask]
+      ```
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def calculate_gini(y):\n    counts = np.bincount(y)\n    p = counts /
-      counts.sum()\n    return 1 - (p ** 2).sum()\n\ndef find_best_split(X, y):\n\
-    \    best_gini = float('inf')\n    best_split = None\n    n = len(y)\n    for
-      i in range(X.shape[1]):\n        for t in np.unique(X[:, i]):\n            left_mask
-      = X[:, i] <= t\n            if left_mask.sum() == 0 or (~left_mask).sum() ==
-      0:\n                continue\n            gini_left = calculate_gini(y[left_mask])\n\
-    \            gini_right = calculate_gini(y[~left_mask])\n            weighted_gini
-      = (left_mask.sum()/n)*gini_left + ((~left_mask).sum()/n)*gini_right\n         \
-    \   if weighted_gini < best_gini:\n                best_gini = weighted_gini\n\
-    \                best_split = (i, t)\n    return best_split"
+    text: |
+      ```python
+      def calculate_gini(y):
+          counts = np.bincount(y)
+          p = counts / counts.sum()
+          return 1 - (p ** 2).sum()
+
+      def find_best_split(X, y):
+          best_gini = float('inf')
+          best_split = None
+          n = len(y)
+          for i in range(X.shape[1]):
+              for t in np.unique(X[:, i]):
+                  left_mask = X[:, i] <= t
+                  if left_mask.sum() == 0 or (~left_mask).sum() == 0:
+                      continue
+                  gini_left = calculate_gini(y[left_mask])
+                  gini_right = calculate_gini(y[~left_mask])
+                  weighted_gini = (left_mask.sum()/n)*gini_left + ((~left_mask).sum()/n)*gini_right
+                  if weighted_gini < best_gini:
+                      best_gini = weighted_gini
+                      best_split = (i, t)
+          return best_split
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
     text: "Edge cases: skip splits that produce empty left or right partitions (Gini
       is undefined). If all labels are the same, Gini is 0 so any split is equally
       good or bad. Using unique values as thresholds reduces the search space. The
-      function returns (feature_index, threshold) or None if no valid split exists."
+      function returns `(feature_index, threshold)` or `None` if no valid split exists."
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_rc_scaling
@@ -947,33 +1129,43 @@ tasks:
   hints:
   - id: h1
     text: "Standardization (z-score) transforms features to have mean 0 and standard
-      deviation 1: (x - mean) / std. Min-Max normalization scales features to [0,
-      1]: (x - min) / (max - min)."
+      deviation 1: $\\frac{x - \\mu}{\\sigma}$. Min-Max normalization scales features to $[0,
+      1]$: $\\frac{x - \\min}{\\max - \\min}$."
     weight: 0.05
     reveal_threshold: 0.75
   - id: h2
-    text: "Operate along axis=0 (column-wise) so each feature is transformed independently.
-      For standardize: (X - X.mean(axis=0)) / X.std(axis=0). For normalize: (X -
-      X.min(axis=0)) / (X.max(axis=0) - X.min(axis=0))."
+    text: "Operate along `axis=0` (column-wise) so each feature is transformed independently.
+      For standardize: `(X - X.mean(axis=0)) / X.std(axis=0)`. For normalize: `(X -
+      X.min(axis=0)) / (X.max(axis=0) - X.min(axis=0))`."
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "Handle division by zero: if std == 0 (constant feature), standardize should
-      return 0 (already at mean). If max == min (constant feature), normalize should
-      return 0. Use np.where or clip the denominator."
+    text: "Handle division by zero: if `std == 0` (constant feature), standardize should
+      return 0 (already at mean). If `max == min` (constant feature), normalize should
+      return 0. Use `np.where` or clip the denominator."
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def standardize(X):\n    mean = X.mean(axis=0)\n    std = X.std(axis=0)\n\
-    \    std = np.where(std == 0, 1, std)\n    return (X - mean) / std\n\ndef normalize(X):\n\
-    \    min_val = X.min(axis=0)\n    max_val = X.max(axis=0)\n    range_val = max_val
-      - min_val\n    range_val = np.where(range_val == 0, 1, range_val)\n    return
-      (X - min_val) / range_val"
+    text: |
+      ```python
+      def standardize(X):
+          mean = X.mean(axis=0)
+          std = X.std(axis=0)
+          std = np.where(std == 0, 1, std)
+          return (X - mean) / std
+
+      def normalize(X):
+          min_val = X.min(axis=0)
+          max_val = X.max(axis=0)
+          range_val = max_val - min_val
+          range_val = np.where(range_val == 0, 1, range_val)
+          return (X - min_val) / range_val
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
-    text: "Edge cases: all-zero features (std=0, range=0) should return 0, not NaN.
-      The np.where approach replaces 0 denominators with 1, making the numerator
+    text: "Edge cases: all-zero features (`std=0`, `range=0`) should return 0, not NaN.
+      The `np.where` approach replaces 0 denominators with 1, making the numerator
       also 0 for constant features. Both functions should work on 2D arrays of any
       shape."
     weight: 0.25
@@ -994,39 +1186,49 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: "Precision measures how many predicted positives are actually positive (TP
-      / (TP + FP)). Recall measures how many actual positives are correctly identified
-      (TP / (TP + FN)). F1 is their harmonic mean."
+    text: "Precision measures how many predicted positives are actually positive ($\\frac{\\text{TP}}{\\text{TP} + \\text{FP}}$).
+      Recall measures how many actual positives are correctly identified ($\\frac{\\text{TP}}{\\text{TP} + \\text{FN}}$).
+      F1 is their harmonic mean."
     weight: 0.05
     reveal_threshold: 0.75
   - id: h2
-    text: "Compute TP, FP, FN using boolean masks: TP = (y_pred==1) & (y_true==1),
-      FP = (y_pred==1) & (y_true==0), FN = (y_pred==0) & (y_true==1). Sum each
+    text: "Compute TP, FP, FN using boolean masks: `TP = (y_pred==1) & (y_true==1)`,
+      `FP = (y_pred==1) & (y_true==0)`, `FN = (y_pred==0) & (y_true==1)`. Sum each
       to get counts."
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "TP = ((y_pred == 1) & (y_true == 1)).sum(); FP = ((y_pred == 1) & (y_true
-      == 0)).sum(); FN = ((y_pred == 0) & (y_true == 1)).sum(). precision = TP /
-      (TP + FP) if (TP + FP) > 0 else 0.0. recall = TP / (TP + FN) if (TP + FN)
-      > 0 else 0.0. f1 = 2 * precision * recall / (precision + recall) if (precision
-      + recall) > 0 else 0.0."
+    text: |
+      ```python
+      TP = ((y_pred == 1) & (y_true == 1)).sum()
+      FP = ((y_pred == 1) & (y_true == 0)).sum()
+      FN = ((y_pred == 0) & (y_true == 1)).sum()
+
+      precision = TP / (TP + FP) if (TP + FP) > 0 else 0.0
+      recall = TP / (TP + FN) if (TP + FN) > 0 else 0.0
+      f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+      ```
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def compute_metrics(y_true, y_pred):\n    TP = ((y_pred == 1) & (y_true
-      == 1)).sum()\n    FP = ((y_pred == 1) & (y_true == 0)).sum()\n    FN = ((y_pred
-      == 0) & (y_true == 1)).sum()\n    precision = TP / (TP + FP) if (TP + FP)
-      > 0 else 0.0\n    recall = TP / (TP + FN) if (TP + FN) > 0 else 0.0\n    f1
-      = 2 * precision * recall / (precision + recall) if (precision + recall) > 0
-      else 0.0\n    return {'precision': precision, 'recall': recall, 'f1': f1}"
+    text: |
+      ```python
+      def compute_metrics(y_true, y_pred):
+          TP = ((y_pred == 1) & (y_true == 1)).sum()
+          FP = ((y_pred == 1) & (y_true == 0)).sum()
+          FN = ((y_pred == 0) & (y_true == 1)).sum()
+          precision = TP / (TP + FP) if (TP + FP) > 0 else 0.0
+          recall = TP / (TP + FN) if (TP + FN) > 0 else 0.0
+          f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+          return {'precision': precision, 'recall': recall, 'f1': f1}
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
-    text: "Edge cases: if no predicted positives (TP + FP == 0), precision is undefined
-      so return 0.0. If no actual positives (TP + FN == 0), recall is undefined so
-      return 0.0. If both precision and recall are 0, F1 is 0.0 (avoid 0/0). TN
-      is not needed for these metrics but could be computed as ((y_pred==0) & (y_true==0)).sum()."
+    text: "Edge cases: if no predicted positives (`TP + FP == 0`), precision is undefined
+      so return 0.0. If no actual positives (`TP + FN == 0`), recall is undefined so
+      return 0.0. If both precision and recall are 0, F1 is 0.0 (avoid `0/0`). `TN`
+      is not needed for these metrics but could be computed as `((y_pred==0) & (y_true==0)).sum()`."
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_rc_iou
@@ -1057,24 +1259,36 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "x1 = max(boxA[0], boxB[0]); y1 = max(boxA[1], boxB[1]); x2 = min(boxA[2],
-      boxB[2]); y2 = min(boxA[3], boxB[3]). inter = max(0, x2 - x1) * max(0, y2
-      - y1)"
+    text: |
+      ```python
+      x1 = max(boxA[0], boxB[0])
+      y1 = max(boxA[1], boxB[1])
+      x2 = min(boxA[2], boxB[2])
+      y2 = min(boxA[3], boxB[3])
+      inter = max(0, x2 - x1) * max(0, y2 - y1)
+      ```
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def calculate_iou(boxA, boxB):\n    x1 = max(boxA[0], boxB[0])\n    y1
-      = max(boxA[1], boxB[1])\n    x2 = min(boxA[2], boxB[2])\n    y2 = min(boxA[3],
-      boxB[3])\n    inter = max(0, x2 - x1) * max(0, y2 - y1)\n    areaA = (boxA[2]
-      - boxA[0]) * (boxA[3] - boxA[1])\n    areaB = (boxB[2] - boxB[0]) * (boxB[3]
-      - boxB[1])\n    union = areaA + areaB - inter\n    return inter / union if union
-      > 0 else 0.0"
+    text: |
+      ```python
+      def calculate_iou(boxA, boxB):
+          x1 = max(boxA[0], boxB[0])
+          y1 = max(boxA[1], boxB[1])
+          x2 = min(boxA[2], boxB[2])
+          y2 = min(boxA[3], boxB[3])
+          inter = max(0, x2 - x1) * max(0, y2 - y1)
+          areaA = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+          areaB = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+          union = areaA + areaB - inter
+          return inter / union if union > 0 else 0.0
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
-    text: "Edge cases: disjoint boxes have inter=0 so IoU=0. If one box is contained
-      entirely within the other, inter equals the smaller box's area. If both boxes
-      are identical, IoU=1.0. If union is 0 (both boxes have zero area), return 0.0
+    text: "Edge cases: disjoint boxes have `inter=0` so IoU $= 0$. If one box is contained
+      entirely within the other, `inter` equals the smaller box's area. If both boxes
+      are identical, IoU $= 1.0$. If `union` is 0 (both boxes have zero area), return 0.0
       to avoid division by zero."
     weight: 0.25
     reveal_threshold: 0.20
@@ -1104,21 +1318,31 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "text = re.sub(r'[^a-z0-9\\s]', '', text.lower()); tokens = text.split();
-      return [tuple(tokens[i:i+n]) for i in range(len(tokens) - n + 1)]"
+    text: |
+      ```python
+      text = re.sub(r'[^a-z0-9\s]', '', text.lower())
+      tokens = text.split()
+      return [tuple(tokens[i:i+n]) for i in range(len(tokens) - n + 1)]
+      ```
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "import re\n\ndef generate_ngrams(text, n):\n    text = re.sub(r'[^a-z0-9\\s]',
-      '', text.lower())\n    tokens = text.split()\n    return [tuple(tokens[i:i+n])
-      for i in range(len(tokens) - n + 1)]"
+    text: |
+      ```python
+      import re
+
+      def generate_ngrams(text, n):
+          text = re.sub(r'[^a-z0-9\s]', '', text.lower())
+          tokens = text.split()
+          return [tuple(tokens[i:i+n]) for i in range(len(tokens) - n + 1)]
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
-    text: "Edge cases: if n > len(tokens), return an empty list. If n <= 0, behavior
+    text: "Edge cases: if `n > len(tokens)`, return an empty list. If `n <= 0`, behavior
       is undefined (could raise or return empty). N-grams overlap so each consecutive
-      window is a new n-gram, not non-overlapping chunks. The range goes to len(tokens)
-      - n + 1 so the last n-gram includes the final token."
+      window is a new n-gram, not non-overlapping chunks. The range goes to `len(tokens)
+      - n + 1` so the last n-gram includes the final token."
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_rc_sampling
@@ -1150,22 +1374,31 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "probs = np.array(weights) / sum(weights); cum = np.cumsum(probs); rng
-      = np.random.default_rng(0); samples = [items[np.searchsorted(cum, rng.random())]
-      for _ in range(k)]"
+    text: |
+      ```python
+      probs = np.array(weights) / sum(weights)
+      cum = np.cumsum(probs)
+      rng = np.random.default_rng(0)
+      samples = [items[np.searchsorted(cum, rng.random())] for _ in range(k)]
+      ```
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def weighted_sample(items, weights, k=1):\n    probs = np.array(weights,
-      dtype=float)\n    probs /= probs.sum()\n    cum = np.cumsum(probs)\n    rng
-      = np.random.default_rng(0)\n    return [items[np.searchsorted(cum, rng.random())]
-      for _ in range(k)]"
+    text: |
+      ```python
+      def weighted_sample(items, weights, k=1):
+          probs = np.array(weights, dtype=float)
+          probs /= probs.sum()
+          cum = np.cumsum(probs)
+          rng = np.random.default_rng(0)
+          return [items[np.searchsorted(cum, rng.random())] for _ in range(k)]
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
     text: "Edge cases: if weights sum to 0, division by zero occurs so handle by raising
-      or returning uniform samples. If k is 0, return an empty list. np.searchsorted
-      with default side='left' returns the first index where cum >= u, which correctly
+      or returning uniform samples. If `k` is 0, return an empty list. `np.searchsorted`
+      with default `side='left'` returns the first index where `cum >= u`, which correctly
       maps to the right item. The seeded RNG ensures reproducibility."
     weight: 0.25
     reveal_threshold: 0.20
@@ -1201,21 +1434,26 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "logits = self.gate(x) gives shape (B, L, num_experts); top_scores, top_idx
-      = torch.topk(logits, self.k, dim=-1) gives shape (B, L, k); weights = F.softmax(top_scores,
-      dim=-1) gives shape (B, L, k)."
+    text: "`logits = self.gate(x)` gives shape `(B, L, num_experts)`; `top_scores, top_idx
+      = torch.topk(logits, self.k, dim=-1)` gives shape `(B, L, k)`; `weights = F.softmax(top_scores,
+      dim=-1)` gives shape `(B, L, k)`."
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def forward(self, x):\n    logits = self.gate(x)\n    top_scores, top_idx
-      = torch.topk(logits, self.k, dim=-1)\n    weights = F.softmax(top_scores, dim=-1)\n\
-    \    return weights, top_idx"
+    text: |
+      ```python
+      def forward(self, x):
+          logits = self.gate(x)
+          top_scores, top_idx = torch.topk(logits, self.k, dim=-1)
+          weights = F.softmax(top_scores, dim=-1)
+          return weights, top_idx
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
-    text: "Edge cases: if k > num_experts, torch.topk will return all experts. If
+    text: "Edge cases: if `k > num_experts`, `torch.topk` will return all experts. If
       all gate logits are the same, softmax produces uniform weights. The weights
-      sum to 1 across the k selected experts for each token. The indices are needed
+      sum to 1 across the `k` selected experts for each token. The indices are needed
       later to dispatch tokens to the correct experts."
     weight: 0.25
     reveal_threshold: 0.20
@@ -1250,22 +1488,31 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "probs = F.softmax(gate_logits, dim=-1) gives shape (N, num_experts); f
-      = probs.mean(0) gives fraction of probability mass per expert; P = probs.mean(0)
-      gives mean routing probability per expert; loss = num_experts * (f * P).sum()."
+    text: |
+      ```python
+      probs = F.softmax(gate_logits, dim=-1)  # shape: (N, num_experts)
+      f = probs.mean(0)    # fraction of probability mass per expert
+      P = probs.mean(0)    # mean routing probability per expert
+      loss = num_experts * (f * P).sum()
+      ```
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def compute_load_balancing_loss(gate_logits, num_experts):\n    probs
-      = F.softmax(gate_logits, dim=-1)\n    f = probs.mean(0)\n    P = probs.mean(0)\n\
-    \    return num_experts * (f * P).sum()"
+    text: |
+      ```python
+      def compute_load_balancing_loss(gate_logits, num_experts):
+          probs = F.softmax(gate_logits, dim=-1)
+          f = probs.mean(0)
+          P = probs.mean(0)
+          return num_experts * (f * P).sum()
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
-    text: "Edge cases: if all tokens go to one expert, f has one entry near 1 and
-      others near 0, and P concentrates on that expert too so loss is high. If routing
-      is perfectly uniform, f and P are both 1/num_experts for all experts, and loss
-      = num_experts * num_experts * (1/num_experts)^2 = 1.0 (the minimum). The scalar
+    text: "Edge cases: if all tokens go to one expert, `f` has one entry near 1 and
+      others near 0, and `P` concentrates on that expert too so loss is high. If routing
+      is perfectly uniform, `f` and `P` are both `1/num_experts` for all experts, and loss
+      $= \\text{num\\_experts} \\cdot \\text{num\\_experts} \\cdot (1/\\text{num\\_experts})^2 = 1.0$ (the minimum). The scalar
       loss is typically added to the training objective with a small coefficient."
     weight: 0.25
     reveal_threshold: 0.20
@@ -1307,26 +1554,34 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "self._buffer = [] in __init__. append: self._buffer.append(request). get_batches:
-      n_full = len(self._buffer) // self.batch_size; batches = [self._buffer[i*self.batch_size:(i+1)*self.batch_size]
-      for i in range(n_full)]; self._buffer = self._buffer[n_full*self.batch_size:]
-      if n_full > 0 else self._buffer."
+    text: "```python\nself._buffer = []\n# append:\nself._buffer.append(request)\n# get_batches:\nn_full = len(self._buffer) // self.batch_size\nbatches = [self._buffer[i*self.batch_size:(i+1)*self.batch_size] for i in range(n_full)]\nself._buffer = self._buffer[n_full*self.batch_size:] if n_full > 0 else self._buffer\n```"
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def __init__(self, batch_size):\n    self.batch_size = batch_size\n   \
-    \ self._buffer = []\n\ndef append(self, request):\n    self._buffer.append(request)\n\
-    \ndef get_batches(self):\n    n_full = len(self._buffer) // self.batch_size\n\
-    \    if n_full == 0:\n        return []\n    batches = [self._buffer[i*self.batch_size:(i+1)*self.batch_size]
-      for i in range(n_full)]\n    self._buffer = self._buffer[n_full*self.batch_size:]\n\
-    \    return batches"
+    text: |
+      ```python
+      def __init__(self, batch_size):
+          self.batch_size = batch_size
+          self._buffer = []
+
+      def append(self, request):
+          self._buffer.append(request)
+
+      def get_batches(self):
+          n_full = len(self._buffer) // self.batch_size
+          if n_full == 0:
+              return []
+          batches = [self._buffer[i*self.batch_size:(i+1)*self.batch_size] for i in range(n_full)]
+          self._buffer = self._buffer[n_full*self.batch_size:]
+          return batches
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
-    text: "Edge cases: get_batches on empty buffer returns []. After extracting full
-      batches, the remaining partial batch stays in the buffer. If batch_size > len(buffer),
-      no batches are returned. The buffer modification (self._buffer = ...) creates
-      a new list; using del self._buffer[:n_full*self.batch_size] would be more memory-efficient."
+    text: "Edge cases: `get_batches` on empty buffer returns `[]`. After extracting full
+      batches, the remaining partial batch stays in the buffer. If `batch_size > len(buffer)`,
+      no batches are returned. The buffer modification (`self._buffer = ...`) creates
+      a new list; using `del self._buffer[:n_full*self.batch_size]` would be more memory-efficient."
     weight: 0.25
     reveal_threshold: 0.20
 - id: mi_sys_crawler
@@ -1372,29 +1627,40 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "hostname = urlparse(startUrl).hostname; visited = set([startUrl]); use
-      a lock = threading.Lock() to guard visited. Submit fetch jobs to ThreadPoolExecutor,
+    text: "`hostname = urlparse(startUrl).hostname`; `visited = set([startUrl])`; use
+      `lock = threading.Lock()` to guard `visited`. Submit fetch jobs to `ThreadPoolExecutor`,
       filter results to same hostname, add unvisited URLs to a queue."
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "from concurrent.futures import ThreadPoolExecutor\ndef crawl(self, startUrl,
-    htmlParser):\n    hostname = urlparse(startUrl).hostname\n    visited = {startUrl}\n\
-    \    lock = threading.Lock()\n    with ThreadPoolExecutor(max_workers=4) as pool:\n\
-    \        futures = [pool.submit(htmlParser.getUrls, startUrl)]\n        while futures:\n\
-    \            done = [f for f in futures if f.done()]\n            futures = [f
-      for f in futures if not f.done()]\n            for f in done:\n                for
-      url in f.result():\n                    if urlparse(url).hostname == hostname:\n\
-    \                        with lock:\n                            if url not
-      in visited:\n                                visited.add(url)\n              \
-    \                  futures.append(pool.submit(htmlParser.getUrls, url))\n    return
-      list(visited)"
+    text: |
+      ```python
+      from concurrent.futures import ThreadPoolExecutor
+
+      def crawl(self, startUrl, htmlParser):
+          hostname = urlparse(startUrl).hostname
+          visited = {startUrl}
+          lock = threading.Lock()
+          with ThreadPoolExecutor(max_workers=4) as pool:
+              futures = [pool.submit(htmlParser.getUrls, startUrl)]
+              while futures:
+                  done = [f for f in futures if f.done()]
+                  futures = [f for f in futures if not f.done()]
+                  for f in done:
+                      for url in f.result():
+                          if urlparse(url).hostname == hostname:
+                              with lock:
+                                  if url not in visited:
+                                      visited.add(url)
+                                      futures.append(pool.submit(htmlParser.getUrls, url))
+          return list(visited)
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
-    text: "Edge cases: startUrl's hostname might be None (malformed URL). The mock
+    text: "Edge cases: `startUrl`'s hostname might be `None` (malformed URL). The mock
       parser has a 50ms delay per call so concurrency helps. Ensure all futures complete
-      before returning. The visited set prevents infinite loops from cyclic links.
+      before returning. The `visited` set prevents infinite loops from cyclic links.
       Consider draining all futures before processing results to avoid missing URLs."
     weight: 0.25
     reveal_threshold: 0.20
@@ -1423,26 +1689,30 @@ tasks:
     weight: 0.05
     reveal_threshold: 0.75
   - id: h2
-    text: "Use torch.argsort(expert_ids) to get the indices that would sort expert_ids.
-      Apply these indices to both tokens and expert_ids to get the reordered tensors."
+    text: "Use `torch.argsort(expert_ids)` to get the indices that would sort `expert_ids`.
+      Apply these indices to both `tokens` and `expert_ids` to get the reordered tensors."
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "sort_indices = torch.argsort(expert_ids); reordered_tokens = tokens[sort_indices];
-      return reordered_tokens, sort_indices"
+    text: "`sort_indices = torch.argsort(expert_ids)`; `reordered_tokens = tokens[sort_indices]`;
+      return `reordered_tokens, sort_indices`"
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def reorder_tokens(tokens, expert_ids, num_experts):\n    sort_indices
-      = torch.argsort(expert_ids)\n    reordered_tokens = tokens[sort_indices]\n\
-    \    return reordered_tokens, sort_indices"
+    text: |
+      ```python
+      def reorder_tokens(tokens, expert_ids, num_experts):
+          sort_indices = torch.argsort(expert_ids)
+          reordered_tokens = tokens[sort_indices]
+          return reordered_tokens, sort_indices
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
-    text: "Edge cases: if multiple tokens share the same expert_id, argsort preserves
-      their relative order (stable sort). The returned sort_indices can be used to
-      scatter results back: original_order = reordered[sort_indices.argsort()]. num_experts
-      is not used in the implementation but defines the range of expert_ids."
+    text: "Edge cases: if multiple tokens share the same `expert_id`, `argsort` preserves
+      their relative order (stable sort). The returned `sort_indices` can be used to
+      scatter results back: `original_order = reordered[sort_indices.argsort()]`. `num_experts`
+      is not used in the implementation but defines the range of `expert_ids`."
     weight: 0.25
     reveal_threshold: 0.20
 - id: mi_sys_cache
@@ -1481,25 +1751,32 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
-    text: "Hit: self.gpu_cache.move_to_end(expert_id). Miss: self._simulate_pcie_transfer();
-      if len(self.gpu_cache) >= self.capacity: least_popular = min(self.gpu_cache.keys(),
-      key=lambda k: self.popularity_scores[k]); del self.gpu_cache[least_popular]."
+    text: "Hit: `self.gpu_cache.move_to_end(expert_id)`. Miss: `self._simulate_pcie_transfer()`;
+      if `len(self.gpu_cache) >= self.capacity`: `least_popular = min(self.gpu_cache.keys(),
+      key=lambda k: self.popularity_scores[k])`; `del self.gpu_cache[least_popular]`."
     weight: 0.12
     reveal_threshold: 0.50
   - id: h4
-    text: "def access_expert(self, expert_id):\n    self.popularity_scores[expert_id]
-      += 1\n    if expert_id in self.gpu_cache:\n        self.gpu_cache.move_to_end(expert_id)\n\
-    \    else:\n        self._simulate_pcie_transfer()\n        if len(self.gpu_cache)
-      >= self.capacity:\n            least_pop = min(self.gpu_cache.keys(), key=lambda
-      k: self.popularity_scores[k])\n            del self.gpu_cache[least_pop]\n\
-    \        self.gpu_cache[expert_id] = None"
+    text: |
+      ```python
+      def access_expert(self, expert_id):
+          self.popularity_scores[expert_id] += 1
+          if expert_id in self.gpu_cache:
+              self.gpu_cache.move_to_end(expert_id)
+          else:
+              self._simulate_pcie_transfer()
+              if len(self.gpu_cache) >= self.capacity:
+                  least_pop = min(self.gpu_cache.keys(), key=lambda k: self.popularity_scores[k])
+                  del self.gpu_cache[least_pop]
+              self.gpu_cache[expert_id] = None
+      ```
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
     text: "Edge cases: if cache is at capacity and a hit occurs, no eviction needed
       (just move to end). The popularity score never decreases because it is cumulative.
-      OrderedDict.move_to_end reorders without removing. The PCIe latency is simulated
-      with time.sleep (convert ms to seconds). The cache stores None as placeholder
+      `OrderedDict.move_to_end` reorders without removing. The PCIe latency is simulated
+      with `time.sleep` (convert ms to seconds). The cache stores `None` as placeholder
       for expert data."
     weight: 0.25
     reveal_threshold: 0.20
