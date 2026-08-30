@@ -10,28 +10,42 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: Overfitting shows up when validation loss starts rising while training
-      loss keeps falling. You only need to find the first local minimum of the 
-      validation loss curve.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "Overfitting occurs when the model memorizes training data instead of generalizing.
+      In loss curves, this manifests as training loss continuing to decrease while
+      validation loss starts increasing."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: A 'local minimum' at epoch i means val_losses[i] is below its 
-      immediate neighbors val_losses[i-1] and val_losses[i+1]. Return the 
-      earliest such epoch.
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "You need to find the first local minimum of the validation loss curve:
+      the point where val_losses[i] is lower than both its neighbors, after which
+      validation loss starts rising."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: Loop i from 1 to len(val_losses)-1; if val_losses[i] < val_losses[i-1]
-      and val_losses[i] < val_losses[i+1], return i. If none found, return -1.
-    weight: 0.25
+    text: "Iterate through the validation losses from index 1 to len(val_losses)-2
+      (the first and last epochs cannot be local minima since they lack both neighbors).
+      For each index i, check if val_losses[i] < val_losses[i-1] and val_losses[i]
+      < val_losses[i+1]."
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def detect_overfitting(train_losses, val_losses):\n    for i in range(1,
+      len(val_losses) - 1):\n        if val_losses[i] < val_losses[i-1] and val_losses[i]
+      < val_losses[i+1]:\n            return i\n    return -1"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: if val_losses has fewer than 3 elements, no local minimum is
+      possible so return -1 immediately. The train_losses parameter is not actually
+      needed for the logic; the question is about the shape of val_losses alone."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_ml_04
   skill: ml_fundamentals
   difficulty: 3
-  prompt: Illustrate the bias-variance tradeoff with polynomial regression. Fit 
-    polynomials of each requested degree on a train split and return a dict 
-    mapping each degree to a (train_mse, val_mse) tuple so the degree that 
+  prompt: Illustrate the bias-variance tradeoff with polynomial regression. Fit
+    polynomials of each requested degree on a train split and return a dict
+    mapping each degree to a (train_mse, val_mse) tuple so the degree that
     generalizes best (lowest validation error) can be identified.
   scaffold: "import numpy as np\n\ndef poly_error_curves(X, y, degrees, val_frac=0.2):\n\
     \    \"\"\"\n    X: (N,) 1D feature values\n    y: (N,) target values\n    degrees:
@@ -44,28 +58,45 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: MSE = mean((pred - actual)**2). Fit on the train split only, then 
-      evaluate on both train and validation to expose the bias-variance 
-      tradeoff.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "The bias-variance tradeoff: low-degree polynomials underfit (high bias,
+      both train and val error are high), high-degree polynomials overfit (low train
+      error but high val error). You want to see this pattern across degrees."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: Use np.polyfit(X_train, y_train, deg) and np.polyval, or np.poly1d. 
-      Low degrees underfit (high train + val error); high degrees overfit (low 
-      train, high val).
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Split the data deterministically: the last int(len(X) * val_frac) rows
+      are validation, the rest are training. Fit each polynomial on the training
+      split only, then evaluate on both splits."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: 'Split: split = int(len(X) * val_frac); X_train, y_train = X[:-split], y[:-split];
-      X_val, y_val = X[-split:], y[-split:].'
-    weight: 0.25
+    text: "Use np.polyfit(X_train, y_train, deg) to fit, then np.polyval(coeffs,
+      X) or np.poly1d(coeffs)(X) to predict. MSE = mean((pred - actual)**2).
+      Collect results as {degree: (train_mse, val_mse)}."
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "split = int(len(X) * val_frac)\nX_train, y_train = X[:-split], y[:-split]\n\
+      X_val, y_val = X[-split:], y[-split:]\nresults = {}\nfor deg in degrees:\n\
+      \    coeffs = np.polyfit(X_train, y_train, deg)\n    train_pred = np.polyval(coeffs,
+      X_train)\n    val_pred = np.polyval(coeffs, X_val)\n    train_mse = np.mean((train_pred
+      - y_train)**2)\n    val_mse = np.mean((val_pred - y_val)**2)\n    results[deg]
+      = (train_mse, val_mse)\nreturn results"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: if split == 0 (very small dataset with large val_frac), there
+      are no training points so handle gracefully. Also ensure degrees is iterable
+      even if empty. The bias-variance pattern is visible when train_mse decreases
+      with degree while val_mse first decreases then increases."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_dl_02
   skill: deep_learning
   difficulty: 3
-  prompt: Detect the vanishing gradient problem in a deep network. Compute the 
-    L2 gradient norm of each layer with parameters, ordered from the output 
-    layer back to the input layer, and report whether gradients vanish (the 
+  prompt: Detect the vanishing gradient problem in a deep network. Compute the
+    L2 gradient norm of each layer with parameters, ordered from the output
+    layer back to the input layer, and report whether gradients vanish (the
     earliest layer's norm is much smaller than the output layer's).
   scaffold: "import torch\nimport torch.nn as nn\n\ndef layer_gradient_norms(model,
     x, target):\n    \"\"\"\n    Returns a list of L2 gradient norms, one per layer
@@ -85,22 +116,41 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: A gradient norm is the L2 norm of the flattened gradient of a layer. 
-      Run a backward pass first so the .grad attributes are populated.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "Vanishing gradients mean deep layers receive extremely small gradient signals
+      during backpropagation, making them learn very slowly. You detect this by comparing
+      gradient magnitudes across layers."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: out = model(x); loss = F.mse_loss(out, target); loss.backward(). Then 
-      for each layer in reversed(model.children()), combine that layer's 
-      weight/bias gradients into one L2 norm.
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "First run a forward pass and backward pass to populate .grad attributes:
+      out = model(x); loss = F.mse_loss(out, target); loss.backward(). Then iterate
+      through layers in reverse order (output to input) to collect gradient norms."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: norm = torch.sqrt(sum(p.grad.flatten()**2 for p in 
-      layer.parameters())) for each layer in reversed(list(model.children())) 
-      that has parameters.
-    weight: 0.25
+    text: "For each layer that has parameters, compute the L2 norm of all its gradients
+      combined: torch.sqrt(sum(p.grad.flatten().pow(2) for p in layer.parameters())).
+      Use reversed(list(model.children())) to go from output to input."
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def layer_gradient_norms(model, x, target):\n    model.zero_grad()\n    \
+      out = model(x)\n    loss = nn.MSELoss()(out, target)\n    loss.backward()\n \
+      \   norms = []\n    for layer in reversed(list(model.children())):\n        params
+      = list(layer.parameters())\n        if params:\n            norm = torch.sqrt(sum(p.grad.flatten().pow(2)
+      for p in params))\n            norms.append(norm.item())\n    return norms\n\ndef
+      has_vanishing_gradient(norms, threshold=0.05):\n    if not norms:\n        return
+      False\n    return norms[-1] < threshold * norms[0]"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: a layer with no parameters (like ReLU) should be skipped. If
+      the model has no parameterized layers, return an empty list. The norms list
+      is ordered output-to-input, so norms[0] is the output layer and norms[-1]
+      is the input layer. has_vanishing_gradient checks if the input layer norm is
+      below threshold times the output layer norm."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_math_02
   skill: math_stats
   difficulty: 1
@@ -112,20 +162,34 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: Population variance divides by n; sample variance divides by n-1 
-      (Bessel's correction).
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "Variance measures how spread out data is from its mean. Population variance
+      divides by n (the full dataset), sample variance divides by n-1 (Bessel's correction
+      to correct for bias when estimating from a sample)."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: variance = sum((x - mean)**2 for x in X) / (n - ddof). Var(aX+b) = a^2
-      * Var(X) is a useful sanity check.
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "The formula is: compute the mean, then compute the average of squared deviations
+      from the mean. The only difference between population and sample variance is
+      the denominator: n for ddof=0, n-1 for ddof=1."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: mean = sum(X) / len(X); return sum((x - mean) ** 2 for x in X) / 
-      (len(X) - ddof).
-    weight: 0.25
+    text: "mean = sum(X) / len(X); squared_diffs = [(x - mean) ** 2 for x in X];
+      return sum(squared_diffs) / (len(X) - ddof)"
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def variance(X, ddof=0):\n    n = len(X)\n    mean = sum(X) / n\n   \
+      \ return sum((x - mean) ** 2 for x in X) / (n - ddof)"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: if X is empty, division by zero occurs so handle gracefully
+      (return 0.0 or raise). If X has one element and ddof=1, division by zero occurs.
+      The property Var(aX+b) = a^2 * Var(X) is a good sanity check: standardizing
+      data (subtract mean, divide by std) should give variance close to 1.0."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_exp_02
   skill: experimentation
   difficulty: 3
@@ -147,52 +211,86 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: The p-value is the fraction of random re-shuffles whose |difference of
-      means| is at least as extreme as the observed one.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "A permutation test asks: if the treatment had no real effect, how likely
+      is it that we would see a difference this large just by chance? The p-value
+      answers this by comparing the observed difference to differences from random
+      reassignments."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: 'pooled = np.concatenate([control, treatment]); observed = treatment.mean()
-      - control.mean(). For each permutation: shuffle pooled, split into two groups
-      of the original sizes, recompute the difference of means.'
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Pool all observations together, then repeatedly shuffle and re-split into
+      control and treatment groups of the original sizes. For each shuffle, compute
+      the difference of means. The p-value is the fraction of these permuted differences
+      whose absolute value is >= the observed absolute difference."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: rng = np.random.default_rng(seed). p = (count of permuted diffs with 
-      abs >= abs(observed)) / n_permutations.
-    weight: 0.25
+    text: "observed = treatment.mean() - control.mean(); pooled = np.concatenate([control,
+      treatment]); n_c, n_t = len(control), len(treatment). Use np.random.default_rng(seed)
+      for reproducibility."
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def permutation_pvalue(control, treatment, n_permutations=1000, seed=0):\n\
+      \    rng = np.random.default_rng(seed)\n    observed = treatment.mean() - control.mean()\n\
+      \    pooled = np.concatenate([control, treatment])\n    n_c = len(control)\n\
+      \    count = 0\n    for _ in range(n_permutations):\n        rng.shuffle(pooled)\n\
+      \        diff = pooled[n_c:].mean() - pooled[:n_c].mean()\n        if abs(diff)
+      >= abs(observed):\n            count += 1\n    return count / n_permutations"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: if n_permutations is 0, return 0.0. If control or treatment
+      is empty, handle gracefully. The two-sided nature means we check abs(diff) >=
+      abs(observed), not just diff >= observed. Shuffling modifies pooled in-place,
+      so recompute the split each iteration."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mi_sys_02
   skill: systems
   difficulty: 2
-  prompt: Implement top-k gradient compression, a technique that reduces 
-    communication overhead in data-parallel training. Given a 1D list of 
+  prompt: Implement top-k gradient compression, a technique that reduces
+    communication overhead in data-parallel training. Given a 1D list of
     gradient values, zero out all entries except the k with the largest absolute
     value (ties keep the earlier index) and return the compressed list.
   scaffold: "import numpy as np\n\ndef topk_compress(grads, k):\n    \"\"\"\n    grads:
     1D list/array of gradient values\n    k: number of entries to keep\n    Returns:
     compressed list with all but the top-k (by absolute value) entries zeroed\n  \
-    \  \"\"\"\n    # >>> START YOUR IMPLEMENTATION <<<\n    # 1. Find the indices
+    \    \"\"\"\n    # >>> START YOUR IMPLEMENTATION <<<\n    # 1. Find the indices
     of the k entries with the largest absolute value\n    # 2. Build the output with
     only those entries preserved (ties keep the earlier index)\n    pass\n    # >>>
     END YOUR IMPLEMENTATION <<<\n"
   max_score: 5
   hints:
   - id: h1
-    text: Keep the k entries with the largest absolute value and zero out 
-      everything else; ties keep the earlier index.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "Gradient compression reduces communication cost by only transmitting the
+      most important (largest magnitude) gradient values, zeroing out the rest. This
+      is a lossy approximation that preserves the strongest signals."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: np.argsort(np.abs(grads))[::−1][:k] gives the indices of the top-k 
-      entries by magnitude; build the output preserving those entries.
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Sort gradients by their absolute values in descending order, take the first
+      k indices, and keep only those entries. All other entries become zero."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: out = np.zeros_like(grads); idx = np.argsort(-np.abs(grads))[:k]; 
-      out[idx] = grads[idx].
-    weight: 0.25
+    text: "np.argsort(np.abs(grads)) returns indices sorted by magnitude ascending.
+      Reverse with [::-1] to get descending, then take [:k] for the top-k indices.
+      Ties naturally keep the earlier index because argsort is stable."
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def topk_compress(grads, k):\n    grads = np.asarray(grads)\n    out =
+      np.zeros_like(grads)\n    idx = np.argsort(-np.abs(grads))[:k]\n    out[idx]
+      = grads[idx]\n    return out"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: if k >= len(grads), keep everything (no compression). If k
+      is 0, return all zeros. If grads is empty, return an empty array. The negative
+      sign in -np.abs(grads) makes argsort sort descending by absolute value."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mi_mlops_02
   skill: mlops
   difficulty: 3
@@ -222,24 +320,42 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: Track registered versions in a dict, the current production id, and a 
-      history stack for rollback.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "A model registry tracks model versions through their lifecycle: registration,
+      promotion to production, and rollback. It also gates canary deployments by
+      comparing error rates against a baseline."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: 'register: add to versions or raise ValueError if present. promote: push
-      the current production onto history, then set production. rollback: pop history
-      to restore (None if empty). canary_gate: canary_error_rate <= baseline_error_rate
-      + threshold.'
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Use three data structures: a dict for registered versions, a string for
+      the current production version, and a list as a stack for rollback history.
+      Register adds to the dict (reject duplicates), promote pushes current production
+      onto the stack before updating, rollback pops from the stack."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: "register(v): if v in self.versions: raise ValueError(v); self.versions[v]
-      = 'registered'. promote(v): if self.production: self._history.append(self.production);
-      self.production = v. rollback(): self.production = self._history.pop() if self._history
-      else None."
-    weight: 0.25
+    text: "register: check if version_id already in self.versions, raise ValueError
+      if so, otherwise add it. promote: if self.production is not None, append it
+      to self._history, then set self.production = version_id. rollback: pop from
+      self._history if non-empty, else set self.production = None."
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def register(self, version_id):\n    if version_id in self.versions:\n\
+      \        raise ValueError(f'{version_id} already registered')\n    self.versions[version_id]
+      = 'registered'\n\ndef promote(self, version_id):\n    if self.production is not
+      None:\n        self._history.append(self.production)\n    self.production = version_id\n\
+      \ndef rollback(self):\n    self.production = self._history.pop() if self._history
+      else None\n\ndef canary_gate(self, canary_error_rate, baseline_error_rate, threshold=0.01):\n\
+      \    return canary_error_rate <= baseline_error_rate + threshold"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: promote a version that was never registered should probably
+      fail, but the current scaffold does not enforce this so assume any string is
+      valid. Rollback on empty history returns None (no production). Canary gate
+      uses <= not <, meaning equal error rates are acceptable."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mi_cloud_02
   skill: cloud
   difficulty: 2
@@ -251,21 +367,36 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: GPU models, steady high traffic, and cold-start-sensitive workloads 
-      prefer containers; low bursty traffic prefers serverless.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "Containers are better for sustained high throughput, GPU workloads, and latency-sensitive
+      applications. Serverless is better for sporadic, bursty traffic where paying
+      per-request is more cost-effective."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: Return 'container' if needs_gpu or req_per_sec >= 50 or cold_start_ms 
-      <= 500, otherwise 'serverless'.
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "The decision rules are: if needs_gpu is True, use containers. If req_per_sec
+      >= 50, use containers (steady high traffic). If cold_start_ms <= 500, use containers
+      (cannot tolerate long cold starts). Otherwise, use serverless."
+    weight: 0.08
+    reveal_threshold:  0.65
   - id: h3
-    text: "def recommend_serving(req_per_sec, peak_ratio, cold_start_ms, needs_gpu):
-      if needs_gpu or req_per_sec >= 50 or cold_start_ms <= 500: return 'container';
-      return 'serverless'."
-    weight: 0.25
+    text: "The peak_ratio parameter is not actually used in the decision logic; the
+      three conditions (GPU, traffic volume, cold-start tolerance) are sufficient.
+      Combine them with logical OR."
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def recommend_serving(req_per_sec, peak_ratio, cold_start_ms, needs_gpu):\n\
+      \    if needs_gpu or req_per_sec >= 50 or cold_start_ms <= 500:\n        return
+      'container'\n    return 'serverless'"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: cold_start_ms is the maximum acceptable cold start, so lower
+      values mean more sensitive to cold starts and <= 500 means the workload cannot
+      tolerate waits longer than 500ms. req_per_sec is a float threshold, so exactly
+      50.0 should return 'container'."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mi_data_02
   skill: data_eng
   difficulty: 2
@@ -280,26 +411,39 @@ tasks:
     \      pass\n        # >>> END YOUR IMPLEMENTATION <<<\n\n    def get_sum(self)
     -> float:\n        # >>> START YOUR IMPLEMENTATION <<<\n        # Return the sum
     of events currently in the window\n        pass\n        # >>> END YOUR IMPLEMENTATION
-    <<<\n\n    def get_mean(self) -> float:\n        # >>> START YOUR IMPLEMENTATION
+    <<<\n\n    def get_mean(self) -> float:\n        # >>> END YOUR IMPLEMENTATION
     <<<\n        # Return the mean of events currently in the window (0.0 when empty)\n\
     \        pass\n        # >>> END YOUR IMPLEMENTATION <<<\n"
   max_score: 5
   hints:
   - id: h1
-    text: Keep a fixed-size buffer of the last N events; add() drops the oldest 
-      event once the window is full.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "A sliding window keeps only the most recent N events. When a new event
+      arrives and the window is full, the oldest event is dropped to make room.
+      This provides a fixed-size view of recent data."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: 'Use a collections.deque(maxlen=size). add: self._buf.append(value). get_sum:
-      return sum(self._buf). get_mean: return sum(self._buf) / len(self._buf) if self._buf
-      else 0.0.'
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Python's collections.deque with maxlen=size automatically handles the eviction:
+      when you append to a full deque, the oldest item is removed. This is the ideal
+      data structure for a sliding window."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: from collections import deque; self._buf = deque(maxlen=self.size).
-    weight: 0.25
+    text: "from collections import deque; def __init__(self, size): self.size = size;
+      self._buf = deque(maxlen=size); def add(self, value): self._buf.append(value)"
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def get_sum(self):\n    return sum(self._buf)\ndef get_mean(self):\n   \
+    \ return sum(self._buf) / len(self._buf) if self._buf else 0.0"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: get_mean on an empty window should return 0.0 (avoid division
+      by zero). The deque handles all buffer management automatically with no manual
+      index tracking needed."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mi_code_01
   skill: coding
   difficulty: 1
@@ -308,23 +452,36 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: For each (key, value) pair, increment the count for that key in a 
-      dict.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "You are building a frequency counter: for each key that appears in the pairs,
+      count how many times it appears. The value in each pair is irrelevant; only
+      the key matters."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: 'counts = {}; for k, v in pairs: counts[k] = counts.get(k, 0) + 1; return
-      counts.'
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Initialize an empty dict, iterate through the pairs, and for each key increment
+      its count. Use dict.get(key, 0) + 1 to handle keys not yet in the dict."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: The value part of each pair is ignored; only keys are counted.
-    weight: 0.25
+    text: "counts = {}; for k, v in pairs: counts[k] = counts.get(k, 0) + 1; return
+      counts"
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def count_keys(pairs):\n    counts = {}\n    for k, v in pairs:\n   \
+      \     counts[k] = counts.get(k, 0) + 1\n    return counts"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: if pairs is empty, return an empty dict. If a key appears multiple
+      times, its count should be the total number of occurrences. The function should
+      work with any hashable key type (strings, integers, etc.)."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_dl_mlp
   skill: deep_learning
   difficulty: 3
-  prompt: Implement the full training step (zero gradients, forward pass, loss, 
+  prompt: Implement the full training step (zero gradients, forward pass, loss,
     backward pass, optimizer step) for an MLP using PyTorch. Fill in the markers
     in the class/scaffold.
   scaffold: "import torch\nimport torch.nn as nn\nimport torch.optim as optim\n\n\
@@ -341,20 +498,36 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: 'Standard PyTorch training step: zero gradients, forward pass, loss, backward
-      pass, optimizer step.'
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "A PyTorch training step follows a strict sequence: zero old gradients,
+      compute predictions, calculate loss, propagate gradients backward, then update
+      weights. The order matters because zeroing must happen before backward."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: optimizer.zero_grad(); loss = criterion(model(x), target); 
-      loss.backward(); optimizer.step() — in that order.
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Start by calling optimizer.zero_grad() to clear previous gradients. Then
+      compute the forward pass with model(x), calculate loss with criterion, call
+      loss.backward() to compute gradients, and optimizer.step() to update weights."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: zero_grad must run before backward, or gradients accumulate across 
-      steps.
-    weight: 0.25
+    text: "optimizer.zero_grad() clears gradients; output = model(x) does forward
+      pass; loss = criterion(output, target) computes loss; loss.backward() propagates
+      gradients; optimizer.step() updates weights."
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def train_step(model, optimizer, criterion, x, target):\n    optimizer.zero_grad()\n\
+      \    output = model(x)\n    loss = criterion(output, target)\n    loss.backward()\n\
+      \    optimizer.step()"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: if x requires_grad is False (e.g., from torch.no_grad context),
+      backward will fail. The function does not need to return anything because it
+      modifies model parameters in-place. Ensure model is in train mode (model.train())
+      before calling."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_dl_mha
   skill: deep_learning
   difficulty: 4
@@ -378,22 +551,41 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: 'Scaled dot-product attention: softmax(QK^T / sqrt(d_k)) V. Split d_model
-      into num_heads of size d_k each.'
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "Multi-head attention runs multiple attention operations in parallel, each
+      on a different subspace of the embedding. The key steps are: project Q/K/V,
+      reshape into heads, compute scaled dot-product attention, concatenate, and
+      project output."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: Project with self.w_q/w_k/w_v, reshape (B, L, H, d_k) and transpose to
-      (B, H, L, d_k), compute attention, transpose back, concatenate heads, then
-      apply self.w_o.
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "After projecting with w_q/w_k/w_v, reshape from (B, L, d_model) to (B,
+      L, num_heads, d_k) then transpose to (B, num_heads, L, d_k). This separates
+      the heads for parallel attention computation."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: "scores = Q @ K.transpose(-2, -1) / math.sqrt(self.d_k); if mask is not
-      None: scores = scores.masked_fill(mask == 0, float('-inf')); attn = F.softmax(scores,
-      dim=-1)."
-    weight: 0.25
+    text: "Scaled dot-product attention: scores = Q @ K.transpose(-2, -1) / sqrt(d_k).
+      Apply mask if provided (scores.masked_fill(mask == 0, -inf)). Then attn = F.softmax(scores,
+      dim=-1) and output = attn @ V."
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "Q = self.w_q(q).view(B, L, self.num_heads, self.d_k).transpose(1, 2)\n\
+      K = self.w_k(k).view(B, L, self.num_heads, self.d_k).transpose(1, 2)\nV =
+      self.w_v(v).view(B, L, self.num_heads, self.d_k).transpose(1, 2)\nscores =
+      Q @ K.transpose(-2, -1) / math.sqrt(self.d_k)\nif mask is not None: scores
+      = scores.masked_fill(mask == 0, float('-inf'))\nattn = F.softmax(scores, dim=-1)\n\
+      out = attn @ V\nout = out.transpose(1, 2).contiguous().view(B, L, self.d_model)\n\
+      return self.w_o(out)"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: mask should be broadcastable to (B, num_heads, L, L). The .contiguous()
+      call after transpose is needed before view/reshape. d_model must be divisible
+      by num_heads (asserted in __init__). The input q, k, v can be different sequences
+      in cross-attention, but self-attention uses the same input for all three."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_dl_bn
   skill: deep_learning
   difficulty: 4
@@ -416,26 +608,45 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: Normalize with batch mean/var during training, update running 
-      statistics, then scale/shift with gamma/beta. Use the biased variance 
-      (divide by n) for normalization.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "Batch normalization normalizes each feature to have zero mean and unit variance
+      across the batch. During training, use batch statistics; during inference, use
+      running statistics accumulated from training."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: 'mean = x.mean(0); var = x.var(0, unbiased=False). In training: self.running_mean
-      = (1 - momentum) * self.running_mean + momentum * mean (same for var). x_hat
-      = (x - mean) / sqrt(var + eps).'
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "During training: compute batch mean and variance (use unbiased=False for
+      the biased estimator), update running_mean and running_var with exponential moving
+      average, then normalize. During eval: use self.running_mean and self.running_var
+      directly."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: In eval mode use self.running_mean / self.running_var instead of batch
-      stats. Return self.gamma * x_hat + self.beta.
-    weight: 0.25
+    text: "Training: mean = x.mean(0); var = x.var(0, unbiased=False). Update running:
+      self.running_mean = (1 - m) * self.running_mean + m * mean (same for var).
+      Normalize: x_hat = (x - mean) / sqrt(var + eps). Scale/shift: gamma * x_hat
+      + beta."
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def forward(self, x):\n    if self.training:\n        mean = x.mean(0)\n\
+      \        var = x.var(0, unbiased=False)\n        self.running_mean = (1 - self.momentum)
+      * self.running_mean + self.momentum * mean\n        self.running_var = (1 -
+      self.momentum) * self.running_var + self.momentum * var\n    else:\n        mean
+      = self.running_mean\n        var = self.running_var\n    x_hat = (x - mean) /
+      torch.sqrt(var + self.eps)\n    return self.gamma * x_hat + self.beta"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: eps prevents division by zero. momentum=0.1 means running stats
+      update slowly (90% old, 10% new). self.training flag (set by model.train()/model.eval())
+      controls which path executes. The biased variance (unbiased=False) divides by
+      N, not N-1, matching PyTorch's BatchNorm1d behavior."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_rc_softmax
   skill: coding
   difficulty: 2
-  prompt: Implement a numerically stable softmax that subtracts the max before 
+  prompt: Implement a numerically stable softmax that subtracts the max before
     exponentiation to avoid overflow.
   scaffold: "import torch\n\ndef stable_softmax(x, dim=-1):\n    \"\"\"\n    Computes
     softmax in a numerically stable way.\n    x: input tensor\n    dim: dimension
@@ -445,22 +656,37 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: Subtract the max before exponentiating to avoid overflow.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "Standard softmax computes exp(x_i) / sum(exp(x)). For large x values,
+      exp(x) overflows to infinity. Subtracting the max value from all elements before
+      exponentiating prevents this without changing the result."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: shifted = x - x.max(dim=dim, keepdim=True).values; exp = 
-      torch.exp(shifted); return exp / exp.sum(dim=dim, keepdim=True).
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Subtract x.max(dim=dim, keepdim=True) from x, then exponentiate, then
+      divide by the sum. keepdim=True ensures the max has the right shape for broadcasting."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: keepdim=True preserves the shape needed for broadcasting the division.
-    weight: 0.25
+    text: "shifted = x - x.max(dim=dim, keepdim=True).values; exp_x = torch.exp(shifted);
+      return exp_x / exp_x.sum(dim=dim, keepdim=True)"
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def stable_softmax(x, dim=-1):\n    shifted = x - x.max(dim=dim, keepdim=True).values\n\
+      \    exp_x = torch.exp(shifted)\n    return exp_x / exp_x.sum(dim=dim, keepdim=True)"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: if all inputs are -inf (e.g., masked positions), exp gives
+      0/0 which is NaN. You can handle this by adding a tiny epsilon or using torch.softmax
+      which handles this internally. The max subtraction is mathematically equivalent:
+      (exp(x-c) / sum(exp(x-c))) = exp(x) / sum(exp(x))."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_dl_ce
   skill: deep_learning
   difficulty: 4
-  prompt: Implement cross-entropy loss from scratch using the log-sum-exp trick 
+  prompt: Implement cross-entropy loss from scratch using the log-sum-exp trick
     for stability (no F.cross_entropy).
   scaffold: "import torch\nimport torch.nn.functional as F\n\ndef custom_cross_entropy(logits,
     target):\n    \"\"\"\n    logits: (batch_size, num_classes)\n    target: (batch_size,)
@@ -472,23 +698,39 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: Cross-entropy = -log(softmax(logits)[target]). Use the log-sum-exp 
-      trick for numerical stability.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "Cross-entropy loss is -log(softmax(logits)[target]). The log-sum-exp trick
+      computes log(sum(exp(x))) in a numerically stable way by subtracting the max
+      first: log(sum(exp(x - max))) + max."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: log_probs = logits - torch.logsumexp(logits, dim=1, keepdim=True); 
-      return -log_probs.gather(1, target.unsqueeze(1)).mean().
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "First compute log-probabilities: log_probs = logits - logsumexp(logits,
+      dim=1, keepdim=True). Then extract the log-probability of each target class
+      and take the negative mean."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: torch.logsumexp computes log(sum(exp(x))) in a stable way.
-    weight: 0.25
+    text: "log_probs = logits - torch.logsumexp(logits, dim=1, keepdim=True); target_log_probs
+      = log_probs.gather(1, target.unsqueeze(1)).squeeze(1); return -target_log_probs.mean()"
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def custom_cross_entropy(logits, target):\n    log_probs = logits -
+      torch.logsumexp(logits, dim=1, keepdim=True)\n    return -log_probs.gather(1,
+      target.unsqueeze(1)).mean()"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: if logits has -inf for all classes (e.g., fully masked), logsumexp
+      returns -inf and log_probs becomes NaN. target must contain valid class indices
+      (0 to num_classes-1). gather extracts along dim=1 (the class dimension). The
+      result is a scalar loss averaged over the batch."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_ml_knn
   skill: ml_fundamentals
   difficulty: 3
-  prompt: Implement KNN from scratch in NumPy with a vectorized Euclidean 
+  prompt: Implement KNN from scratch in NumPy with a vectorized Euclidean
     distance, majority vote over the k nearest neighbors.
   scaffold: "import numpy as np\n\ndef knn_predict(X_train, y_train, X_test, k=3):\n\
     \    \"\"\"\n    X_train: (N, D) training data\n    y_train: (N,) training labels\n\
@@ -503,20 +745,36 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: For each test point, find the k nearest training points by Euclidean 
-      distance, then majority-vote their labels.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "KNN classifies each test point by finding its k nearest training points
+      (by Euclidean distance) and taking a majority vote of their labels. No training
+      is needed; it is a lazy learner."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: dists = ((X_test[:, None, :] - X_train[None, :, :]) ** 2).sum(-1) ** 
-      0.5; nn = dists.argsort(axis=1)[:, :k]; labels = y_train[nn].
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Compute all pairwise distances between test and training points using broadcasting:
+      (X_test[:, None, :] - X_train[None, :, :]) ** 2. Sum along the feature axis
+      and take the square root. Then for each test point, find the k smallest distances."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: 'Keep it vectorized (no Python loops). Majority vote per row: np.apply_along_axis(lambda
-      row: np.bincount(row).argmax(), 1, labels).'
-    weight: 0.25
+    text: "dists = np.sqrt(((X_test[:, None, :] - X_train[None, :, :]) ** 2).sum(-1));
+      nn_indices = dists.argsort(axis=1)[:, :k]; neighbor_labels = y_train[nn_indices]"
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def knn_predict(X_train, y_train, X_test, k=3):\n    dists = np.sqrt(((X_test[:,
+      None, :] - X_train[None, :, :]) ** 2).sum(-1))\n    nn_idx = dists.argsort(axis=1)[:,
+      :k]\n    nn_labels = y_train[nn_idx]\n    return np.array([np.bincount(row).argmax()
+      for row in nn_labels])"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: if k > N (more neighbors than training points), use all training
+      points. For ties in majority vote, np.bincount().argmax() returns the smallest
+      class label. The vectorized distance computation avoids Python loops for efficiency.
+      For binary classification, ties go to class 0."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_ml_lr
   skill: ml_fundamentals
   difficulty: 3
@@ -536,20 +794,36 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: 'Sigmoid of logits, then binary cross-entropy gradients: dW = X^T (p - y)
-      / N, db = mean(p - y).'
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "Logistic regression applies a sigmoid to linear logits to get probabilities,
+      then uses binary cross-entropy loss. The gradient of this loss with respect to
+      weights is X^T(p - y)/N, where p is the predicted probability."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: logits = X_batch @ w + b; p = sigmoid(logits); grad_w = X_batch.T @ (p
-      - y_batch) / len(y_batch); grad_b = (p - y_batch).mean(); return w - lr * 
-      grad_w, b - lr * grad_b.
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Compute logits = X @ w + b, apply sigmoid to get probabilities p, then
+      compute gradients: grad_w = X.T @ (p - y) / N and grad_b = (p - y).mean().
+      Update: w -= lr * grad_w, b -= lr * grad_b."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: update_step must return the updated (weights, bias).
-    weight: 0.25
+    text: "logits = X_batch @ w + b; p = sigmoid(logits); grad_w = X_batch.T @ (p
+      - y_batch) / len(y_batch); grad_b = (p - y_batch).mean(); return w - lr * grad_w,
+      b - lr * grad_b"
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def update_step(X_batch, y_batch, w, b):\n    logits = X_batch @ w +
+      b\n    p = sigmoid(logits)\n    grad_w = X_batch.T @ (p - y_batch) / len(y_batch)\n\
+    \    grad_b = (p - y_batch).mean()\n    return w - lr * grad_w, b - lr * grad_b"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: if sigmoid input is very large positive, exp(-z) underflows
+      to 0, giving p=1.0 which is fine numerically. If all y_batch are the same class,
+      gradients still work but learning is slow. The division by len(y_batch) averages
+      the gradient over the batch. lr is captured from the outer scope."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_ml_kmeans
   skill: ml_fundamentals
   difficulty: 3
@@ -570,23 +844,42 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: 'Repeat two steps: assign each point to the nearest centroid, then recompute
-      centroids as the mean of the assigned points.'
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "K-Means alternates between two steps: (1) assign each point to the nearest
+      centroid, (2) recompute centroids as the mean of assigned points. Repeat until
+      assignments stop changing."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: 'assignment: dists = ((X[:, None] - centroids[None]) ** 2).sum(-1); return
-      dists.argmin(1). update: mean of X[assignments == j] per cluster.'
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Assignment step: compute Euclidean distances from each point to each centroid
+      using broadcasting, then take argmin along the centroid axis. Update step: for
+      each cluster j, compute the mean of all points assigned to j."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: Keep the old centroid for any empty cluster to avoid a crash.
-    weight: 0.25
+    text: "Assignment: dists = ((X[:, None] - centroids[None, :]) ** 2).sum(-1);
+      return dists.argmin(axis=1). Update: for j in range(k): if any assignment ==
+      j: centroids[j] = X[assignments == j].mean(axis=0)"
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def assignment_step(X, centroids):\n    dists = ((X[:, None] - centroids[None,
+      :]) ** 2).sum(-1)\n    return dists.argmin(axis=1)\n\ndef update_step(X, assignments,
+    k):\n    centroids = np.zeros((k, X.shape[1]))\n    for j in range(k):\n       \
+    \ mask = assignments == j\n        if mask.any():\n            centroids[j] =
+      X[mask].mean(axis=0)\n    return centroids"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: if a cluster becomes empty (no points assigned), keep the old
+      centroid to avoid NaN. If k > N, some clusters will always be empty. The algorithm
+      may not converge to the global optimum because initialization matters. max_iters
+      prevents infinite loops."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_ml_tree
   skill: ml_fundamentals
   difficulty: 4
-  prompt: Implement Gini impurity and find the best feature/threshold split for 
+  prompt: Implement Gini impurity and find the best feature/threshold split for
     a decision tree.
   scaffold: "import numpy as np\n\ndef calculate_gini(y):\n    \"\"\"Calculate Gini
     Impurity for a list of labels.\"\"\"\n    # >>> START YOUR IMPLEMENTATION <<<\n\
@@ -602,23 +895,47 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: Gini impurity = 1 - sum(p_c^2) over class proportions.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "Gini impurity measures how mixed a set of labels are: 1 - sum(p_c^2) where
+      p_c is the fraction of class c. A pure set (all one class) has Gini = 0; a
+      maximally mixed set has the highest Gini."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: 'calculate_gini: counts = np.bincount(y); p = counts / counts.sum(); return
-      1 - (p ** 2).sum(). Weighted Gini of a split = (n_left/n)*gini_left + (n_right/n)*gini_right.'
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "For each candidate split (feature i, threshold t), split data into left
+      (X[i] <= t) and right (X[i] > t), compute weighted Gini: (n_left/n)*gini_left
+      + (n_right/n)*gini_right. Choose the split with lowest weighted Gini."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: 'find_best_split: for each feature, try each unique value as a threshold,
-      compute the weighted Gini, and track the minimum.'
-    weight: 0.25
+    text: "calculate_gini: counts = np.bincount(y); p = counts / counts.sum(); return
+      1 - (p ** 2).sum(). split_data: left_mask = X[:, feature_idx] <= threshold;
+      return X[left_mask], y[left_mask], X[~left_mask], y[~left_mask]."
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def calculate_gini(y):\n    counts = np.bincount(y)\n    p = counts /
+      counts.sum()\n    return 1 - (p ** 2).sum()\n\ndef find_best_split(X, y):\n\
+    \    best_gini = float('inf')\n    best_split = None\n    n = len(y)\n    for
+      i in range(X.shape[1]):\n        for t in np.unique(X[:, i]):\n            left_mask
+      = X[:, i] <= t\n            if left_mask.sum() == 0 or (~left_mask).sum() ==
+      0:\n                continue\n            gini_left = calculate_gini(y[left_mask])\n\
+    \            gini_right = calculate_gini(y[~left_mask])\n            weighted_gini
+      = (left_mask.sum()/n)*gini_left + ((~left_mask).sum()/n)*gini_right\n         \
+    \   if weighted_gini < best_gini:\n                best_gini = weighted_gini\n\
+    \                best_split = (i, t)\n    return best_split"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: skip splits that produce empty left or right partitions (Gini
+      is undefined). If all labels are the same, Gini is 0 so any split is equally
+      good or bad. Using unique values as thresholds reduces the search space. The
+      function returns (feature_index, threshold) or None if no valid split exists."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_rc_scaling
   skill: coding
   difficulty: 2
-  prompt: Implement vectorized Standardization (z-score) and Min-Max 
+  prompt: Implement vectorized Standardization (z-score) and Min-Max
     Normalization in NumPy, handling division by zero.
   scaffold: "import numpy as np\n\ndef standardize(X):\n    \"\"\"Standardize features
     to mean=0, std=1.\"\"\"\n    # >>> START YOUR IMPLEMENTATION <<<\n    pass\n \
@@ -629,23 +946,42 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: 'Z-score: (x - mean) / std. Min-Max: (x - min) / (max - min).'
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "Standardization (z-score) transforms features to have mean 0 and standard
+      deviation 1: (x - mean) / std. Min-Max normalization scales features to [0,
+      1]: (x - min) / (max - min)."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: 'standardize: (X - X.mean(0)) / X.std(0). normalize: (X - X.min(0)) / (X.max(0)
-      - X.min(0)).'
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Operate along axis=0 (column-wise) so each feature is transformed independently.
+      For standardize: (X - X.mean(axis=0)) / X.std(axis=0). For normalize: (X -
+      X.min(axis=0)) / (X.max(axis=0) - X.min(axis=0))."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: Guard against division by zero (e.g. zero standard deviation or min ==
-      max) by clipping denominators.
-    weight: 0.25
+    text: "Handle division by zero: if std == 0 (constant feature), standardize should
+      return 0 (already at mean). If max == min (constant feature), normalize should
+      return 0. Use np.where or clip the denominator."
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def standardize(X):\n    mean = X.mean(axis=0)\n    std = X.std(axis=0)\n\
+    \    std = np.where(std == 0, 1, std)\n    return (X - mean) / std\n\ndef normalize(X):\n\
+    \    min_val = X.min(axis=0)\n    max_val = X.max(axis=0)\n    range_val = max_val
+      - min_val\n    range_val = np.where(range_val == 0, 1, range_val)\n    return
+      (X - min_val) / range_val"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: all-zero features (std=0, range=0) should return 0, not NaN.
+      The np.where approach replaces 0 denominators with 1, making the numerator
+      also 0 for constant features. Both functions should work on 2D arrays of any
+      shape."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_exp_metrics
   skill: experimentation
   difficulty: 2
-  prompt: Build a confusion matrix from scratch and compute Precision, Recall, 
+  prompt: Build a confusion matrix from scratch and compute Precision, Recall,
     and F1. No scikit-learn.
   scaffold: "import numpy as np\n\ndef compute_metrics(y_true, y_pred):\n    \"\"\"\
     \n    y_true: (N,) ground truth labels (0 or 1)\n    y_pred: (N,) predicted labels
@@ -658,22 +994,45 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: Precision = TP/(TP+FP), Recall = TP/(TP+FN), F1 = 2*P*R/(P+R).
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "Precision measures how many predicted positives are actually positive (TP
+      / (TP + FP)). Recall measures how many actual positives are correctly identified
+      (TP / (TP + FN)). F1 is their harmonic mean."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: TP = ((y_pred==1) & (y_true==1)).sum(); FP = ((y_pred==1) & 
-      (y_true==0)).sum(); FN = ((y_pred==0) & (y_true==1)).sum().
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Compute TP, FP, FN using boolean masks: TP = (y_pred==1) & (y_true==1),
+      FP = (y_pred==1) & (y_true==0), FN = (y_pred==0) & (y_true==1). Sum each
+      to get counts."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: Guard F1 against division by zero (return 0.0).
-    weight: 0.25
+    text: "TP = ((y_pred == 1) & (y_true == 1)).sum(); FP = ((y_pred == 1) & (y_true
+      == 0)).sum(); FN = ((y_pred == 0) & (y_true == 1)).sum(). precision = TP /
+      (TP + FP) if (TP + FP) > 0 else 0.0. recall = TP / (TP + FN) if (TP + FN)
+      > 0 else 0.0. f1 = 2 * precision * recall / (precision + recall) if (precision
+      + recall) > 0 else 0.0."
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def compute_metrics(y_true, y_pred):\n    TP = ((y_pred == 1) & (y_true
+      == 1)).sum()\n    FP = ((y_pred == 1) & (y_true == 0)).sum()\n    FN = ((y_pred
+      == 0) & (y_true == 1)).sum()\n    precision = TP / (TP + FP) if (TP + FP)
+      > 0 else 0.0\n    recall = TP / (TP + FN) if (TP + FN) > 0 else 0.0\n    f1
+      = 2 * precision * recall / (precision + recall) if (precision + recall) > 0
+      else 0.0\n    return {'precision': precision, 'recall': recall, 'f1': f1}"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: if no predicted positives (TP + FP == 0), precision is undefined
+      so return 0.0. If no actual positives (TP + FN == 0), recall is undefined so
+      return 0.0. If both precision and recall are 0, F1 is 0.0 (avoid 0/0). TN
+      is not needed for these metrics but could be computed as ((y_pred==0) & (y_true==0)).sum()."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_rc_iou
   skill: coding
   difficulty: 2
-  prompt: Calculate Intersection over Union (IoU) between two bounding boxes 
+  prompt: Calculate Intersection over Union (IoU) between two bounding boxes
     given as [x1, y1, x2, y2].
   scaffold: "def calculate_iou(boxA, boxB):\n    \"\"\"\n    boxA, boxB: list/tuple
     of [x1, y1, x2, y2]\n    (x1, y1) is top-left, (x2, y2) is bottom-right\n    \"\
@@ -686,24 +1045,43 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: IoU = area(intersection) / area(union); union = areaA + areaB - 
-      intersection.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "IoU measures overlap between two bounding boxes: area of intersection divided
+      by area of union. Union = area_A + area_B - intersection (to avoid double-counting
+      the overlap)."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: x1 = max(boxA[0], boxB[0]); y1 = max(boxA[1], boxB[1]); x2 = 
-      min(boxA[2], boxB[2]); y2 = min(boxA[3], boxB[3]).
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "The intersection rectangle's top-left is (max(x1_A, x1_B), max(y1_A, y1_B))
+      and bottom-right is (min(x2_A, x2_B), min(y2_A, y2_B)). If these cross (no
+      overlap), the intersection area is 0."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: inter = max(0, x2 - x1) * max(0, y2 - y1) so disjoint boxes give 0, 
-      not a negative area.
-    weight: 0.25
+    text: "x1 = max(boxA[0], boxB[0]); y1 = max(boxA[1], boxB[1]); x2 = min(boxA[2],
+      boxB[2]); y2 = min(boxA[3], boxB[3]). inter = max(0, x2 - x1) * max(0, y2
+      - y1)"
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def calculate_iou(boxA, boxB):\n    x1 = max(boxA[0], boxB[0])\n    y1
+      = max(boxA[1], boxB[1])\n    x2 = min(boxA[2], boxB[2])\n    y2 = min(boxA[3],
+      boxB[3])\n    inter = max(0, x2 - x1) * max(0, y2 - y1)\n    areaA = (boxA[2]
+      - boxA[0]) * (boxA[3] - boxA[1])\n    areaB = (boxB[2] - boxB[0]) * (boxB[3]
+      - boxB[1])\n    union = areaA + areaB - inter\n    return inter / union if union
+      > 0 else 0.0"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: disjoint boxes have inter=0 so IoU=0. If one box is contained
+      entirely within the other, inter equals the smaller box's area. If both boxes
+      are identical, IoU=1.0. If union is 0 (both boxes have zero area), return 0.0
+      to avoid division by zero."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_rc_ngram
   skill: coding
   difficulty: 2
-  prompt: Write a function to generate n-grams from a text string (lowercase, 
+  prompt: Write a function to generate n-grams from a text string (lowercase,
     strip punctuation, split into tokens).
   scaffold: "import re\n\ndef generate_ngrams(text, n):\n    \"\"\"\n    text: input
     string\n    n: size of n-gram\n    \"\"\"\n    # >>> START YOUR IMPLEMENTATION
@@ -714,20 +1092,35 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: Lowercase, strip punctuation, split into tokens, then produce n-length
-      windows of tokens.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "N-grams are contiguous sequences of n tokens from a text. First clean the
+      text (lowercase, remove punctuation), split into individual tokens, then slide
+      a window of size n across the token list."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: text = re.sub(r'[^a-z0-9\s]', '', text.lower()); tokens = 
-      text.split(); return [tuple(tokens[i:i+n]) for i in range(len(tokens) - n 
-      + 1)].
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Use regex to remove non-alphanumeric characters: re.sub(r'[^a-z0-9\\s]',
+      '', text.lower()). Then split on whitespace to get tokens. Generate n-grams
+      as tuples of n consecutive tokens."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: n-grams are overlapping windows, not non-overlapping chunks.
-    weight: 0.25
+    text: "text = re.sub(r'[^a-z0-9\\s]', '', text.lower()); tokens = text.split();
+      return [tuple(tokens[i:i+n]) for i in range(len(tokens) - n + 1)]"
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "import re\n\ndef generate_ngrams(text, n):\n    text = re.sub(r'[^a-z0-9\\s]',
+      '', text.lower())\n    tokens = text.split()\n    return [tuple(tokens[i:i+n])
+      for i in range(len(tokens) - n + 1)]"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: if n > len(tokens), return an empty list. If n <= 0, behavior
+      is undefined (could raise or return empty). N-grams overlap so each consecutive
+      window is a new n-gram, not non-overlapping chunks. The range goes to len(tokens)
+      - n + 1 so the last n-gram includes the final token."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_rc_sampling
   skill: coding
   difficulty: 3
@@ -744,19 +1137,38 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: Normalize weights to probabilities, build the cumulative distribution,
-      then inverse-sample with uniform random numbers.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "Weighted sampling selects items with probability proportional to their
+      weights. Normalize weights to sum to 1, build a cumulative distribution, then
+      use inverse transform sampling: for each draw, find where a uniform random
+      number falls in the cumulative distribution."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: 'probs = np.array(weights); probs = probs / probs.sum(); cum = np.cumsum(probs);
-      for each draw: u = rng.random(); idx = np.searchsorted(cum, u).'
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Convert weights to a numpy array, divide by sum to get probabilities.
+      Compute cumulative sum: cum = np.cumsum(probs). For each sample, draw u ~
+      Uniform(0,1) and find the first index where cum >= u using np.searchsorted."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: Use a seeded np.random.default_rng(0) for reproducibility.
-    weight: 0.25
+    text: "probs = np.array(weights) / sum(weights); cum = np.cumsum(probs); rng
+      = np.random.default_rng(0); samples = [items[np.searchsorted(cum, rng.random())]
+      for _ in range(k)]"
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def weighted_sample(items, weights, k=1):\n    probs = np.array(weights,
+      dtype=float)\n    probs /= probs.sum()\n    cum = np.cumsum(probs)\n    rng
+      = np.random.default_rng(0)\n    return [items[np.searchsorted(cum, rng.random())]
+      for _ in range(k)]"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: if weights sum to 0, division by zero occurs so handle by raising
+      or returning uniform samples. If k is 0, return an empty list. np.searchsorted
+      with default side='left' returns the first index where cum >= u, which correctly
+      maps to the right item. The seeded RNG ensures reproducibility."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_dl_router
   skill: deep_learning
   difficulty: 5
@@ -777,21 +1189,36 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: Compute gate logits, pick the top-k experts, and softmax only over the
-      selected experts' scores.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "A Mixture-of-Experts router decides which experts process each token. The
+      gate computes a score for each expert, then only the top-k experts are selected
+      and their scores are normalized with softmax to produce routing weights."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: logits = self.gate(x); top_scores, top_idx = torch.topk(logits, 
-      self.k, dim=-1); weights = F.softmax(top_scores, dim=-1). Return weights, 
-      top_idx.
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Compute gate logits with self.gate(x). Use torch.topk to get the k highest
+      scores and their indices. Apply softmax only to the selected scores (not all
+      experts) to get routing weights."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: torch.topk returns (values, indices); softmax the values and return 
-      them alongside the indices.
-    weight: 0.25
+    text: "logits = self.gate(x) gives shape (B, L, num_experts); top_scores, top_idx
+      = torch.topk(logits, self.k, dim=-1) gives shape (B, L, k); weights = F.softmax(top_scores,
+      dim=-1) gives shape (B, L, k)."
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def forward(self, x):\n    logits = self.gate(x)\n    top_scores, top_idx
+      = torch.topk(logits, self.k, dim=-1)\n    weights = F.softmax(top_scores, dim=-1)\n\
+    \    return weights, top_idx"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: if k > num_experts, torch.topk will return all experts. If
+      all gate logits are the same, softmax produces uniform weights. The weights
+      sum to 1 across the k selected experts for each token. The indices are needed
+      later to dispatch tokens to the correct experts."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mr_dl_lb
   skill: deep_learning
   difficulty: 5
@@ -810,23 +1237,42 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: Loss = num_experts * sum_i (f_i * P_i), where f_i is the fraction of 
-      tokens routed to expert i and P_i is the mean routing probability.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "The load balancing loss encourages uniform routing across experts. It measures
+      the overlap between the actual fraction of tokens each expert receives (f_i)
+      and the average routing probability each expert gets (P_i). The loss is minimized
+      when routing is uniform."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: probs = F.softmax(gate_logits, dim=-1); f = probs.mean(0); P = 
-      probs.mean(0); loss = num_experts * (f * P).sum().
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Compute routing probabilities with softmax. f_i is the mean of the one-hot
+      routing decisions (fraction of tokens routed to expert i). P_i is the mean
+      routing probability for expert i across all tokens."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: Return the scalar loss.
-    weight: 0.25
+    text: "probs = F.softmax(gate_logits, dim=-1) gives shape (N, num_experts); f
+      = probs.mean(0) gives fraction of probability mass per expert; P = probs.mean(0)
+      gives mean routing probability per expert; loss = num_experts * (f * P).sum()."
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def compute_load_balancing_loss(gate_logits, num_experts):\n    probs
+      = F.softmax(gate_logits, dim=-1)\n    f = probs.mean(0)\n    P = probs.mean(0)\n\
+    \    return num_experts * (f * P).sum()"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: if all tokens go to one expert, f has one entry near 1 and
+      others near 0, and P concentrates on that expert too so loss is high. If routing
+      is perfectly uniform, f and P are both 1/num_experts for all experts, and loss
+      = num_experts * num_experts * (1/num_experts)^2 = 1.0 (the minimum). The scalar
+      loss is typically added to the training objective with a small coefficient."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mi_sys_batcher
   skill: systems
   difficulty: 3
-  prompt: Implement a RequestBatcher that groups incoming requests into full 
+  prompt: Implement a RequestBatcher that groups incoming requests into full
     batches of size K; get_batches returns full batches and clears them.
   scaffold: "class RequestBatcher:\n    def __init__(self, batch_size: int):\n   \
     \     self.batch_size = batch_size\n        # >>> START YOUR IMPLEMENTATION <<<\n\
@@ -849,25 +1295,44 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: Append into a buffer; get_batches returns complete batches of size K 
-      and clears them from the buffer.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "A request batcher accumulates requests in a buffer and returns them in
+      full batches of size K. Partial batches stay in the buffer until enough requests
+      arrive to form a complete batch."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: 'self._buffer = [] in __init__. append: self._buffer.append(request). get_batches:
-      n_full = len(self._buffer) // K; batches = [self._buffer[i*K:(i+1)*K] for i
-      in range(n_full)]; self._buffer = self._buffer[n_full*K:]; return batches.'
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Use a list as the internal buffer. append() adds to the buffer. get_batches()
+      computes how many full batches fit, extracts them, removes them from the buffer,
+      and returns them."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: Only full batches are returned; the leftover partial batch stays in 
-      the buffer.
-    weight: 0.25
+    text: "self._buffer = [] in __init__. append: self._buffer.append(request). get_batches:
+      n_full = len(self._buffer) // self.batch_size; batches = [self._buffer[i*self.batch_size:(i+1)*self.batch_size]
+      for i in range(n_full)]; self._buffer = self._buffer[n_full*self.batch_size:]
+      if n_full > 0 else self._buffer."
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def __init__(self, batch_size):\n    self.batch_size = batch_size\n   \
+    \ self._buffer = []\n\ndef append(self, request):\n    self._buffer.append(request)\n\
+    \ndef get_batches(self):\n    n_full = len(self._buffer) // self.batch_size\n\
+    \    if n_full == 0:\n        return []\n    batches = [self._buffer[i*self.batch_size:(i+1)*self.batch_size]
+      for i in range(n_full)]\n    self._buffer = self._buffer[n_full*self.batch_size:]\n\
+    \    return batches"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: get_batches on empty buffer returns []. After extracting full
+      batches, the remaining partial batch stays in the buffer. If batch_size > len(buffer),
+      no batches are returned. The buffer modification (self._buffer = ...) creates
+      a new list; using del self._buffer[:n_full*self.batch_size] would be more memory-efficient."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mi_sys_crawler
   skill: systems
   difficulty: 4
-  prompt: Implement a concurrent web crawler using HtmlParser that visits all 
+  prompt: Implement a concurrent web crawler using HtmlParser that visits all
     URLs reachable from startUrl within the same hostname (thread-safe).
   scaffold: "import threading\nimport time\nfrom typing import List\nfrom collections
     import deque\nfrom urllib.parse import urlparse\n\n# --- WORKING MOCK PARSER:
@@ -895,25 +1360,48 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: BFS from startUrl visiting only URLs on the same hostname; use a 
-      thread-safe visited set and a thread pool.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "This is a graph traversal problem: BFS from startUrl, following only links
+      on the same hostname. Use a thread pool for concurrent fetching, with a thread-safe
+      set to track visited URLs and avoid duplicates."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: hostname = urlparse(startUrl).hostname. Use a ThreadPoolExecutor; each
-      worker fetches URLs via htmlParser.getUrls, filters to the same hostname, 
-      and enqueues unvisited ones. Guard the shared visited set with a lock.
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Extract the hostname with urlparse(startUrl).hostname. Use a threading.Lock
+      to protect the shared visited set. Use concurrent.futures.ThreadPoolExecutor
+      to fetch URLs in parallel."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: visited = set([startUrl]); use concurrent.futures to submit crawl jobs
-      and drain them with concurrent.futures.wait until the frontier is empty.
-    weight: 0.25
+    text: "hostname = urlparse(startUrl).hostname; visited = set([startUrl]); use
+      a lock = threading.Lock() to guard visited. Submit fetch jobs to ThreadPoolExecutor,
+      filter results to same hostname, add unvisited URLs to a queue."
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "from concurrent.futures import ThreadPoolExecutor\ndef crawl(self, startUrl,
+    htmlParser):\n    hostname = urlparse(startUrl).hostname\n    visited = {startUrl}\n\
+    \    lock = threading.Lock()\n    with ThreadPoolExecutor(max_workers=4) as pool:\n\
+    \        futures = [pool.submit(htmlParser.getUrls, startUrl)]\n        while futures:\n\
+    \            done = [f for f in futures if f.done()]\n            futures = [f
+      for f in futures if not f.done()]\n            for f in done:\n                for
+      url in f.result():\n                    if urlparse(url).hostname == hostname:\n\
+    \                        with lock:\n                            if url not
+      in visited:\n                                visited.add(url)\n              \
+    \                  futures.append(pool.submit(htmlParser.getUrls, url))\n    return
+      list(visited)"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: startUrl's hostname might be None (malformed URL). The mock
+      parser has a 50ms delay per call so concurrency helps. Ensure all futures complete
+      before returning. The visited set prevents infinite loops from cyclic links.
+      Consider draining all futures before processing results to avoid missing URLs."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mi_sys_reorder
   skill: systems
   difficulty: 4
-  prompt: Reorder tokens by their expert assignments so tokens for the same 
+  prompt: Reorder tokens by their expert assignments so tokens for the same
     expert are contiguous; return sort indices to scatter back later.
   scaffold: "import torch\n\ndef reorder_tokens(tokens, expert_ids, num_experts):\n\
     \    \"\"\"\n    tokens: (N, d_model) tensor of token embeddings\n    expert_ids:
@@ -929,20 +1417,34 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: Sort tokens by expert assignment so tokens for the same expert become 
-      contiguous; also return the sort indices.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "To group tokens by expert, sort them by their expert_ids. This puts all
+      tokens for expert 0 first, then expert 1, etc. The sort indices are needed
+      to reverse the reordering later."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: sort_indices = torch.argsort(expert_ids); reordered = 
-      tokens[sort_indices]; return reordered, sort_indices.
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "Use torch.argsort(expert_ids) to get the indices that would sort expert_ids.
+      Apply these indices to both tokens and expert_ids to get the reordered tensors."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: argsort alone is enough — the tokens are reordered with the same index
-      tensor.
-    weight: 0.25
+    text: "sort_indices = torch.argsort(expert_ids); reordered_tokens = tokens[sort_indices];
+      return reordered_tokens, sort_indices"
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def reorder_tokens(tokens, expert_ids, num_experts):\n    sort_indices
+      = torch.argsort(expert_ids)\n    reordered_tokens = tokens[sort_indices]\n\
+    \    return reordered_tokens, sort_indices"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: if multiple tokens share the same expert_id, argsort preserves
+      their relative order (stable sort). The returned sort_indices can be used to
+      scatter results back: original_order = reordered[sort_indices.argsort()]. num_experts
+      is not used in the implementation but defines the range of expert_ids."
+    weight: 0.25
+    reveal_threshold: 0.20
 - id: mi_sys_cache
   skill: systems
   difficulty: 5
@@ -967,18 +1469,37 @@ tasks:
   max_score: 5
   hints:
   - id: h1
-    text: Track popularity per expert; on a miss simulate the PCIe transfer and 
-      evict the least-popular cached expert when full.
-    weight: 0.1
-    reveal_threshold: 0.65
+    text: "A sparsity-aware cache keeps frequently-used experts on the GPU and evicts
+      rare ones. It combines LRU ordering (recently used survives) with frequency
+      tracking (popular experts survive eviction)."
+    weight: 0.05
+    reveal_threshold: 0.75
   - id: h2
-    text: 'Increment self.popularity_scores[expert_id] on every access. On a hit:
-      move the expert to the end (OrderedDict). On a miss: simulate the PCIe latency;
-      if full, evict the cached expert with the lowest popularity score; then insert.'
-    weight: 0.15
-    reveal_threshold: 0.5
+    text: "On every access, increment popularity_scores[expert_id]. On a hit, move
+      the expert to the end of the OrderedDict (most recent). On a miss, simulate
+      the PCIe latency, then evict the least popular expert if the cache is full."
+    weight: 0.08
+    reveal_threshold: 0.65
   - id: h3
-    text: 'Eviction: pick min(popularity_scores[key]) among keys currently in gpu_cache,
-      del it, then set gpu_cache[expert_id] = data.'
-    weight: 0.25
+    text: "Hit: self.gpu_cache.move_to_end(expert_id). Miss: self._simulate_pcie_transfer();
+      if len(self.gpu_cache) >= self.capacity: least_popular = min(self.gpu_cache.keys(),
+      key=lambda k: self.popularity_scores[k]); del self.gpu_cache[least_popular]."
+    weight: 0.12
+    reveal_threshold: 0.50
+  - id: h4
+    text: "def access_expert(self, expert_id):\n    self.popularity_scores[expert_id]
+      += 1\n    if expert_id in self.gpu_cache:\n        self.gpu_cache.move_to_end(expert_id)\n\
+    \    else:\n        self._simulate_pcie_transfer()\n        if len(self.gpu_cache)
+      >= self.capacity:\n            least_pop = min(self.gpu_cache.keys(), key=lambda
+      k: self.popularity_scores[k])\n            del self.gpu_cache[least_pop]\n\
+    \        self.gpu_cache[expert_id] = None"
+    weight: 0.18
     reveal_threshold: 0.35
+  - id: h5
+    text: "Edge cases: if cache is at capacity and a hit occurs, no eviction needed
+      (just move to end). The popularity score never decreases because it is cumulative.
+      OrderedDict.move_to_end reorders without removing. The PCIe latency is simulated
+      with time.sleep (convert ms to seconds). The cache stores None as placeholder
+      for expert data."
+    weight: 0.25
+    reveal_threshold: 0.20
