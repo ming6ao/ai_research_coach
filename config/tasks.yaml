@@ -17,7 +17,7 @@ tasks:
     reveal_threshold: 0.75
   - id: h2
     text: "You need to find the first local minimum of the validation loss curve:
-      the point where val_losses[i] is lower than both its neighbors, after which
+      the point where `val_losses[i]` is lower than both its neighbors, after which
       validation loss starts rising."
     weight: 0.08
     reveal_threshold: 0.65
@@ -40,9 +40,9 @@ tasks:
     weight: 0.18
     reveal_threshold: 0.35
   - id: h5
-    text: "Edge cases: if val_losses has fewer than 3 elements, no local minimum is
+    text: "Edge cases: if `val_losses` has fewer than 3 elements, no local minimum is
       possible so return -1 immediately. The train_losses parameter is not actually
-      needed for the logic; the question is about the shape of val_losses alone."
+      needed for the logic; the question is about the shape of `val_losses` alone."
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_ml_04

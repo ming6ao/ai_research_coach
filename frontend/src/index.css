@@ -41,5 +41,18 @@ html, body, #root {
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-muted);
+  color: var(--color-text-muted);
+}
+
+.katex {
+  font-size: 1.3em !important;
+}
+
+.katex-display {
+  margin: 0.5em 0 !important;
+}
+
+.katex .frac,
+.katex .mfrac {
+  font-size: 1.4em !important;
 }

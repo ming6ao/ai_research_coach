@@ -57,7 +57,7 @@ export function CodeTask({ task, onSubmit, disabled }: Props) {
               viewed.has(hint.id) ? (
                 <div
                   key={hint.id}
-                  className="prose prose-invert prose-sm max-w-none rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-secondary)]"
+                  className="prose prose-invert prose-sm max-w-none rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2 text-[var(--color-text-secondary)]"
                 >
                   <ReactMarkdown
                     components={{
@@ -73,7 +73,7 @@ export function CodeTask({ task, onSubmit, disabled }: Props) {
                         }
                         return (
                           <code
-                            className="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 font-mono text-[0.9em] text-[var(--color-text-primary)]"
+                            className="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 font-mono text-[1em] text-[var(--color-text-primary)]"
                             {...props}
                           >
                             {children}
@@ -142,7 +142,7 @@ export function CodeTask({ task, onSubmit, disabled }: Props) {
           disabled={disabled || !code.trim()}
           className="rounded-lg bg-[var(--color-accent)] px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Run &amp; Submit
+          Submit
         </button>
       </div>
     </div>
