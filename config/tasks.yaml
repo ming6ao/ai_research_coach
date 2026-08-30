@@ -1,6 +1,6 @@
 tasks:
 - id: mr_ml_03
-  skill: ml_fundamentals
+  skill: ml_modeling
   difficulty: 2
   prompt: 'Implement overfitting detection from training and validation loss curves.
     Return the 0-based epoch index of the first local minimum of the validation loss
@@ -46,7 +46,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_ml_04
-  skill: ml_fundamentals
+  skill: ml_modeling
   difficulty: 3
   prompt: Illustrate the bias-variance tradeoff with polynomial regression. Fit
     polynomials of each requested degree on a train split and return a dict
@@ -123,7 +123,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_dl_02
-  skill: deep_learning
+  skill: ml_modeling
   difficulty: 3
   prompt: Detect the vanishing gradient problem in a deep network. Compute the
     L2 gradient norm of each layer with parameters, ordered from the output
@@ -211,7 +211,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_math_02
-  skill: math_stats
+  skill: ml_modeling
   difficulty: 1
   prompt: 'Implement population and sample variance from scratch (no numpy). Recall
     that variance scales quadratically under linear transforms: Var(a*X+b) == a**2
@@ -259,7 +259,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_exp_02
-  skill: experimentation
+  skill: ml_modeling
   difficulty: 3
   prompt: 'Determine whether an observed accuracy lift is real and not noise using
     a permutation test. Implement a two-sided permutation test on the difference of
@@ -335,7 +335,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mi_sys_02
-  skill: systems
+  skill: ml_systems
   difficulty: 2
   prompt: Implement top-k gradient compression, a technique that reduces
     communication overhead in data-parallel training. Given a 1D list of
@@ -400,7 +400,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mi_mlops_02
-  skill: mlops
+  skill: ml_systems
   difficulty: 3
   prompt: 'Implement a ModelRegistry for ML deployment: register versions, promote
     one to production (with rollback to the previous version), and gate canary deployments
@@ -476,7 +476,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mi_cloud_02
-  skill: cloud
+  skill: ml_systems
   difficulty: 2
   prompt: 'Recommend a model-serving strategy given workload characteristics. Return
     "container" or "serverless". Rules: GPU models, steady/high traffic (>= 50 req/s),
@@ -521,7 +521,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mi_data_02
-  skill: data_eng
+  skill: ml_systems
   difficulty: 2
   prompt: 'Implement a streaming SlidingWindow aggregator for low-latency event processing:
     add(value) appends an event and drops the oldest once the window is full; get_sum()
@@ -583,7 +583,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mi_code_01
-  skill: coding
+  skill: ml_modeling
   difficulty: 1
   prompt: 'Implement a function that takes a list of (key, value) pairs and returns
     a dict counting occurrences of each key. Signature: def count_keys(pairs):'
@@ -628,7 +628,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_dl_mlp
-  skill: deep_learning
+  skill: ml_modeling
   difficulty: 3
   prompt: Implement the full training step (zero gradients, forward pass, loss,
     backward pass, optimizer step) for an MLP using PyTorch. Fill in the markers
@@ -699,7 +699,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_dl_mha
-  skill: deep_learning
+  skill: ml_modeling
   difficulty: 4
   prompt: 'Implement a memory-efficient Multi-Head Attention block from scratch in
     PyTorch: projections, head reshape, scaled dot-product attention, concat, and
@@ -780,7 +780,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_dl_bn
-  skill: deep_learning
+  skill: ml_modeling
   difficulty: 4
   prompt: 'Implement Batch Normalization for a 2D input (batch, features): normalize
     with batch statistics during training, update running stats, scale/shift with
@@ -865,7 +865,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_rc_softmax
-  skill: coding
+  skill: ml_modeling
   difficulty: 2
   prompt: Implement a numerically stable softmax that subtracts the max before
     exponentiation to avoid overflow.
@@ -928,7 +928,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_dl_ce
-  skill: deep_learning
+  skill: ml_modeling
   difficulty: 4
   prompt: Implement cross-entropy loss from scratch using the log-sum-exp trick
     for stability (no F.cross_entropy).
@@ -998,7 +998,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_ml_knn
-  skill: ml_fundamentals
+  skill: ml_modeling
   difficulty: 3
   prompt: Implement KNN from scratch in NumPy with a vectorized Euclidean
     distance, majority vote over the k nearest neighbors.
@@ -1073,7 +1073,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_ml_lr
-  skill: ml_fundamentals
+  skill: ml_modeling
   difficulty: 3
   prompt: 'Implement the gradient descent update for logistic regression: sigmoid
     of logits, binary cross-entropy gradients, and weight/bias updates.'
@@ -1152,7 +1152,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_ml_kmeans
-  skill: ml_fundamentals
+  skill: ml_modeling
   difficulty: 3
   prompt: 'Implement K-Means: assignment step (nearest centroid) and update step (recompute
     centroids as means), iterating until convergence.'
@@ -1240,7 +1240,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_ml_tree
-  skill: ml_fundamentals
+  skill: ml_modeling
   difficulty: 4
   prompt: Implement Gini impurity and find the best feature/threshold split for
     a decision tree.
@@ -1339,7 +1339,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_rc_scaling
-  skill: coding
+  skill: ml_modeling
   difficulty: 2
   prompt: Implement vectorized Standardization (z-score) and Min-Max
     Normalization in NumPy, handling division by zero.
@@ -1415,7 +1415,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_exp_metrics
-  skill: experimentation
+  skill: ml_modeling
   difficulty: 2
   prompt: Build a confusion matrix from scratch and compute Precision, Recall,
     and F1. No scikit-learn.
@@ -1496,7 +1496,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_rc_iou
-  skill: coding
+  skill: ml_modeling
   difficulty: 2
   prompt: Calculate Intersection over Union (IoU) between two bounding boxes
     given as [x1, y1, x2, y2].
@@ -1557,7 +1557,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_rc_ngram
-  skill: coding
+  skill: ml_modeling
   difficulty: 2
   prompt: Write a function to generate n-grams from a text string (lowercase,
     strip punctuation, split into tokens).
@@ -1610,7 +1610,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_rc_sampling
-  skill: coding
+  skill: ml_modeling
   difficulty: 3
   prompt: 'Implement weighted sampling from scratch: normalize weights to probabilities,
     build cumulative distribution, sample with replacement.'
@@ -1690,7 +1690,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_dl_router
-  skill: deep_learning
+  skill: ml_modeling
   difficulty: 5
   prompt: 'Implement a Top-k router for a Mixture-of-Experts layer: gate logits, top-k
     selection, softmax over the selected experts.'
@@ -1762,7 +1762,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mr_dl_lb
-  skill: deep_learning
+  skill: ml_modeling
   difficulty: 5
   prompt: 'Implement the Switch-Transformer load balancing loss: f_i (fraction of
     tokens per expert) times P_i (mean routing probability), scaled by num_experts.'
@@ -1838,7 +1838,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mi_sys_batcher
-  skill: systems
+  skill: ml_systems
   difficulty: 3
   prompt: Implement a RequestBatcher that groups incoming requests into full
     batches of size K; get_batches returns full batches and clears them.
@@ -1906,7 +1906,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mi_sys_crawler
-  skill: systems
+  skill: ml_systems
   difficulty: 4
   prompt: Implement a concurrent web crawler using HtmlParser that visits all
     URLs reachable from startUrl within the same hostname (thread-safe).
@@ -1986,7 +1986,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mi_sys_reorder
-  skill: systems
+  skill: ml_systems
   difficulty: 4
   prompt: Reorder tokens by their expert assignments so tokens for the same
     expert are contiguous; return sort indices to scatter back later.
@@ -2053,7 +2053,7 @@ tasks:
     weight: 0.25
     reveal_threshold: 0.20
 - id: mi_sys_cache
-  skill: systems
+  skill: ml_systems
   difficulty: 5
   prompt: 'Implement a sparsity-aware cache: track popularity per expert, on miss
     simulate PCIe transfer, evict using a frequency-aware policy (popular experts

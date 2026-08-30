@@ -1,15 +1,8 @@
 import { useAssessmentStore } from '../../stores/assessmentStore';
 
 const skillLabels: Record<string, string> = {
-  ml_fundamentals: 'ML Fundamentals',
-  deep_learning: 'Deep Learning',
-  math_stats: 'Math & Stats',
-  experimentation: 'Experimentation',
-  coding: 'Programming & Implementation',
-  systems: 'Systems',
-  mlops: 'MLOps',
-  cloud: 'Cloud',
-  data_eng: 'Data Engineering',
+  ml_modeling: 'Machine Learning & Modeling',
+  ml_systems: 'ML Systems & Infrastructure',
 };
 
 export function ReportView() {

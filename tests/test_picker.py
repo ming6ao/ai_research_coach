@@ -6,15 +6,8 @@ from core.picker import _should_terminate, expected_time, next_task
 from core.session import Session
 
 SKILLS = [
-    "ml_fundamentals",
-    "deep_learning",
-    "math_stats",
-    "experimentation",
-    "coding",
-    "systems",
-    "mlops",
-    "cloud",
-    "data_eng",
+    "ml_modeling",
+    "ml_systems",
 ]
 
 
@@ -106,8 +99,8 @@ def test_unified_bank_includes_all_former_roles():
     session = Session("candidate")
     skills = {t["skill"] for t in session.tasks}
     assert len(session.tasks) == 30
-    assert "ml_fundamentals" in skills  # researcher-era skill
-    assert "systems" in skills          # infra-era skill
+    assert "ml_modeling" in skills
+    assert "ml_systems" in skills
     # The picker can choose from any former role in one pass.
     session.max_time_min = 0.0  # force selection (no termination yet)
     first = next_task(Session("candidate"))
