@@ -21,6 +21,7 @@ export function CodeTask({ task, onSubmit, disabled }: Props) {
 
   const hints = task.hints ?? [];
   const hiddenCount = hints.length - viewed.size;
+  const nextHint = hints.find((h) => !viewed.has(h.id));
 
   const revealHint = (id: string) => {
     setViewed((prev) => {
@@ -54,7 +55,7 @@ export function CodeTask({ task, onSubmit, disabled }: Props) {
               )}
             </div>
             {hints.map((hint) =>
-              viewed.has(hint.id) ? (
+              viewed.has(hint.id) && (
                 <div
                   key={hint.id}
                   className="prose prose-invert prose-sm max-w-none rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2 text-[var(--color-text-secondary)]"
@@ -89,16 +90,16 @@ export function CodeTask({ task, onSubmit, disabled }: Props) {
                     {normalizeMarkdownFences(hint.text)}
                   </ReactMarkdown>
                 </div>
-              ) : (
-                <button
-                  key={hint.id}
-                  onClick={() => revealHint(hint.id)}
-                  disabled={disabled}
-                  className="rounded-lg border border-dashed border-[var(--color-border-default)] px-3 py-2 text-sm text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-accent)]/50 hover:text-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  &#43; Request hint
-                </button>
               )
+            )}
+            {nextHint && (
+              <button
+                onClick={() => revealHint(nextHint.id)}
+                disabled={disabled}
+                className="rounded-lg border border-dashed border-[var(--color-border-default)] px-3 py-2 text-sm text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-accent)]/50 hover:text-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                &#43; Request hint
+              </button>
             )}
             {viewed.size > 0 && (
               <p className="text-xs text-[var(--color-text-muted)]">
