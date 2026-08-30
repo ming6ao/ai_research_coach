@@ -4,6 +4,7 @@ import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/vs2015.css';
 import type { Task } from '../../api/client';
 import { Markdown } from '../Markdown/Markdown';
+import { Composer } from '../Composer/Composer';
 
 interface Props {
   task: Task;
@@ -33,32 +34,41 @@ export function CodeTask({ task, onSubmit, onPracticeSubmit, onSkip, onEndPracti
     });
   };
 
-  const handleSubmit = () => {
-    onSubmit(task.id, code, Array.from(viewed));
+  const buildAnswer = (note: string) =>
+    note ? `${code}\n\n---\n${note}` : code;
+
+  const handleSubmit = (note: string) => {
+    onSubmit(task.id, buildAnswer(note), Array.from(viewed));
   };
 
-  const handlePracticeSubmit = () => {
+  const handlePracticeSubmit = (note: string) => {
     if (onPracticeSubmit) {
-      onPracticeSubmit(task.id, code, Array.from(viewed));
+      onPracticeSubmit(task.id, buildAnswer(note), Array.from(viewed));
     }
   };
 
   return (
     <div className="flex h-full flex-col">
-      <div className="mb-3 flex-1 overflow-y-auto pr-2">
-        <p className="mb-4 text-lg leading-relaxed text-[var(--color-text-primary)]">
-          {task.prompt}
-        </p>
+      {/* Task prompt + hints (scrollable) */}
+      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+        <div className="mb-4">
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+            Question · {task.skill}
+          </p>
+          <p className="text-sm leading-relaxed text-[var(--color-text-primary)]">
+            {task.prompt}
+          </p>
+        </div>
 
         {hints.length > 0 && (
           <div className="mb-4 space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
                 Help
               </p>
               {hiddenCount > 0 && (
-                <p className="text-xs text-[var(--color-text-muted)]">
-                  {hiddenCount} more available on request
+                <p className="text-[11px] text-[var(--color-text-muted)]">
+                  {hiddenCount} more available
                 </p>
               )}
             </div>
@@ -66,7 +76,7 @@ export function CodeTask({ task, onSubmit, onPracticeSubmit, onSkip, onEndPracti
               viewed.has(hint.id) && (
                 <div
                   key={hint.id}
-                  className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2"
+                  className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-3 py-2"
                 >
                   <Markdown text={hint.text} />
                 </div>
@@ -78,11 +88,11 @@ export function CodeTask({ task, onSubmit, onPracticeSubmit, onSkip, onEndPracti
                 disabled={disabled}
                 className="rounded-lg border border-dashed border-[var(--color-border-default)] px-3 py-2 text-sm text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-accent)]/50 hover:text-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
               >
-                &#43; Request hint
+                + Request hint
               </button>
             )}
             {viewed.size > 0 && mode === 'assessment' && (
-              <p className="text-xs text-[var(--color-text-muted)]">
+              <p className="text-[11px] text-[var(--color-text-muted)]">
                 Using help adjusts your mastery for this task.
               </p>
             )}
@@ -90,6 +100,7 @@ export function CodeTask({ task, onSubmit, onPracticeSubmit, onSkip, onEndPracti
         )}
       </div>
 
+      {/* Editor (fills remaining height) */}
       <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-[var(--color-border-default)]">
         <Editor
           height="100%"
@@ -99,7 +110,7 @@ export function CodeTask({ task, onSubmit, onPracticeSubmit, onSkip, onEndPracti
           onChange={(v) => setCode(v ?? '')}
           onMount={() => undefined}
           options={{
-            fontSize: 14,
+            fontSize: 13,
             fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
@@ -114,45 +125,45 @@ export function CodeTask({ task, onSubmit, onPracticeSubmit, onSkip, onEndPracti
         />
       </div>
 
-      <div className="flex items-center justify-between border-t border-[var(--color-border-default)] pt-3">
-        <p className="text-xs text-[var(--color-text-muted)]">
-          {mode === 'practice'
-            ? 'Anonymous practice — check your answer or skip; nothing is scored or saved.'
-            : 'Write your solution in the editor above, then submit.'}
-        </p>
-        {mode === 'practice' ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={onEndPractice}
-              disabled={disabled}
-              className="rounded-lg border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-focus)] hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              End practice
-            </button>
-            <button
-              onClick={onSkip}
-              disabled={disabled}
-              className="rounded-lg border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-focus)] hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Skip &rarr;
-            </button>
-            <button
-              onClick={handlePracticeSubmit}
-              disabled={disabled || !code.trim()}
-              className="rounded-lg bg-[var(--color-accent)] px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Check my answer
-            </button>
+      {/* Composer + action buttons pinned to bottom */}
+      <div className="mt-3 flex flex-col gap-2">
+        {mode === 'practice' && (
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] text-[var(--color-text-muted)]">
+              Anonymous — nothing is scored or saved.
+            </p>
+            <div className="flex gap-1">
+              {onEndPractice && (
+                <button
+                  onClick={onEndPractice}
+                  disabled={disabled}
+                  className="rounded-lg px-2.5 py-1 text-[11px] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)] disabled:opacity-40"
+                >
+                  End practice
+                </button>
+              )}
+              {onSkip && (
+                <button
+                  onClick={onSkip}
+                  disabled={disabled}
+                  className="rounded-lg px-2.5 py-1 text-[11px] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)] disabled:opacity-40"
+                >
+                  Skip →
+                </button>
+              )}
+            </div>
           </div>
-        ) : (
-          <button
-            onClick={handleSubmit}
-            disabled={disabled || !code.trim()}
-            className="rounded-lg bg-[var(--color-accent)] px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Submit
-          </button>
         )}
+
+        <Composer
+          placeholder={
+            mode === 'practice'
+              ? 'Check my answer…'
+              : 'Add a note (optional) and submit…'
+          }
+          onSubmit={mode === 'practice' ? handlePracticeSubmit : handleSubmit}
+          disabled={disabled || !code.trim()}
+        />
       </div>
     </div>
   );

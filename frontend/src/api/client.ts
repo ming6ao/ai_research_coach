@@ -170,8 +170,8 @@ async function api<T>(path: string, body?: unknown, method?: string): Promise<T>
 }
 
 export const apiClient = {
-  start: (candidate_name: string, mode: 'assessment' | 'practice' = 'assessment') =>
-    api<StartResponse>('/start', { candidate_name, mode }),
+  start: (candidate_name: string, mode: 'assessment' | 'practice' = 'assessment', initial_question?: string) =>
+    api<StartResponse>('/start', { candidate_name, mode, initial_question }),
 
   submit: (session_id: string, task_id: string, answer: string, hints_used: string[] = []) =>
     api<SubmitResponse>('/submit', { session_id, task_id, answer, hints_used }),

@@ -30,6 +30,7 @@ router = APIRouter(prefix="/api", tags=["assessment"])
 class StartRequest(BaseModel):
     candidate_name: str
     mode: Optional[str] = "assessment"
+    initial_question: Optional[str] = None
 
 
 class SubmitRequest(BaseModel):
@@ -221,6 +222,18 @@ def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
     ctx = _FakeToolContext(state)
 
     session = Session(candidate, mode=mode)
+
+    # If the user typed a custom question, inject it as the first task.
+    if req.initial_question and req.initial_question.strip():
+        custom_task = {
+            "id": f"custom_{uuid.uuid4().hex[:8]}",
+            "skill": "general",
+            "difficulty": 2,
+            "prompt": req.initial_question.strip(),
+            "max_score": 5,
+            "hints": [],
+        }
+        session.tasks.insert(0, custom_task)
 
     ctx.state["session"] = session.to_dict()
     store.save(session_id, ctx.state)

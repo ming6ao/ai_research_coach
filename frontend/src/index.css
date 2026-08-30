@@ -34,14 +34,28 @@ html, body, #root {
   width: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--color-bg-secondary);
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--color-border-default);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  color: var(--color-text-muted);
+  background: var(--color-text-muted);
+}
+
+/* Hide textarea scrollbar */
+textarea::-webkit-scrollbar {
+  display: none;
+}
+textarea {
+  scrollbar-width: none;
+}
+
+/* Editor pane */
+.monaco-editor .margin,
+.monaco-editor .minimap {
+  background-color: transparent !important;
 }
 
 .katex {
