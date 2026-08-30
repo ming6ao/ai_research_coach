@@ -76,6 +76,20 @@ tasks:
     reveal_threshold: 0.65
   - id: h3
     text: |
+      NumPy polynomial fitting tutorial: `np.polyfit(x, y, deg)` returns coefficients
+      (highest degree first) that minimize squared error. `np.polyval(coeffs, x)`
+      evaluates the polynomial at x. Example:
+      ```python
+      coeffs = np.polyfit(x_train, y_train, 2)  # fit quadratic
+      y_pred = np.polyval(coeffs, x_test)       # evaluate on test data
+      mse = np.mean((y_pred - y_test) ** 2)     # mean squared error
+      ```
+      `np.poly1d(coeffs)` creates a callable polynomial object: `p = np.poly1d(coeffs);
+      y_pred = p(x)`.
+    weight: 0.10
+    reveal_threshold: 0.55
+  - id: h4
+    text: |
       Use `np.polyfit(X_train, y_train, deg)` to fit, then `np.polyval(coeffs, X)` or `np.poly1d(coeffs)(X)` to predict.
       $$
       \text{MSE} = \frac{1}{N}\sum(\hat{y} - y)^2
@@ -83,7 +97,7 @@ tasks:
       Collect results as `{degree: (train_mse, val_mse)}`.
     weight: 0.12
     reveal_threshold: 0.50
-  - id: h4
+  - id: h5
     text: |
       ```python
       split = int(len(X) * val_frac)
@@ -101,7 +115,7 @@ tasks:
       ```
     weight: 0.18
     reveal_threshold: 0.35
-  - id: h5
+  - id: h6
     text: "Edge cases: if `split == 0` (very small dataset with large `val_frac`), there
       are no training points so handle gracefully. Also ensure `degrees` is iterable
       even if empty. The bias-variance pattern is visible when `train_mse` decreases
@@ -145,12 +159,27 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
+    text: |
+      PyTorch gradient norm tutorial: after `loss.backward()`, each parameter's
+      gradient is in `p.grad` (a tensor). To compute the L2 norm of a layer's
+      combined gradients:
+      ```python
+      # Flatten all parameter gradients and compute L2 norm
+      norm = torch.sqrt(sum(p.grad.flatten().pow(2).sum() for p in layer.parameters()))
+      # Or equivalently:
+      norm = torch.sqrt(sum(p.grad.norm()**2 for p in layer.parameters()))
+      ```
+      Use `model.children()` to iterate layers, `reversed()` for output-to-input
+      order. Check `len(list(layer.parameters())) > 0` to skip parameter-free layers.
+    weight: 0.10
+    reveal_threshold: 0.55
+  - id: h4
     text: "For each layer that has parameters, compute the L2 norm of all its gradients
       combined: `torch.sqrt(sum(p.grad.flatten().pow(2) for p in layer.parameters()))`.
       Use `reversed(list(model.children()))` to go from output to input."
     weight: 0.12
     reveal_threshold: 0.50
-  - id: h4
+  - id: h5
     text: |
       ```python
       def layer_gradient_norms(model, x, target):
@@ -173,7 +202,7 @@ tasks:
       ```
     weight: 0.18
     reveal_threshold: 0.35
-  - id: h5
+  - id: h6
     text: "Edge cases: a layer with no parameters (like ReLU) should be skipped. If
       the model has no parameterized layers, return an empty list. The norms list
       is ordered output-to-input, so norms[0] is the output layer and norms[-1]
@@ -264,10 +293,23 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
+    text: |
+      NumPy random sampling tutorial: `np.random.default_rng(seed)` creates a reproducible
+      RNG. Key methods: `rng.random()` draws Uniform(0,1), `rng.shuffle(arr)` shuffles
+      in-place, `rng.permutation(arr)` returns a shuffled copy. For pooling:
+      ```python
+      pooled = np.concatenate([control, treatment])  # combine arrays
+      rng.shuffle(pooled)                             # shuffle in-place
+      diff = pooled[n_c:].mean() - pooled[:n_c].mean()  # split and compute
+      ```
+      Use `np.abs()` for absolute value and boolean comparison `>=` for counting.
+    weight: 0.10
+    reveal_threshold: 0.55
+  - id: h4
     text: "```python\nobserved = treatment.mean() - control.mean()\npooled = np.concatenate([control,\n  treatment])\nn_c, n_t = len(control), len(treatment)\n```\nUse `np.random.default_rng(seed)` for reproducibility."
     weight: 0.12
     reveal_threshold: 0.50
-  - id: h4
+  - id: h5
     text: |
       ```python
       def permutation_pvalue(control, treatment, n_permutations=1000, seed=0):
@@ -285,7 +327,7 @@ tasks:
       ```
     weight: 0.18
     reveal_threshold: 0.35
-  - id: h5
+  - id: h6
     text: "Edge cases: if n_permutations is 0, return 0.0. If control or treatment
       is empty, handle gracefully. The two-sided nature means we check abs(diff) >=
       abs(observed), not just diff >= observed. Shuffling modifies pooled in-place,
@@ -320,12 +362,26 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
+    text: |
+      NumPy sorting and indexing tutorial: `np.argsort(arr)` returns indices that
+      sort an array in ascending order. Use `[::-1]` to reverse for descending.
+      `np.abs(arr)` computes element-wise absolute value. To keep only top-k:
+      ```python
+      grads = np.asarray(grads)
+      idx = np.argsort(-np.abs(grads))[:k]  # indices of k largest magnitudes
+      out = np.zeros_like(grads)
+      out[idx] = grads[idx]                  # fancy indexing to preserve values
+      ```
+      `np.zeros_like(arr)` creates a zero array with the same shape/dtype.
+    weight: 0.10
+    reveal_threshold: 0.55
+  - id: h4
     text: "`np.argsort(np.abs(grads))` returns indices sorted by magnitude ascending.
       Reverse with `[::-1]` to get descending, then take `[:k]` for the top-k indices.
       Ties naturally keep the earlier index because argsort is stable."
     weight: 0.12
     reveal_threshold: 0.50
-  - id: h4
+  - id: h5
     text: |
       ```python
       def topk_compress(grads, k):
@@ -337,7 +393,7 @@ tasks:
       ```
     weight: 0.18
     reveal_threshold: 0.35
-  - id: h5
+  - id: h6
     text: "Edge cases: if k >= len(grads), keep everything (no compression). If k
       is 0, return all zeros. If grads is empty, return an empty array. The negative
       sign in -np.abs(grads) makes argsort sort descending by absolute value."
@@ -603,12 +659,27 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
+    text: |
+      PyTorch training loop tutorial: the five mandatory steps in order:
+      ```python
+      optimizer.zero_grad()   # 1. Clear old gradients (accumulated by default)
+      output = model(x)       # 2. Forward pass: compute predictions
+      loss = criterion(output, target)  # 3. Compute scalar loss
+      loss.backward()         # 4. Backward pass: compute gradients via autograd
+      optimizer.step()        # 5. Update weights using computed gradients
+      ```
+      `model(x)` calls `model.forward(x)` under the hood. `criterion` is a loss
+      function like `nn.MSELoss()`. Each call to `loss.backward()` accumulates
+      gradients, so `zero_grad()` must precede each training step.
+    weight: 0.10
+    reveal_threshold: 0.55
+  - id: h4
     text: "`optimizer.zero_grad()` clears gradients; `output = model(x)` does forward
       pass; `loss = criterion(output, target)` computes loss; `loss.backward()` propagates
       gradients; `optimizer.step()` updates weights."
     weight: 0.12
     reveal_threshold: 0.50
-  - id: h4
+  - id: h5
     text: |
       ```python
       def train_step(model, optimizer, criterion, x, target):
@@ -620,7 +691,7 @@ tasks:
       ```
     weight: 0.18
     reveal_threshold: 0.35
-  - id: h5
+  - id: h6
     text: "Edge cases: if x requires_grad is False (e.g., from torch.no_grad context),
       backward will fail. The function does not need to return anything because it
       modifies model parameters in-place. Ensure model is in train mode (model.train())
@@ -663,12 +734,29 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
+    text: |
+      PyTorch tensor reshaping tutorial for multi-head attention:
+      ```python
+      # view/reshape: (B, L, d_model) -> (B, L, num_heads, d_k)
+      Q = w_q(q).view(B, L, num_heads, d_k)
+      Q = Q.transpose(1, 2)  # -> (B, num_heads, L, d_k)
+      # Matrix multiply for attention scores: (B, H, L, d_k) @ (B, H, d_k, L)
+      scores = Q @ K.transpose(-2, -1)  # -> (B, H, L, L)
+      scores = scores / math.sqrt(d_k)  # scale
+      attn = F.softmax(scores, dim=-1)   # softmax over last dim
+      out = attn @ V                     # (B, H, L, d_k)
+      out = out.transpose(1, 2).contiguous().view(B, L, d_model)  # merge heads
+      ```
+      `.contiguous()` is required before `.view()` after a transpose.
+    weight: 0.10
+    reveal_threshold: 0.55
+  - id: h4
     text: "Scaled dot-product attention: $\\text{scores} = Q K^T / \\sqrt{d_k}$.
       Apply mask if provided (`scores.masked_fill(mask == 0, -inf)`). Then $\\text{attn} = \\text{softmax}(\\text{scores})$
       and $\\text{output} = \\text{attn} \\cdot V$."
     weight: 0.12
     reveal_threshold: 0.50
-  - id: h4
+  - id: h5
     text: |
       ```python
       Q = self.w_q(q).view(B, L, self.num_heads, self.d_k).transpose(1, 2)
@@ -684,7 +772,7 @@ tasks:
       ```
     weight: 0.18
     reveal_threshold: 0.35
-  - id: h5
+  - id: h6
     text: "Edge cases: mask should be broadcastable to (B, num_heads, L, L). The .contiguous()
       call after transpose is needed before view/reshape. d_model must be divisible
       by num_heads (asserted in __init__). The input q, k, v can be different sequences
@@ -726,13 +814,33 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
+    text: |
+      PyTorch batch statistics tutorial:
+      ```python
+      # Compute batch statistics (along batch dimension, axis=0)
+      mean = x.mean(dim=0)          # shape: (num_features,)
+      var = x.var(dim=0, unbiased=False)  # population variance (divides by N)
+      # Normalize
+      x_hat = (x - mean) / torch.sqrt(var + eps)  # eps prevents div by zero
+      # Scale and shift with learnable parameters
+      out = gamma * x_hat + beta
+      # Running stats update (exponential moving average)
+      running_mean = (1 - momentum) * running_mean + momentum * mean
+      running_var = (1 - momentum) * running_var + momentum * var
+      ```
+      `self.training` flag (set by `model.train()`/`model.eval()`) controls which
+      path executes. `register_buffer` stores non-learned tensors that move with
+      the model but don't have gradients.
+    weight: 0.10
+    reveal_threshold: 0.55
+  - id: h4
     text: "Training: $\\mu = x.\\text{mean}(0)$; $\\sigma^2 = x.\\text{var}(0, \\text{unbiased}=\\text{False})$.
       Update running: `self.running_mean = (1 - m) * self.running_mean + m * mean` (same for var).
       Normalize: $\\hat{x} = \\frac{x - \\mu}{\\sqrt{\\sigma^2 + \\epsilon}}$.
       Scale/shift: $\\gamma \\hat{x} + \\beta$."
     weight: 0.12
     reveal_threshold: 0.50
-  - id: h4
+  - id: h5
     text: |
       ```python
       def forward(self, x):
@@ -749,7 +857,7 @@ tasks:
       ```
     weight: 0.18
     reveal_threshold: 0.35
-  - id: h5
+  - id: h6
     text: "Edge cases: `eps` prevents division by zero. `momentum=0.1` means running stats
       update slowly (90% old, 10% new). `self.training` flag (set by `model.train()`/`model.eval()`)
       controls which path executes. The biased variance (`unbiased=False`) divides by
@@ -780,10 +888,29 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
+    text: |
+      PyTorch max and softmax tutorial:
+      ```python
+      # Tensor max: returns (values, indices) by default
+      max_val = x.max(dim=dim)           # returns a named tuple
+      max_val = x.max(dim=dim).values    # extract just the values
+      max_val = x.max().item()           # scalar for a single max
+      # keepdim=True keeps the dimension for broadcasting
+      max_val = x.max(dim=dim, keepdim=True).values  # shape: (..., 1)
+      # Softmax: F.softmax or torch.softmax
+      probs = F.softmax(x, dim=dim)      # numerically stable internally
+      # Manual: subtract max, exponentiate, divide by sum
+      shifted = x - x.max(dim=dim, keepdim=True).values
+      probs = torch.exp(shifted) / torch.exp(shifted).sum(dim=dim, keepdim=True)
+      ```
+      `keepdim=True` ensures the result broadcasts correctly with the original tensor.
+    weight: 0.10
+    reveal_threshold: 0.55
+  - id: h4
     text: "```python\nshifted = x - x.max(dim=dim, keepdim=True).values\nexp_x = torch.exp(shifted)\nreturn exp_x / exp_x.sum(dim=dim, keepdim=True)\n```"
     weight: 0.12
     reveal_threshold: 0.50
-  - id: h4
+  - id: h5
     text: |
       ```python
       def stable_softmax(x, dim=-1):
@@ -793,7 +920,7 @@ tasks:
       ```
     weight: 0.18
     reveal_threshold: 0.35
-  - id: h5
+  - id: h6
     text: "Edge cases: if all inputs are `-inf` (e.g., masked positions), `exp` gives
       `0/0` which is NaN. You can handle this by adding a tiny epsilon or using `torch.softmax`
       which handles this internally. The max subtraction is mathematically equivalent:
@@ -828,6 +955,25 @@ tasks:
     reveal_threshold: 0.65
   - id: h3
     text: |
+      PyTorch gather and logsumexp tutorial:
+      ```python
+      # torch.gather: selects values along a dimension using index tensor
+      # For extracting target class log-probs from a (B, C) tensor:
+      log_probs.gather(dim=1, index=target.unsqueeze(1))  # -> (B, 1)
+      log_probs.gather(1, target.unsqueeze(1)).squeeze(1) # -> (B,)
+      # torch.logsumexp: numerically stable log(sum(exp(x)))
+      lse = torch.logsumexp(logits, dim=1, keepdim=True)  # -> (B, 1)
+      # Manual log-sum-exp trick:
+      max_logits = logits.max(dim=1, keepdim=True).values
+      log_probs = logits - max_logits - torch.log(torch.exp(logits - max_logits).sum(dim=1, keepdim=True))
+      # Simpler: log_probs = logits - torch.logsumexp(logits, dim=1, keepdim=True)
+      ```
+      `unsqueeze(dim)` adds a dimension of size 1 for broadcasting. `squeeze(dim)`
+      removes a dimension of size 1.
+    weight: 0.10
+    reveal_threshold: 0.55
+  - id: h4
+    text: |
       ```python
       log_probs = logits - torch.logsumexp(logits, dim=1, keepdim=True)
       target_log_probs = log_probs.gather(1, target.unsqueeze(1)).squeeze(1)
@@ -835,7 +981,7 @@ tasks:
       ```
     weight: 0.12
     reveal_threshold: 0.50
-  - id: h4
+  - id: h5
     text: |
       ```python
       def custom_cross_entropy(logits, target):
@@ -844,7 +990,7 @@ tasks:
       ```
     weight: 0.18
     reveal_threshold: 0.35
-  - id: h5
+  - id: h6
     text: "Edge cases: if `logits` has `-inf` for all classes (e.g., fully masked), `logsumexp`
       returns `-inf` and `log_probs` becomes NaN. `target` must contain valid class indices
       (`0` to `num_classes-1`). `gather` extracts along `dim=1` (the class dimension). The
@@ -882,6 +1028,25 @@ tasks:
     reveal_threshold: 0.65
   - id: h3
     text: |
+      NumPy broadcasting and vectorized operations tutorial:
+      ```python
+      # Broadcasting: (M, 1, D) - (1, N, D) -> (M, N, D) all pairwise differences
+      diff = X_test[:, None, :] - X_train[None, :, :]  # -> (M, N, D)
+      dists = np.sqrt((diff ** 2).sum(-1))              # -> (M, N) Euclidean distances
+      # Sorting: argsort returns indices that would sort along an axis
+      nn_idx = dists.argsort(axis=1)[:, :k]  # indices of k nearest per test point
+      # Fancy indexing: gather labels using 2D index array
+      nn_labels = y_train[nn_idx]  # -> (M, k) labels of k nearest neighbors
+      # Majority vote with bincount
+      row_votes = np.bincount(nn_labels_row)  # counts per class
+      prediction = row_votes.argmax()          # class with most votes
+      ```
+      `[:, None, :]` adds a new axis for broadcasting. `X[:, None] - X[None, :]`
+      computes all pairwise differences efficiently without Python loops.
+    weight: 0.10
+    reveal_threshold: 0.55
+  - id: h4
+    text: |
       ```python
       dists = np.sqrt(((X_test[:, None, :] - X_train[None, :, :]) ** 2).sum(-1))
       nn_indices = dists.argsort(axis=1)[:, :k]
@@ -889,7 +1054,7 @@ tasks:
       ```
     weight: 0.12
     reveal_threshold: 0.50
-  - id: h4
+  - id: h5
     text: |
       ```python
       def knn_predict(X_train, y_train, X_test, k=3):
@@ -900,7 +1065,7 @@ tasks:
       ```
     weight: 0.18
     reveal_threshold: 0.35
-  - id: h5
+  - id: h6
     text: "Edge cases: if `k > N` (more neighbors than training points), use all training
       points. For ties in majority vote, `np.bincount().argmax()` returns the smallest
       class label. The vectorized distance computation avoids Python loops for efficiency.
@@ -939,6 +1104,25 @@ tasks:
     reveal_threshold: 0.65
   - id: h3
     text: |
+      NumPy linear algebra and sigmoid tutorial:
+      ```python
+      # Matrix-vector multiply: (N, D) @ (D,) -> (N,)
+      logits = X @ weights + bias  # or np.dot(X, weights) + bias
+      # Sigmoid: numerically stable version
+      p = 1.0 / (1.0 + np.exp(-np.clip(logits, -500, 500)))  # clip to avoid overflow
+      # Gradient of BCE w.r.t. logits: (p - y) / N
+      grad_w = X.T @ (p - y) / N  # (D, N) @ (N,) -> (D,)
+      grad_b = (p - y).mean()     # scalar
+      # Weight update (gradient descent)
+      weights -= lr * grad_w
+      bias -= lr * grad_b
+      ```
+      `np.clip` prevents `exp` overflow for large negative/positive logits.
+      `X.T @ (p - y)` computes the gradient efficiently via matrix multiply.
+    weight: 0.10
+    reveal_threshold: 0.55
+  - id: h4
+    text: |
       ```python
       logits = X_batch @ w + b
       p = sigmoid(logits)
@@ -948,7 +1132,7 @@ tasks:
       ```
     weight: 0.12
     reveal_threshold: 0.50
-  - id: h4
+  - id: h5
     text: |
       ```python
       def update_step(X_batch, y_batch, w, b):
@@ -960,7 +1144,7 @@ tasks:
       ```
     weight: 0.18
     reveal_threshold: 0.35
-  - id: h5
+  - id: h6
     text: "Edge cases: if sigmoid input is very large positive, `exp(-z)` underflows
       to 0, giving `p=1.0` which is fine numerically. If all `y_batch` are the same class,
       gradients still work but learning is slow. The division by `len(y_batch)` averages
@@ -1000,6 +1184,25 @@ tasks:
     reveal_threshold: 0.65
   - id: h3
     text: |
+      NumPy broadcasting for distance computation and masking:
+      ```python
+      # Pairwise squared distances: (N, 1, D) - (1, K, D) -> (N, K, D) -> (N, K)
+      dists = ((X[:, None, :] - centroids[None, :, :]) ** 2).sum(-1)  # -> (N, K)
+      assignments = dists.argmin(axis=1)  # index of nearest centroid per point
+      # Boolean masking for per-cluster operations
+      mask = (assignments == j)           # (N,) boolean
+      cluster_points = X[mask]            # -> (n_j, D) points in cluster j
+      centroids[j] = cluster_points.mean(axis=0)  # -> (D,) new centroid
+      # np.random.choice for initialization
+      init_idx = np.random.choice(N, k, replace=False)  # k unique indices
+      centroids = X[init_idx]  # -> (k, D)
+      ```
+      Boolean indexing `X[mask]` selects rows where mask is True. Always check
+      `mask.any()` before computing mean to avoid NaN on empty clusters.
+    weight: 0.10
+    reveal_threshold: 0.55
+  - id: h4
+    text: |
       ```python
       # Assignment
       dists = ((X[:, None] - centroids[None, :]) ** 2).sum(-1)
@@ -1012,7 +1215,7 @@ tasks:
       ```
     weight: 0.12
     reveal_threshold: 0.50
-  - id: h4
+  - id: h5
     text: |
       ```python
       def assignment_step(X, centroids):
@@ -1029,7 +1232,7 @@ tasks:
       ```
     weight: 0.18
     reveal_threshold: 0.35
-  - id: h5
+  - id: h6
     text: "Edge cases: if a cluster becomes empty (no points assigned), keep the old
       centroid to avoid NaN. If k > N, some clusters will always be empty. The algorithm
       may not converge to the global optimum because initialization matters. max_iters
@@ -1068,6 +1271,27 @@ tasks:
     reveal_threshold: 0.65
   - id: h3
     text: |
+      NumPy bincount and boolean indexing tutorial:
+      ```python
+      # np.bincount: count occurrences of non-negative integers
+      counts = np.bincount(y)  # y = [0, 1, 1, 0] -> [2, 2]
+      p = counts / counts.sum()  # class probabilities -> [0.5, 0.5]
+      # np.unique: unique values and their first occurrence indices
+      thresholds = np.unique(X[:, feature_idx])  # sorted unique values
+      # Boolean masking for splitting
+      left_mask = X[:, feature_idx] <= threshold  # (N,) boolean
+      X_left, y_left = X[left_mask], y[left_mask]       # left subset
+      X_right, y_right = X[~left_mask], y[~left_mask]   # right subset (~ inverts)
+      # Weighted average
+      n = len(y)
+      weighted = (left_mask.sum() / n) * gini_left + ((~left_mask).sum() / n) * gini_right
+      ```
+      `np.bincount` requires non-negative integer input. Use `~` to invert a boolean
+      mask. `np.unique` returns sorted unique values, useful as split thresholds.
+    weight: 0.10
+    reveal_threshold: 0.55
+  - id: h4
+    text: |
       ```python
       # calculate_gini
       counts = np.bincount(y)
@@ -1080,7 +1304,7 @@ tasks:
       ```
     weight: 0.12
     reveal_threshold: 0.50
-  - id: h4
+  - id: h5
     text: |
       ```python
       def calculate_gini(y):
@@ -1107,7 +1331,7 @@ tasks:
       ```
     weight: 0.18
     reveal_threshold: 0.35
-  - id: h5
+  - id: h6
     text: "Edge cases: skip splits that produce empty left or right partitions (Gini
       is undefined). If all labels are the same, Gini is 0 so any split is equally
       good or bad. Using unique values as thresholds reduces the search space. The
@@ -1140,12 +1364,32 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
+    text: |
+      NumPy axis-wise operations tutorial:
+      ```python
+      # axis=0 operates column-wise (along rows, for each feature)
+      mean = X.mean(axis=0)    # -> (D,) one mean per feature
+      std = X.std(axis=0)      # -> (D,) one std per feature
+      min_val = X.min(axis=0)  # -> (D,) one min per feature
+      max_val = X.max(axis=0)  # -> (D,) one max per feature
+      # Broadcasting: (N, D) - (D,) -> (N, D) subtracts per feature
+      X_std = (X - mean) / std
+      X_norm = (X - min_val) / (max_val - min_val)
+      # Handle division by zero with np.where
+      std = np.where(std == 0, 1, std)  # replace 0 with 1 (numerator also 0)
+      range_val = np.where(max_val - min_val == 0, 1, max_val - min_val)
+      ```
+      Broadcasting rules: (N, D) op (D,) applies the (D,) vector to each row.
+      `np.where(cond, x, y)` returns x where cond is True, y otherwise.
+    weight: 0.10
+    reveal_threshold: 0.55
+  - id: h4
     text: "Handle division by zero: if `std == 0` (constant feature), standardize should
       return 0 (already at mean). If `max == min` (constant feature), normalize should
       return 0. Use `np.where` or clip the denominator."
     weight: 0.12
     reveal_threshold: 0.50
-  - id: h4
+  - id: h5
     text: |
       ```python
       def standardize(X):
@@ -1163,7 +1407,7 @@ tasks:
       ```
     weight: 0.18
     reveal_threshold: 0.35
-  - id: h5
+  - id: h6
     text: "Edge cases: all-zero features (`std=0`, `range=0`) should return 0, not NaN.
       The `np.where` approach replaces 0 denominators with 1, making the numerator
       also 0 for constant features. Both functions should work on 2D arrays of any
@@ -1199,6 +1443,26 @@ tasks:
     reveal_threshold: 0.65
   - id: h3
     text: |
+      NumPy boolean array operations tutorial:
+      ```python
+      # Element-wise boolean operations on arrays
+      tp_mask = (y_pred == 1) & (y_true == 1)  # element-wise AND
+      fp_mask = (y_pred == 1) & (y_true == 0)
+      fn_mask = (y_pred == 0) & (y_true == 1)
+      # Sum boolean array to count True values
+      TP = tp_mask.sum()  # or np.sum(tp_mask) or tp_mask.astype(int).sum()
+      # Conditional division (avoid div by zero)
+      precision = TP / (TP + FP) if (TP + FP) > 0 else 0.0
+      recall = TP / (TP + FN) if (TP + FN) > 0 else 0.0
+      # F1 = harmonic mean of precision and recall
+      f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+      ```
+      `&` is element-wise AND (not `and`). `.sum()` on a boolean array counts True
+      values. Use `|` for OR, `~` for NOT.
+    weight: 0.10
+    reveal_threshold: 0.55
+  - id: h4
+    text: |
       ```python
       TP = ((y_pred == 1) & (y_true == 1)).sum()
       FP = ((y_pred == 1) & (y_true == 0)).sum()
@@ -1210,7 +1474,7 @@ tasks:
       ```
     weight: 0.12
     reveal_threshold: 0.50
-  - id: h4
+  - id: h5
     text: |
       ```python
       def compute_metrics(y_true, y_pred):
@@ -1224,7 +1488,7 @@ tasks:
       ```
     weight: 0.18
     reveal_threshold: 0.35
-  - id: h5
+  - id: h6
     text: "Edge cases: if no predicted positives (`TP + FP == 0`), precision is undefined
       so return 0.0. If no actual positives (`TP + FN == 0`), recall is undefined so
       return 0.0. If both precision and recall are 0, F1 is 0.0 (avoid `0/0`). `TN`
@@ -1375,6 +1639,29 @@ tasks:
     reveal_threshold: 0.65
   - id: h3
     text: |
+      NumPy cumulative sum and searchsorted tutorial:
+      ```python
+      # Normalize weights to probabilities
+      probs = np.array(weights, dtype=float)
+      probs /= probs.sum()  # -> sums to 1.0
+      # Cumulative distribution function
+      cum = np.cumsum(probs)  # e.g., [0.1, 0.7, 1.0]
+      # Inverse transform sampling
+      rng = np.random.default_rng(seed)
+      u = rng.random()  # Uniform(0, 1)
+      index = np.searchsorted(cum, u)  # first index where cum >= u
+      item = items[index]
+      # Vectorized: draw k samples at once
+      u_vals = rng.random(k)
+      indices = np.searchsorted(cum, u_vals)
+      sampled = [items[i] for i in indices]
+      ```
+      `np.cumsum` builds the CDF. `np.searchsorted(cum, u, side='left')` finds
+      the bucket for each uniform draw. The seeded RNG ensures reproducibility.
+    weight: 0.10
+    reveal_threshold: 0.55
+  - id: h4
+    text: |
       ```python
       probs = np.array(weights) / sum(weights)
       cum = np.cumsum(probs)
@@ -1383,7 +1670,7 @@ tasks:
       ```
     weight: 0.12
     reveal_threshold: 0.50
-  - id: h4
+  - id: h5
     text: |
       ```python
       def weighted_sample(items, weights, k=1):
@@ -1395,7 +1682,7 @@ tasks:
       ```
     weight: 0.18
     reveal_threshold: 0.35
-  - id: h5
+  - id: h6
     text: "Edge cases: if weights sum to 0, division by zero occurs so handle by raising
       or returning uniform samples. If `k` is 0, return an empty list. `np.searchsorted`
       with default `side='left'` returns the first index where `cum >= u`, which correctly
@@ -1434,12 +1721,29 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
+    text: |
+      PyTorch topk and softmax tutorial:
+      ```python
+      # torch.topk: returns (values, indices) of k largest elements
+      top_scores, top_idx = torch.topk(logits, k=2, dim=-1)
+      # logits shape: (B, L, num_experts) -> top_scores: (B, L, 2)
+      # F.softmax: normalize scores to sum to 1
+      weights = F.softmax(top_scores, dim=-1)  # along expert dim
+      # nn.Linear: gate projection
+      logits = self.gate(x)  # x: (B, L, d_model) -> logits: (B, L, num_experts)
+      ```
+      `torch.topk` is differentiable and returns both values and indices.
+      `F.softmax` with `dim=-1` normalizes the last dimension. The gate is a
+      standard `nn.Linear(d_model, num_experts)` layer.
+    weight: 0.10
+    reveal_threshold: 0.55
+  - id: h4
     text: "`logits = self.gate(x)` gives shape `(B, L, num_experts)`; `top_scores, top_idx
       = torch.topk(logits, self.k, dim=-1)` gives shape `(B, L, k)`; `weights = F.softmax(top_scores,
       dim=-1)` gives shape `(B, L, k)`."
     weight: 0.12
     reveal_threshold: 0.50
-  - id: h4
+  - id: h5
     text: |
       ```python
       def forward(self, x):
@@ -1450,7 +1754,7 @@ tasks:
       ```
     weight: 0.18
     reveal_threshold: 0.35
-  - id: h5
+  - id: h6
     text: "Edge cases: if `k > num_experts`, `torch.topk` will return all experts. If
       all gate logits are the same, softmax produces uniform weights. The weights
       sum to 1 across the `k` selected experts for each token. The indices are needed
@@ -1489,6 +1793,23 @@ tasks:
     reveal_threshold: 0.65
   - id: h3
     text: |
+      PyTorch softmax and tensor reduction tutorial:
+      ```python
+      # F.softmax: normalize logits to probabilities
+      probs = F.softmax(gate_logits, dim=-1)  # -> (N, num_experts), sums to 1 per row
+      # Mean along dim=0: average across tokens
+      f = probs.mean(dim=0)  # -> (num_experts,) fraction of routing mass per expert
+      P = probs.mean(dim=0)  # -> (num_experts,) mean routing probability per expert
+      # Element-wise multiply and sum
+      loss = num_experts * (f * P).sum()  # scalar
+      # Or: loss = num_experts * torch.sum(f * P)
+      ```
+      `F.softmax(dim=-1)` normalizes the last dimension. `.mean(dim=0)` averages
+      across the batch/sequence dimension. `(f * P).sum()` computes the dot product.
+    weight: 0.10
+    reveal_threshold: 0.55
+  - id: h4
+    text: |
       ```python
       probs = F.softmax(gate_logits, dim=-1)  # shape: (N, num_experts)
       f = probs.mean(0)    # fraction of probability mass per expert
@@ -1497,7 +1818,7 @@ tasks:
       ```
     weight: 0.12
     reveal_threshold: 0.50
-  - id: h4
+  - id: h5
     text: |
       ```python
       def compute_load_balancing_loss(gate_logits, num_experts):
@@ -1508,7 +1829,7 @@ tasks:
       ```
     weight: 0.18
     reveal_threshold: 0.35
-  - id: h5
+  - id: h6
     text: "Edge cases: if all tokens go to one expert, `f` has one entry near 1 and
       others near 0, and `P` concentrates on that expert too so loss is high. If routing
       is perfectly uniform, `f` and `P` are both `1/num_experts` for all experts, and loss
@@ -1694,11 +2015,27 @@ tasks:
     weight: 0.08
     reveal_threshold: 0.65
   - id: h3
+    text: |
+      PyTorch argsort and fancy indexing tutorial:
+      ```python
+      # torch.argsort: returns indices that would sort a tensor
+      sort_indices = torch.argsort(expert_ids)  # (N,) -> (N,)
+      # Fancy indexing: reorder using index tensor
+      reordered = tokens[sort_indices]  # (N, d_model) -> (N, d_model)
+      # Invert the sorting: argsort of argsort gives original order
+      original = reordered[sort_indices.argsort()]  # recovers original order
+      ```
+      `argsort` is stable (preserves relative order of equal elements). The
+      double-argsort trick `idx[idx.argsort()]` reconstructs the original
+      ordering. This is useful for scattering results back after grouped operations.
+    weight: 0.10
+    reveal_threshold: 0.55
+  - id: h4
     text: "`sort_indices = torch.argsort(expert_ids)`; `reordered_tokens = tokens[sort_indices]`;
       return `reordered_tokens, sort_indices`"
     weight: 0.12
     reveal_threshold: 0.50
-  - id: h4
+  - id: h5
     text: |
       ```python
       def reorder_tokens(tokens, expert_ids, num_experts):
@@ -1708,7 +2045,7 @@ tasks:
       ```
     weight: 0.18
     reveal_threshold: 0.35
-  - id: h5
+  - id: h6
     text: "Edge cases: if multiple tokens share the same `expert_id`, `argsort` preserves
       their relative order (stable sort). The returned `sort_indices` can be used to
       scatter results back: `original_order = reordered[sort_indices.argsort()]`. `num_experts`
