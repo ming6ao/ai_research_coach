@@ -1,22 +1,21 @@
 import { useState } from 'react';
 import Editor from '@monaco-editor/react';
-import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/vs2015.css';
 import type { Task } from '../../api/client';
-import { CodeBlock } from '../CodeBlock/CodeBlock';
-import { normalizeMarkdownFences, splitMathChildren } from '../../lib/markdown';
+import { Markdown } from '../Markdown/Markdown';
 
 interface Props {
   task: Task;
   onSubmit: (taskId: string, answer: string, hintsUsed: string[]) => void;
+  onPracticeSubmit?: (taskId: string, answer: string, hintsUsed: string[]) => void;
   onSkip?: () => void;
   onEndPractice?: () => void;
   mode: 'assessment' | 'practice';
   disabled: boolean;
 }
 
-export function CodeTask({ task, onSubmit, onSkip, onEndPractice, mode, disabled }: Props) {
+export function CodeTask({ task, onSubmit, onPracticeSubmit, onSkip, onEndPractice, mode, disabled }: Props) {
   const [code, setCode] = useState(task.scaffold ?? '');
   const [viewed, setViewed] = useState<Set<string>>(
     () => new Set((task.hints ?? []).filter((h) => h.pre_revealed).map((h) => h.id))
@@ -36,6 +35,12 @@ export function CodeTask({ task, onSubmit, onSkip, onEndPractice, mode, disabled
 
   const handleSubmit = () => {
     onSubmit(task.id, code, Array.from(viewed));
+  };
+
+  const handlePracticeSubmit = () => {
+    if (onPracticeSubmit) {
+      onPracticeSubmit(task.id, code, Array.from(viewed));
+    }
   };
 
   return (
@@ -61,37 +66,9 @@ export function CodeTask({ task, onSubmit, onSkip, onEndPractice, mode, disabled
               viewed.has(hint.id) && (
                 <div
                   key={hint.id}
-                  className="prose prose-invert prose-sm max-w-none rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2 text-[var(--color-text-secondary)]"
+                  className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2"
                 >
-                  <ReactMarkdown
-                    components={{
-                      pre({ children }) {
-                        return <>{children}</>;
-                      },
-                      code({ className, children, ...props }) {
-                        const text = String(children);
-                        const lang = /language-(\w+)/.exec(className ?? '')?.[1];
-                        const isBlock = Boolean(lang) || text.includes('\n');
-                        if (isBlock) {
-                          return <CodeBlock code={text} language={lang ?? 'python'} />;
-                        }
-                        return (
-                          <code
-                            className="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 font-mono text-[1em] text-[var(--color-text-primary)]"
-                            {...props}
-                          >
-                            {children}
-                          </code>
-                        );
-                      },
-                      p: ({ children }) => <p>{splitMathChildren(children)}</p>,
-                      li: ({ children }) => <li>{splitMathChildren(children)}</li>,
-                      strong: ({ children }) => <strong>{splitMathChildren(children)}</strong>,
-                      em: ({ children }) => <em>{splitMathChildren(children)}</em>,
-                    }}
-                  >
-                    {normalizeMarkdownFences(hint.text)}
-                  </ReactMarkdown>
+                  <Markdown text={hint.text} />
                 </div>
               )
             )}
@@ -140,11 +117,11 @@ export function CodeTask({ task, onSubmit, onSkip, onEndPractice, mode, disabled
       <div className="flex items-center justify-between border-t border-[var(--color-border-default)] pt-3">
         <p className="text-xs text-[var(--color-text-muted)]">
           {mode === 'practice'
-            ? 'Anonymous practice — answers are not submitted or scored.'
+            ? 'Anonymous practice — check your answer or skip; nothing is scored or saved.'
             : 'Write your solution in the editor above, then submit.'}
         </p>
         {mode === 'practice' ? (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={onEndPractice}
               disabled={disabled}
@@ -155,9 +132,16 @@ export function CodeTask({ task, onSubmit, onSkip, onEndPractice, mode, disabled
             <button
               onClick={onSkip}
               disabled={disabled}
+              className="rounded-lg border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-focus)] hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Skip &rarr;
+            </button>
+            <button
+              onClick={handlePracticeSubmit}
+              disabled={disabled || !code.trim()}
               className="rounded-lg bg-[var(--color-accent)] px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Skip to next question &rarr;
+              Check my answer
             </button>
           </div>
         ) : (

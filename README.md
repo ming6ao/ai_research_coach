@@ -82,6 +82,31 @@ Open `http://localhost:8000`, select **ai_research_coach** in the top-left, and 
 
 The agent will call `start_assessment`, walk through each task, collect answers, and finish with `get_report`.
 
+### Custom UI (chat-style guest mode)
+
+`./run.sh` serves a chat-style frontend (FastAPI + Vite) at `http://localhost:5173`.
+Visitors land directly in **guest practice mode** — they can browse real questions,
+request hints, and get unscored feedback on answers, with nothing saved. The header
+shows **Log in** / **Sign up**, both of which sign in with **Google**. First-time
+Google sign-in creates the account automatically; accounts unlock **scored
+assessments**: answers are judged, feedback and a skills report are produced, and
+history is saved to the account and resumable across devices. Anonymous practice is
+enforced server-side (scored `mode=assessment` starts require an authenticated user).
+
+To enable Google login, create an OAuth 2.0 client in the
+[Google Cloud Console](https://console.cloud.google.com/apis/credentials) (authorized
+redirect URI `http://localhost:8001/api/auth/google/callback`) and add to `.env`:
+
+```bash
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+# optional, defaults shown:
+GOOGLE_REDIRECT_URI=http://localhost:8001/api/auth/google/callback
+FRONTEND_URL=http://localhost:5173
+```
+
+Without those keys, guests can still use practice mode but Log in / Sign up are unavailable.
+
 ### Command-line interface
 
 ```bash

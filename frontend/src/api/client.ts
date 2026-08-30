@@ -34,6 +34,7 @@ export interface SkillUpdate {
 
 export interface StartResponse {
   session_id: string;
+  candidate: string;
   mode: 'assessment' | 'practice';
   message: string;
   total_tasks: number;
@@ -52,6 +53,12 @@ export interface SubmitResponse {
 export interface SkipResponse {
   next_task: Task | null;
   remaining: number;
+}
+
+export interface PracticeSubmitResponse {
+  result: EvaluationResult;
+  feedback: string;
+  note: string;
 }
 
 export interface ResumeResponse {
@@ -96,20 +103,6 @@ export interface Report {
   questions_answered: number;
 }
 
-async function api<T>(path: string, body?: unknown, method?: string): Promise<T> {
-  const effectiveMethod = method ?? (body !== undefined ? 'POST' : 'GET');
-  const res = await fetch(`${BASE}${path}`, {
-    method: effectiveMethod,
-    headers: { 'Content-Type': 'application/json' },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(detail.detail || `API error ${res.status}`);
-  }
-  return res.json();
-}
-
 export interface UnifiedSession {
   id: string;
   candidate: string;
@@ -119,6 +112,63 @@ export interface UnifiedSession {
   verdict: string | null;
 }
 
+export interface AuthUser {
+  id: string;
+  email: string;
+  display_name: string | null;
+}
+
+const TOKEN_KEY = 'ai_coach_token';
+
+function readToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+let authToken: string | null = readToken();
+
+export function setAuthToken(token: string | null) {
+  authToken = token;
+  try {
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_KEY);
+    }
+  } catch {
+    // localStorage unavailable (private mode) — session-only token is fine.
+  }
+}
+
+export function getAuthToken(): string | null {
+  return authToken;
+}
+
+async function api<T>(path: string, body?: unknown, method?: string): Promise<T> {
+  const effectiveMethod = method ?? (body !== undefined ? 'POST' : 'GET');
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+  const res = await fetch(`${BASE}${path}`, {
+    method: effectiveMethod,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const isAuthCall = path.startsWith('/auth/');
+    if (res.status === 401 && !isAuthCall && authToken) {
+      setAuthToken(null);
+    }
+    const detail = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(detail.detail || `API error ${res.status}`);
+  }
+  return res.json();
+}
+
 export const apiClient = {
   start: (candidate_name: string, mode: 'assessment' | 'practice' = 'assessment') =>
     api<StartResponse>('/start', { candidate_name, mode }),
@@ -126,14 +176,17 @@ export const apiClient = {
   submit: (session_id: string, task_id: string, answer: string, hints_used: string[] = []) =>
     api<SubmitResponse>('/submit', { session_id, task_id, answer, hints_used }),
 
+  practiceSubmit: (session_id: string, task_id: string, answer: string) =>
+    api<PracticeSubmitResponse>('/practice/submit', { session_id, task_id, answer }),
+
   skip: (session_id: string, task_id: string) =>
     api<SkipResponse>('/skip', { session_id, task_id }),
 
   report: (session_id: string) =>
     api<Report>('/report', { session_id }),
 
-  listSessions: (candidate: string) =>
-    api<{ sessions: UnifiedSession[] }>(`/sessions?candidate=${encodeURIComponent(candidate)}`),
+  listSessions: () =>
+    api<{ sessions: UnifiedSession[] }>('/sessions'),
 
   openSession: (id: string, status: 'active' | 'completed') =>
     api<ResumeResponse>('/session/open', { id, status }),
@@ -146,5 +199,13 @@ export const apiClient = {
 
   clearCandidateData: (candidate: string) =>
     api<{ ok: boolean; deleted: number }>(`/sessions/clear/${encodeURIComponent(candidate)}`, undefined, 'DELETE'),
-};
 
+  googleAuthUrl: () =>
+    api<{ url: string }>('/auth/google/url'),
+
+  logout: () =>
+    api<{ ok: boolean }>('/auth/logout', undefined, 'POST'),
+
+  me: () =>
+    api<{ user: AuthUser }>('/auth/me'),
+};

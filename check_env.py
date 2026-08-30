@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 REQUIRED = ["GOOGLE_API_KEY"]
+GOOGLE_OAUTH = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]
 from core.config import MODEL
 
 
@@ -16,6 +17,14 @@ def check_env_vars():
         print("       Add them to your .env file (see README).")
         return False
     print(f"[OK]   GOOGLE_API_KEY is set ({len(os.getenv('GOOGLE_API_KEY'))} chars).")
+
+    oauth_missing = [k for k in GOOGLE_OAUTH if not os.getenv(k)]
+    if oauth_missing:
+        print(f"[WARN] Google login is disabled - missing {', '.join(oauth_missing)}.")
+        print("       Create an OAuth 2.0 Web client in the Google Cloud Console and add them to .env")
+        print("       (see README 'Custom UI' section). Guests can still use practice mode without them.")
+    else:
+        print("[OK]   Google OAuth credentials are set (login enabled).")
     return True
 
 

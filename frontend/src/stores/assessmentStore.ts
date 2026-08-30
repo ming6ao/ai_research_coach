@@ -18,6 +18,13 @@ export interface ResultWithFeedback {
   feedback: string;
 }
 
+export interface PracticeFeedback {
+  task_id: string;
+  answer: string;
+  result: EvaluationResult;
+  feedback: string;
+}
+
 interface AssessmentState {
   sessionId: string | null;
   candidate: string;
@@ -26,6 +33,7 @@ interface AssessmentState {
   taskIndex: number;
   totalTasks: number;
   results: ResultWithFeedback[];
+  practiceFeedback: PracticeFeedback[];
   skillStates: Record<string, { score: number; confidence: number; questions_answered: number }>;
   report: Report | null;
   chatLog: LogEntry[];
@@ -36,6 +44,7 @@ interface AssessmentState {
   startAssessment: (name: string, mode?: 'assessment' | 'practice') => Promise<void>;
   resumeSession: (response: ResumeResponse) => void;
   submitAnswer: (taskId: string, answer: string, hintsUsed?: string[]) => Promise<void>;
+  practiceSubmit: (taskId: string, answer: string, hintsUsed?: string[]) => Promise<void>;
   skipTask: () => Promise<void>;
   endPractice: () => void;
   loadReport: () => Promise<void>;
@@ -58,6 +67,10 @@ function toResultWithFeedback(entry: FeedbackEntry): ResultWithFeedback {
 
 const SESSION_KEY = 'ai_coach_session_id';
 
+export function getStoredSessionId(): string | null {
+  return localStorage.getItem(SESSION_KEY);
+}
+
 export const useAssessmentStore = create<AssessmentState>((set, get) => ({
   sessionId: null,
   candidate: '',
@@ -66,6 +79,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
   taskIndex: 0,
   totalTasks: 0,
   results: [],
+  practiceFeedback: [],
   skillStates: {},
   report: null,
   chatLog: [],
@@ -92,6 +106,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       taskIndex: res.task_index,
       totalTasks: res.total_tasks,
       results,
+      practiceFeedback: [],
       skillStates: res.skill_states,
       report: null,
       submitted: false,
@@ -108,12 +123,13 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       localStorage.setItem(SESSION_KEY, res.session_id);
       set({
         sessionId: res.session_id,
-        candidate: mode === 'practice' ? 'Guest' : name,
+        candidate: mode === 'practice' ? 'Guest' : res.candidate || name,
         mode: res.mode,
         currentTask: res.first_task,
         taskIndex: 0,
         totalTasks: res.total_tasks,
         results: [],
+        practiceFeedback: [],
         skillStates: {},
         report: null,
         submitted: false,
@@ -174,6 +190,35 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
     }
   },
 
+  practiceSubmit: async (taskId, answer, _hintsUsed = []) => {
+    const { sessionId } = get();
+    if (!sessionId) return;
+    set({ loading: true, error: null, submitted: true });
+    get().addLog(`Checking practice answer for task ${taskId}...`);
+    try {
+      const res = await apiClient.practiceSubmit(sessionId, taskId, answer);
+
+      const entry: PracticeFeedback = {
+        task_id: res.result.task_id,
+        answer,
+        result: res.result,
+        feedback: res.feedback,
+      };
+
+      set({
+        practiceFeedback: [...get().practiceFeedback, entry],
+        submitted: false,
+      });
+      get().addLog(`Practice feedback received — nothing was scored.`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      set({ error: msg, submitted: false });
+      get().addLog(`Error: ${msg}`);
+    } finally {
+      set({ loading: false });
+    }
+  },
+
   skipTask: async () => {
     const { sessionId, currentTask } = get();
     if (!sessionId || !currentTask) return;
@@ -196,8 +241,8 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
   },
 
   endPractice: () => {
-    const { sessionId } = get();
-    if (sessionId) {
+    const { sessionId, mode } = get();
+    if (sessionId && mode === 'practice') {
       apiClient.deleteActiveSession(sessionId).catch(() => undefined);
     }
     localStorage.removeItem(SESSION_KEY);
@@ -209,6 +254,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       taskIndex: 0,
       totalTasks: 0,
       results: [],
+      practiceFeedback: [],
       skillStates: {},
       report: null,
       chatLog: [],

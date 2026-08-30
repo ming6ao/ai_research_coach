@@ -87,6 +87,9 @@ EVAL_RETRY_MAX_DELAY=30.0       # Max backoff (seconds)
 ## Frontend Notes
 
 - React 19 + TypeScript + Vite + Tailwind v4
+- Chat-style UI: `ChatView`/`WelcomeView` in `frontend/src/components/Chat/` render the assessment as coach/user bubbles; the active task embeds Monaco via `CodeTask`
+- Guest mode = no account → practice (unscored; `/api/practice/submit` returns judge feedback without recording). Logged-in users (bearer token in `localStorage`) get scored assessments + per-account history
+- Auth backend: `backend/auth.py` (bearer tokens, `get_current_user` FastAPI dependency) + `backend/google_auth.py` (Google OAuth authorization-code flow, stdlib only). Login is Google-only — `/auth/google/url` + `/auth/google/callback` exchange a code for a local user (keyed by email) and redirect to `FRONTEND_URL/?token=...`. Requires `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` in `.env`. Enforcement lives in `backend/routes.py` (`/start` returns 401 for anonymous `assessment` mode)
 - Linting: `oxlint` (config in `frontend/.oxlintrc.json`)
 - Typecheck: `tsc -b` (project references: `tsconfig.app.json`, `tsconfig.node.json`)
 - Tests: Node's built-in `node:test` runner via type stripping (`npm test` in `frontend/`), zero extra deps
