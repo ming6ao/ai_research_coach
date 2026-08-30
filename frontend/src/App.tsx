@@ -165,6 +165,26 @@ export default function App() {
   const { currentTask, report, submitAnswer, loadReport, loading, sessionId } =
     useAssessmentStore();
 
+  if (report) {
+    return (
+      <div className="flex h-screen flex-col">
+        <Header />
+        <div className="flex min-h-0 flex-1">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="min-h-0 flex-1 overflow-y-auto p-6">
+              <ReportView />
+            </div>
+            <ChatLog />
+          </div>
+          <Splitter />
+          <div className="hidden lg:block flex-1 overflow-y-auto">
+            <FeedbackPanel />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!sessionId) {
     return (
       <div className="flex h-screen flex-col">
@@ -181,9 +201,7 @@ export default function App() {
       <div className="flex min-h-0 flex-1">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto p-6">
-            {report ? (
-              <ReportView />
-            ) : currentTask ? (
+            {currentTask ? (
               <TaskPanel
                 key={currentTask.id}
                 task={currentTask}
