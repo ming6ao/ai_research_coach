@@ -224,6 +224,7 @@ def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
     session = Session(candidate, mode=mode)
 
     # If the user typed a custom question, inject it as the first task.
+    custom_task = None
     if req.initial_question and req.initial_question.strip():
         custom_task = {
             "id": f"custom_{uuid.uuid4().hex[:8]}",
@@ -238,8 +239,12 @@ def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
     ctx.state["session"] = session.to_dict()
     store.save(session_id, ctx.state)
 
-    task = next_task(session)
-    first_task = _task_view(task, session) if task else None
+    # Use the custom task directly if one was injected; otherwise let the picker decide.
+    if custom_task:
+        first_task = _task_view(custom_task, session)
+    else:
+        task = next_task(session)
+        first_task = _task_view(task, session) if task else None
 
     return {
         "session_id": session_id,
@@ -479,6 +484,24 @@ def list_sessions(user: dict = Depends(get_current_user)):
 
     sessions.sort(key=lambda s: s["updated_at"], reverse=True)
     return {"sessions": sessions}
+
+
+@router.get("/tasks")
+def list_tasks():
+    from core.config import load_yaml
+
+    tasks = load_yaml("tasks.yaml")["tasks"]
+    return {
+        "tasks": [
+            {
+                "id": t["id"],
+                "skill": t["skill"],
+                "difficulty": t.get("difficulty", 2),
+                "prompt": t["prompt"],
+            }
+            for t in tasks
+        ]
+    }
 
 
 @router.delete("/sessions/active/{session_id}")

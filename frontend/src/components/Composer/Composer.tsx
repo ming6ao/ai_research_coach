@@ -4,14 +4,23 @@ interface Props {
   placeholder?: string;
   onSubmit: (text: string) => void;
   disabled?: boolean;
+  initialValue?: string;
 }
 
-export function Composer({ placeholder = 'Ask anything about AI, ML, or coding…', onSubmit, disabled }: Props) {
+export function Composer({ placeholder = 'Ask anything about AI, ML, or coding…', onSubmit, disabled, initialValue }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (!disabled) ref.current?.focus();
   }, [disabled]);
+
+  useEffect(() => {
+    if (initialValue !== undefined && ref.current) {
+      ref.current.value = initialValue;
+      ref.current.style.height = 'auto';
+      ref.current.style.height = `${Math.min(ref.current.scrollHeight, 160)}px`;
+    }
+  }, [initialValue]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {

@@ -10,6 +10,7 @@ export function WelcomeView() {
   const [sessions, setSessions] = useState<UnifiedSession[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [showSessions, setShowSessions] = useState(false);
+  const [randomValue, setRandomValue] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,6 +42,19 @@ export function WelcomeView() {
   const handleStartPractice = () => {
     if (loading) return;
     startAssessment('guest', 'practice');
+  };
+
+  const handleRandomQuestion = async () => {
+    if (loading) return;
+    try {
+      const { tasks } = await apiClient.fetchTasks();
+      if (tasks.length === 0) return;
+      const task = tasks[Math.floor(Math.random() * tasks.length)];
+      setRandomValue(task.prompt);
+      handleSend(task.prompt);
+    } catch {
+      // Ignore fetch errors.
+    }
   };
 
   const name = user?.display_name || (user ? user.email.split('@')[0] : '');
@@ -78,12 +92,24 @@ export function WelcomeView() {
         </p>
 
         <div className="w-full">
-          <Composer placeholder="Ask anything about AI, ML, or coding…" onSubmit={handleSend} disabled={loading} />
+          <Composer placeholder="Ask anything about AI, ML, or coding…" onSubmit={handleSend} disabled={loading} initialValue={randomValue} />
         </div>
 
-        <p className="mt-3 text-[11px] text-[var(--color-text-muted)]">
-          AI Research Coach can make mistakes. Practice isn't scored.
-        </p>
+        <div className="mt-3 flex items-center gap-3">
+          <button
+            onClick={handleRandomQuestion}
+            disabled={loading}
+            className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-accent)]/40 hover:text-[var(--color-accent)] disabled:opacity-40"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
+              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+            </svg>
+            Random question
+          </button>
+          <p className="text-[11px] text-[var(--color-text-muted)]">
+            AI Research Coach can make mistakes. Practice isn't scored.
+          </p>
+        </div>
 
         {user && loaded && sessions.length > 0 && (
           <div className="mt-8 w-full">

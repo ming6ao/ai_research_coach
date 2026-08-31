@@ -103,6 +103,13 @@ export interface Report {
   questions_answered: number;
 }
 
+export interface TaskSummary {
+  id: string;
+  skill: string;
+  difficulty: number;
+  prompt: string;
+}
+
 export interface UnifiedSession {
   id: string;
   candidate: string;
@@ -208,4 +215,7 @@ export const apiClient = {
 
   me: () =>
     api<{ user: AuthUser }>('/auth/me'),
+
+  fetchTasks: () =>
+    api<{ tasks: TaskSummary[] }>('/tasks'),
 };
