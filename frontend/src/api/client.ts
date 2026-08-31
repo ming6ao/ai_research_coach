@@ -35,7 +35,6 @@ export interface SkillUpdate {
 export interface StartResponse {
   session_id: string;
   candidate: string;
-  mode: 'assessment' | 'practice';
   message: string;
   total_tasks: number;
   first_task: Task | null;
@@ -46,25 +45,13 @@ export interface SubmitResponse {
   feedback: string;
   next_task: Task | null;
   remaining: number;
-  skill_update: SkillUpdate;
+  skill_update?: SkillUpdate;
   note?: string;
-}
-
-export interface SkipResponse {
-  next_task: Task | null;
-  remaining: number;
-}
-
-export interface PracticeSubmitResponse {
-  result: EvaluationResult;
-  feedback: string;
-  note: string;
 }
 
 export interface ResumeResponse {
   session_id: string;
   candidate: string;
-  mode: 'assessment' | 'practice';
   total_tasks: number;
   task_index: number;
   current_task: Task | null;
@@ -177,17 +164,11 @@ async function api<T>(path: string, body?: unknown, method?: string): Promise<T>
 }
 
 export const apiClient = {
-  start: (candidate_name: string, mode: 'assessment' | 'practice' = 'assessment', initial_question?: string) =>
-    api<StartResponse>('/start', { candidate_name, mode, initial_question }),
+  start: (candidate_name: string, initial_question?: string) =>
+    api<StartResponse>('/start', { candidate_name, initial_question }),
 
   submit: (session_id: string, task_id: string, answer: string, hints_used: string[] = []) =>
     api<SubmitResponse>('/submit', { session_id, task_id, answer, hints_used }),
-
-  practiceSubmit: (session_id: string, task_id: string, answer: string) =>
-    api<PracticeSubmitResponse>('/practice/submit', { session_id, task_id, answer }),
-
-  skip: (session_id: string, task_id: string) =>
-    api<SkipResponse>('/skip', { session_id, task_id }),
 
   report: (session_id: string) =>
     api<Report>('/report', { session_id }),

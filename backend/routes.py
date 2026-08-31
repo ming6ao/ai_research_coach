@@ -29,7 +29,6 @@ router = APIRouter(prefix="/api", tags=["assessment"])
 
 class StartRequest(BaseModel):
     candidate_name: str
-    mode: Optional[str] = "assessment"
     initial_question: Optional[str] = None
 
 
@@ -40,11 +39,6 @@ class SubmitRequest(BaseModel):
     hints_used: Optional[List[str]] = None
 
 
-class SkipRequest(BaseModel):
-    session_id: str
-    task_id: str
-
-
 class ReportRequest(BaseModel):
     session_id: str
 
@@ -52,12 +46,6 @@ class ReportRequest(BaseModel):
 class SessionOpenRequest(BaseModel):
     id: str
     status: str  # "active" or "completed"
-
-
-class PracticeSubmitRequest(BaseModel):
-    session_id: str
-    task_id: str
-    answer: str
 
 
 class _FakeToolContext:
@@ -202,26 +190,18 @@ def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
     from core.picker import next_task
     from app.agent import _task_view
 
-    mode = (req.mode or "assessment").lower()
-    if mode not in ("assessment", "practice"):
-        raise HTTPException(status_code=400, detail="mode must be 'assessment' or 'practice'.")
-
-    if user is None and mode == "assessment":
-        raise HTTPException(status_code=401, detail="Log in to start a scored assessment.")
-
     store = get_store()
     if user is not None:
         candidate = user["email"]
     else:
         candidate = f"guest-{uuid.uuid4().hex[:8]}"
-        mode = "practice"
 
     session_id = store.create(candidate)
 
     state = {}
     ctx = _FakeToolContext(state)
 
-    session = Session(candidate, mode=mode)
+    session = Session(candidate)
 
     # If the user typed a custom question, inject it as the first task.
     custom_task = None
@@ -249,7 +229,7 @@ def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
     return {
         "session_id": session_id,
         "candidate": session.candidate,
-        "mode": mode,
+        "mode": session.mode,
         "message": f"Assessment started for {session.candidate}.",
         "total_tasks": len(session.tasks),
         "first_task": first_task,
@@ -268,16 +248,10 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
     store = get_store()
     state = store.get(req.session_id)
     if state is None:
-        raise HTTPException(status_code=400, detail="No active assessment.")
+        raise HTTPException(status_code=400, detail="No active session.")
 
     session = Session.from_dict(state["session"])
     feedback_list = state.get("_feedback_list", [])
-
-    if session.mode == "practice":
-        raise HTTPException(
-            status_code=400,
-            detail="Practice (anonymous) sessions cannot be scored. Start an assessed session to submit answers.",
-        )
 
     if user is not None and session.candidate != user["email"]:
         raise HTTPException(status_code=403, detail="Not your session.")
@@ -298,42 +272,65 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
 
     result, feedback = LLMJudge().evaluate(task, req.answer)
 
-    requested = session.viewed_hints.get(req.task_id, [])
-    viewed = list(dict.fromkeys(list(req.hints_used or []) + requested))
+    skill_update = None
 
-    skill_id = task["skill"]
-    state_obj = session.get_skill_state(skill_id)
+    if session.mode == "assessment":
+        requested = session.viewed_hints.get(req.task_id, [])
+        viewed = list(dict.fromkeys(list(req.hints_used or []) + requested))
 
-    penalty = hint_penalty(task, viewed)
-    observation = effective_score(result.fraction, penalty)
-    obs_variance = measurement_variance(task.get("difficulty", 1), state_obj.score)
-    new_score, new_variance = bayesian_update(
-        state_obj.score, state_obj.variance, observation, obs_variance
-    )
+        skill_id = task["skill"]
+        state_obj = session.get_skill_state(skill_id)
 
-    session.skill_states[skill_id] = SkillState(
-        score=new_score,
-        variance=new_variance,
-        questions_answered=state_obj.questions_answered + 1,
-        evidence=state_obj.evidence + [result.rationale],
-        hints_used=state_obj.hints_used + viewed,
-    )
+        penalty = hint_penalty(task, viewed)
+        observation = effective_score(result.fraction, penalty)
+        obs_variance = measurement_variance(task.get("difficulty", 1), state_obj.score)
+        new_score, new_variance = bayesian_update(
+            state_obj.score, state_obj.variance, observation, obs_variance
+        )
+
+        session.skill_states[skill_id] = SkillState(
+            score=new_score,
+            variance=new_variance,
+            questions_answered=state_obj.questions_answered + 1,
+            evidence=state_obj.evidence + [result.rationale],
+            hints_used=state_obj.hints_used + viewed,
+        )
+
+        feedback_entry = {
+            "task_id": task["id"],
+            "prompt": task["prompt"],
+            "type": "code",
+            "skill": task["skill"],
+            "user_answer": req.answer,
+            "result": result.to_dict(),
+            "feedback": feedback,
+            "hints_used": viewed,
+            "scored": True,
+        }
+        feedback_list.append(feedback_entry)
+
+        skill_update = {
+            "skill": skill_id,
+            "new_score": new_score,
+            "new_confidence": session.get_skill_state(skill_id).confidence,
+            "hints_used": viewed,
+        }
+    else:
+        feedback_entry = {
+            "task_id": task["id"],
+            "prompt": task["prompt"],
+            "type": "code",
+            "skill": task["skill"],
+            "user_answer": req.answer,
+            "result": result.to_dict(),
+            "feedback": feedback,
+            "hints_used": [],
+            "scored": False,
+        }
+        feedback_list.append(feedback_entry)
 
     session.asked_task_ids.add(req.task_id)
-    session.results.append(result)
     session.index += 1
-
-    feedback_entry = {
-        "task_id": task["id"],
-        "prompt": task["prompt"],
-        "type": "code",
-        "skill": task["skill"],
-        "user_answer": req.answer,
-        "result": result.to_dict(),
-        "feedback": feedback,
-        "hints_used": viewed,
-    }
-    feedback_list.append(feedback_entry)
 
     state["session"] = session.to_dict()
     store.save(req.session_id, state, feedback_list)
@@ -345,73 +342,7 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
         "feedback": feedback,
         "next_task": _task_view(nxt, session) if nxt else None,
         "remaining": len(session.tasks) - session.index,
-        "skill_update": {
-            "skill": skill_id,
-            "new_score": new_score,
-            "new_confidence": session.get_skill_state(skill_id).confidence,
-            "hints_used": viewed,
-        },
-    }
-
-
-@router.post("/practice/submit")
-def practice_submit(req: PracticeSubmitRequest):
-    """Judge feedback for a practice answer — educational only, nothing recorded."""
-    from core.session import Session
-    from evaluators.judge import LLMJudge
-
-    store = get_store()
-    state = store.get(req.session_id)
-    if state is None:
-        raise HTTPException(status_code=400, detail="No active practice session.")
-
-    session = Session.from_dict(state["session"])
-    if session.mode != "practice":
-        raise HTTPException(
-            status_code=400,
-            detail="Practice submit is only available in practice (guest) mode.",
-        )
-
-    task = next((t for t in session.tasks if t["id"] == req.task_id), None)
-    if task is None:
-        raise HTTPException(status_code=404, detail=f"Task {req.task_id} not found.")
-
-    result, feedback = LLMJudge().evaluate(task, req.answer)
-    return {
-        "result": result.to_dict(),
-        "feedback": feedback,
-        "note": "Practice feedback only — nothing was scored or recorded.",
-    }
-
-
-@router.post("/skip")
-def skip_task(req: SkipRequest):
-    from core.session import Session
-    from core.picker import next_task
-    from app.agent import _task_view
-
-    store = get_store()
-    state = store.get(req.session_id)
-    if state is None:
-        raise HTTPException(status_code=400, detail="No active assessment.")
-
-    session = Session.from_dict(state["session"])
-    if session.mode != "practice":
-        raise HTTPException(
-            status_code=400,
-            detail="Skipping is only available in practice (anonymous) mode.",
-        )
-
-    if req.task_id not in session.asked_task_ids:
-        session.asked_task_ids.add(req.task_id)
-        session.index += 1
-        state["session"] = session.to_dict()
-        store.save(session_id=req.session_id, state=state)
-
-    nxt = next_task(session)
-    return {
-        "next_task": _task_view(nxt, session) if nxt else None,
-        "remaining": len(session.tasks) - session.index,
+        "skill_update": skill_update,
     }
 
 

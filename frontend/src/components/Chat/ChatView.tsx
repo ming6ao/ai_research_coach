@@ -79,35 +79,25 @@ function TaskPromptBubble({ prompt, skill }: { prompt: string; skill: string }) 
 }
 
 function DoneBubble() {
-  const { loadReport, loading } = useAssessmentStore();
+  const { loadReport, mode, endPractice, loading } = useAssessmentStore();
+  const isPractice = mode === 'practice';
   return (
     <CoachBubble>
       <p className="mb-3 text-sm text-[var(--color-text-primary)]">
-        You've completed all the questions. Ready to see your results?
+        {isPractice
+          ? "You've browsed all the practice questions. Nice work!"
+          : "You've completed all the questions. Ready to see your results?"}
       </p>
       <button
-        onClick={loadReport}
+        onClick={isPractice ? endPractice : loadReport}
         disabled={loading}
-        className="rounded-lg bg-[var(--color-accent)] px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+        className={`rounded-lg px-5 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+          isPractice
+            ? 'border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:border-[var(--color-border-focus)] hover:text-[var(--color-text-primary)]'
+            : 'bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)]'
+        }`}
       >
-        {loading ? 'Generating…' : 'View Report'}
-      </button>
-    </CoachBubble>
-  );
-}
-
-function PracticeDoneBubble() {
-  const { endPractice } = useAssessmentStore();
-  return (
-    <CoachBubble>
-      <p className="mb-3 text-sm text-[var(--color-text-primary)]">
-        You've browsed all the practice questions. Nice work!
-      </p>
-      <button
-        onClick={endPractice}
-        className="rounded-lg border border-[var(--color-border-default)] px-5 py-2 text-sm text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-focus)] hover:text-[var(--color-text-primary)]"
-      >
-        Back to start
+        {isPractice ? 'Back to start' : loading ? 'Generating…' : 'View Report'}
       </button>
     </CoachBubble>
   );
@@ -134,16 +124,16 @@ function WelcomeBubble() {
 }
 
 export function ChatView() {
-  const { results, practiceFeedback, currentTask, mode, totalTasks, taskIndex, loading, initialQuestion } =
+  const { results, currentTask, mode, totalTasks, taskIndex, loading, initialQuestion } =
     useAssessmentStore();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [results.length, practiceFeedback.length, currentTask?.id, loading]);
+  }, [results.length, currentTask?.id, loading]);
 
   const allDone = totalTasks > 0 && taskIndex >= totalTasks && !currentTask;
-  const hasHistory = results.length > 0 || practiceFeedback.length > 0;
+  const hasHistory = results.length > 0;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
@@ -161,22 +151,14 @@ export function ChatView() {
             <Fragment key={`res-${i}`}>
               <TaskPromptBubble prompt={r.prompt} skill={r.skill} />
               <UserBubble code={r.userAnswer} />
-              <FeedbackBubble result={r.result} feedback={r.feedback} />
-            </Fragment>
-          ))}
-
-          {practiceFeedback.map((p, i) => (
-            <Fragment key={`practice-${i}`}>
-              <UserBubble code={p.answer} />
-              <FeedbackBubble result={p.result} feedback={p.feedback} practice />
+              <FeedbackBubble result={r.result} feedback={r.feedback} practice={!r.scored} />
             </Fragment>
           ))}
 
           {/* Show current task prompt only if there's history (not the initial question echo) */}
           {currentTask && hasHistory && <TaskPromptBubble prompt={currentTask.prompt} skill={currentTask.skill} />}
 
-          {allDone && mode === 'assessment' && <DoneBubble key="done" />}
-          {allDone && mode === 'practice' && <PracticeDoneBubble key="p-done" />}
+          {allDone && <DoneBubble key="done" />}
 
           {loading && (
             <CoachBubble>
@@ -197,8 +179,6 @@ export function ChatView() {
               task={currentTask}
               mode={mode}
               onSubmit={useAssessmentStore.getState().submitAnswer}
-              onPracticeSubmit={useAssessmentStore.getState().practiceSubmit}
-              onSkip={useAssessmentStore.getState().skipTask}
               onEndPractice={useAssessmentStore.getState().endPractice}
               disabled={loading}
             />

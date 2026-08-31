@@ -157,14 +157,17 @@ def test_me_requires_token(client):
     assert client.get("/api/auth/me").status_code == 401
 
 
-def test_guest_cannot_start_assessment(client):
-    res = client.post("/api/start", json={"candidate_name": "anon", "mode": "assessment"})
-    assert res.status_code == 401
-    assert "Log in" in res.json()["detail"]
+def test_guest_gets_practice_mode(client):
+    res = client.post("/api/start", json={"candidate_name": "anon"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["mode"] == "practice"
+    assert data["candidate"].startswith("guest-")
+    assert data["first_task"] is not None
 
 
 def test_guest_can_start_practice(client):
-    res = client.post("/api/start", json={"candidate_name": "anon", "mode": "practice"})
+    res = client.post("/api/start", json={"candidate_name": "anon"})
     assert res.status_code == 200
     data = res.json()
     assert data["mode"] == "practice"
@@ -173,15 +176,15 @@ def test_guest_can_start_practice(client):
 
 
 def test_guest_practice_submit_is_unscored(client, fake_judge):
-    started = client.post("/api/start", json={"candidate_name": "anon", "mode": "practice"})
+    started = client.post("/api/start", json={"candidate_name": "anon"})
     sid = started.json()["session_id"]
     task_id = started.json()["first_task"]["id"]
 
-    res = client.post("/api/practice/submit", json={"session_id": sid, "task_id": task_id, "answer": "def f(): pass"})
+    res = client.post("/api/submit", json={"session_id": sid, "task_id": task_id, "answer": "def f(): pass"})
     assert res.status_code == 200
     data = res.json()
     assert data["feedback"] == "Great job!"
-    assert "nothing was scored or recorded" in data["note"]
+    assert data["skill_update"] is None
 
 
 def test_authenticated_start_uses_account(client, google_env):
@@ -190,7 +193,7 @@ def test_authenticated_start_uses_account(client, google_env):
 
     res = client.post(
         "/api/start",
-        json={"candidate_name": "whatever", "mode": "assessment"},
+        json={"candidate_name": "whatever"},
         headers=_auth_headers(token),
     )
     assert res.status_code == 200
@@ -204,7 +207,7 @@ def test_sessions_are_scoped_to_account(client, google_env):
     token = auth.create_token(user["id"])
     client.post(
         "/api/start",
-        json={"candidate_name": "bob", "mode": "assessment"},
+        json={"candidate_name": "bob"},
         headers=_auth_headers(token),
     )
 
@@ -222,7 +225,7 @@ def test_guest_cannot_open_named_session(client, google_env):
     token = auth.create_token(user["id"])
     started = client.post(
         "/api/start",
-        json={"candidate_name": "carol", "mode": "assessment"},
+        json={"candidate_name": "carol"},
         headers=_auth_headers(token),
     )
     sid = started.json()["session_id"]
@@ -233,7 +236,7 @@ def test_guest_cannot_open_named_session(client, google_env):
 
 
 def test_guest_can_reopen_own_practice_session(client):
-    started = client.post("/api/start", json={"candidate_name": "anon", "mode": "practice"})
+    started = client.post("/api/start", json={"candidate_name": "anon"})
     sid = started.json()["session_id"]
 
     reopen = client.post("/api/session/open", json={"id": sid, "status": "active"})

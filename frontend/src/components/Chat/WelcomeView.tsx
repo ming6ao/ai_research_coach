@@ -10,7 +10,6 @@ export function WelcomeView() {
   const [sessions, setSessions] = useState<UnifiedSession[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [showSessions, setShowSessions] = useState(false);
-  const [randomValue, setRandomValue] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,28 +32,20 @@ export function WelcomeView() {
   const handleSend = (text: string) => {
     if (loading) return;
     if (user) {
-      startAssessment(user.email, 'assessment', text);
+      startAssessment(user.email, text);
     } else {
-      startAssessment('guest', 'practice', text);
+      startAssessment('guest', text);
     }
   };
 
   const handleStartPractice = () => {
     if (loading) return;
-    startAssessment('guest', 'practice');
+    startAssessment('guest');
   };
 
   const handleRandomQuestion = async () => {
     if (loading) return;
-    try {
-      const { tasks } = await apiClient.fetchTasks();
-      if (tasks.length === 0) return;
-      const task = tasks[Math.floor(Math.random() * tasks.length)];
-      setRandomValue(task.prompt);
-      handleSend(task.prompt);
-    } catch {
-      // Ignore fetch errors.
-    }
+    startAssessment('guest');
   };
 
   const name = user?.display_name || (user ? user.email.split('@')[0] : '');
@@ -92,7 +83,7 @@ export function WelcomeView() {
         </p>
 
         <div className="w-full">
-          <Composer placeholder="Ask anything about AI, ML, or coding…" onSubmit={handleSend} disabled={loading} initialValue={randomValue} />
+          <Composer placeholder="Ask anything about AI, ML, or coding…" onSubmit={handleSend} disabled={loading} />
         </div>
 
         <div className="mt-3 flex items-center gap-3">

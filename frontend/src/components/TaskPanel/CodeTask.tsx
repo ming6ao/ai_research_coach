@@ -9,14 +9,12 @@ import { Composer } from '../Composer/Composer';
 interface Props {
   task: Task;
   onSubmit: (taskId: string, answer: string, hintsUsed: string[]) => void;
-  onPracticeSubmit?: (taskId: string, answer: string, hintsUsed: string[]) => void;
-  onSkip?: () => void;
   onEndPractice?: () => void;
   mode: 'assessment' | 'practice';
   disabled: boolean;
 }
 
-export function CodeTask({ task, onSubmit, onPracticeSubmit, onSkip, onEndPractice, mode, disabled }: Props) {
+export function CodeTask({ task, onSubmit, onEndPractice, mode, disabled }: Props) {
   const [code, setCode] = useState(task.scaffold ?? '');
   const [viewed, setViewed] = useState<Set<string>>(
     () => new Set((task.hints ?? []).filter((h) => h.pre_revealed).map((h) => h.id))
@@ -39,12 +37,6 @@ export function CodeTask({ task, onSubmit, onPracticeSubmit, onSkip, onEndPracti
 
   const handleSubmit = (note: string) => {
     onSubmit(task.id, buildAnswer(note), Array.from(viewed));
-  };
-
-  const handlePracticeSubmit = (note: string) => {
-    if (onPracticeSubmit) {
-      onPracticeSubmit(task.id, buildAnswer(note), Array.from(viewed));
-    }
   };
 
   return (
@@ -132,26 +124,15 @@ export function CodeTask({ task, onSubmit, onPracticeSubmit, onSkip, onEndPracti
             <p className="text-[11px] text-[var(--color-text-muted)]">
               Anonymous — nothing is scored or saved.
             </p>
-            <div className="flex gap-1">
-              {onEndPractice && (
-                <button
-                  onClick={onEndPractice}
-                  disabled={disabled}
-                  className="rounded-lg px-2.5 py-1 text-[11px] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)] disabled:opacity-40"
-                >
-                  End practice
-                </button>
-              )}
-              {onSkip && (
-                <button
-                  onClick={onSkip}
-                  disabled={disabled}
-                  className="rounded-lg px-2.5 py-1 text-[11px] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)] disabled:opacity-40"
-                >
-                  Skip →
-                </button>
-              )}
-            </div>
+            {onEndPractice && (
+              <button
+                onClick={onEndPractice}
+                disabled={disabled}
+                className="rounded-lg px-2.5 py-1 text-[11px] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)] disabled:opacity-40"
+              >
+                End practice
+              </button>
+            )}
           </div>
         )}
 
@@ -161,7 +142,7 @@ export function CodeTask({ task, onSubmit, onPracticeSubmit, onSkip, onEndPracti
               ? 'Check my answer…'
               : 'Add a note (optional) and submit…'
           }
-          onSubmit={mode === 'practice' ? handlePracticeSubmit : handleSubmit}
+          onSubmit={handleSubmit}
           disabled={disabled || !code.trim()}
         />
       </div>
