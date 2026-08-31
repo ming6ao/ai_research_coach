@@ -70,11 +70,12 @@ def submit_answer(task_id: str, answer: str, hints_used: list = None, tool_conte
         nxt = next_task(session)
         return {
             "result": existing.to_dict(),
+            "coach": existing.coach,
             "next_task": _task_view(nxt, session) if nxt else None,
             "remaining": len(session.tasks) - session.index,
             "note": "Answer was already recorded; returning the stored result.",
         }
-    result, feedback = LLMJudge().evaluate(task, answer)
+    result, coach = LLMJudge().evaluate(task, answer)
 
     # Merge hints requested through the tool with any passed explicitly.
     requested = session.viewed_hints.get(task_id, [])
@@ -108,7 +109,8 @@ def submit_answer(task_id: str, answer: str, hints_used: list = None, tool_conte
     nxt = next_task(session)
     return {
         "result": result.to_dict(),
-        "feedback": feedback,
+        "feedback": coach.feedback,
+        "coach": coach.to_dict(),
         "next_task": _task_view(nxt, session) if nxt else None,
         "remaining": len(session.tasks) - session.index,
         "skill_update": {
@@ -204,8 +206,12 @@ root_agent = Agent(
         "starts, and offer the others as requestable. If the candidate asks for help, call request_hint and show the returned hint. "
         "Collect the candidate's code solution and call submit_answer with the task id, their answer, and the list of hint ids the "
         "candidate viewed (the pre-revealed ids plus any requested via request_hint). "
-        "IMPORTANT: After each answer, present the feedback from the response to help the user learn. "
-        "The feedback explains why the answer was correct/incorrect and provides educational context. "
+        "IMPORTANT — Teaching pause: After each submit, DO NOT move on to the next task. "
+        "Instead, present the response's 'coach' content in full: explain the candidate's misconception (the specific skill/knowledge gap), "
+        "then walk them through the 'steps' one by one with the explanations and code examples so they arrive at the correct solution "
+        "step by step. This teaching is the most important part of your job. "
+        "Do not reveal or present the next task until the candidate explicitly indicates they are ready to continue; "
+        "when they are, present the next task from the 'next_task' field of the response. "
         "When all tasks are done (next_task is null), call get_report and summarize the verdict and skill gaps for the candidate. "
         "Never evaluate answers yourself; always rely on the tools' results."
     ),

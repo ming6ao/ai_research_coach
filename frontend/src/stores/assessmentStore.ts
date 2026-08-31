@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { apiClient } from '../api/client';
-import type { Task, EvaluationResult, Report, FeedbackEntry, ResumeResponse } from '../api/client';
+import type { Task, EvaluationResult, Report, FeedbackEntry, ResumeResponse, CoachContent } from '../api/client';
 
 export interface LogEntry {
   id: number;
@@ -16,6 +16,7 @@ export interface ResultWithFeedback {
   userAnswer: string;
   result: EvaluationResult;
   feedback: string;
+  coach?: CoachContent;
   scored: boolean;
 }
 
@@ -24,6 +25,7 @@ interface AssessmentState {
   candidate: string;
   mode: 'assessment' | 'practice';
   currentTask: Task | null;
+  pendingTask: Task | null;
   taskIndex: number;
   totalTasks: number;
   results: ResultWithFeedback[];
@@ -38,6 +40,7 @@ interface AssessmentState {
   startAssessment: (name: string, initialQuestion?: string) => Promise<void>;
   resumeSession: (response: ResumeResponse) => void;
   submitAnswer: (taskId: string, answer: string, hintsUsed?: string[]) => Promise<void>;
+  advanceTask: () => void;
   endPractice: () => void;
   loadReport: () => Promise<void>;
   addLog: (message: string) => void;
@@ -54,6 +57,7 @@ function toResultWithFeedback(entry: FeedbackEntry): ResultWithFeedback {
     userAnswer: entry.user_answer,
     result: entry.result,
     feedback: entry.feedback,
+    coach: entry.coach,
     scored: (entry as FeedbackEntry & { scored?: boolean }).scored ?? true,
   };
 }
@@ -73,6 +77,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
   candidate: '',
   mode: 'assessment',
   currentTask: null,
+  pendingTask: null,
   taskIndex: 0,
   totalTasks: 0,
   results: [],
@@ -101,6 +106,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       candidate: mode === 'practice' ? 'Guest' : res.candidate,
       mode,
       currentTask: res.current_task,
+      pendingTask: null,
       taskIndex: res.task_index,
       totalTasks: res.total_tasks,
       results,
@@ -124,6 +130,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         candidate: mode === 'practice' ? 'Guest' : res.candidate || name,
         mode,
         currentTask: res.first_task,
+        pendingTask: null,
         taskIndex: 0,
         totalTasks: res.total_tasks,
         results: [],
@@ -159,6 +166,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         userAnswer: answer,
         result: res.result,
         feedback: res.feedback,
+        coach: res.coach,
         scored: res.skill_update !== undefined,
       };
 
@@ -173,7 +181,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
 
       set({
         results: [...results, rf],
-        currentTask: res.next_task,
+        pendingTask: res.next_task,
         taskIndex: get().taskIndex + 1,
         skillStates: newSkillStates,
         submitted: false,
@@ -181,7 +189,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       if (res.skill_update) {
         const score = res.result.score;
         const max = res.result.max_score;
-        get().addLog(`Score: ${score}/${max} — ${res.remaining} tasks remaining`);
+        get().addLog(`Score: ${score}/${max} — review the teaching below, then continue`);
       } else {
         get().addLog(`Feedback received — nothing was scored.`);
       }
@@ -192,6 +200,11 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
     } finally {
       set({ loading: false });
     }
+  },
+
+  advanceTask: () => {
+    const { pendingTask } = get();
+    set({ currentTask: pendingTask, pendingTask: null });
   },
 
   endPractice: () => {
@@ -205,6 +218,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       candidate: '',
       mode: 'assessment',
       currentTask: null,
+      pendingTask: null,
       taskIndex: 0,
       totalTasks: 0,
       results: [],

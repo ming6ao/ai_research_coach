@@ -49,12 +49,20 @@ def fake_google(monkeypatch):
 @pytest.fixture
 def fake_judge(monkeypatch):
     from evaluators import judge as judge_mod
+    from evaluators.base import CoachContent, CoachStep
 
     class FakeJudge:
         def evaluate(self, task, answer):
             max_score = task.get("max_score", 5)
-            result = EvaluationResult(task["id"], task["skill"], max_score, max_score, "Perfect.")
-            return result, "Great job!"
+            coach = CoachContent(
+                feedback="Great job!",
+                misconception="No misconception.",
+                steps=[CoachStep("Done", "The solution is correct.", None)],
+            )
+            result = EvaluationResult(
+                task["id"], task["skill"], max_score, max_score, "Perfect.", coach.to_dict()
+            )
+            return result, coach
 
     monkeypatch.setattr(judge_mod, "LLMJudge", FakeJudge)
 

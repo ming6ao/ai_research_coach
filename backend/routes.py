@@ -265,12 +265,13 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
         nxt = next_task(session)
         return {
             "result": existing.to_dict(),
+            "coach": existing.coach,
             "next_task": _task_view(nxt, session) if nxt else None,
             "remaining": len(session.tasks) - session.index,
             "note": "Already answered.",
         }
 
-    result, feedback = LLMJudge().evaluate(task, req.answer)
+    result, coach = LLMJudge().evaluate(task, req.answer)
 
     skill_update = None
 
@@ -303,7 +304,8 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
             "skill": task["skill"],
             "user_answer": req.answer,
             "result": result.to_dict(),
-            "feedback": feedback,
+            "feedback": coach.feedback,
+            "coach": coach.to_dict(),
             "hints_used": viewed,
             "scored": True,
         }
@@ -323,7 +325,8 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
             "skill": task["skill"],
             "user_answer": req.answer,
             "result": result.to_dict(),
-            "feedback": feedback,
+            "feedback": coach.feedback,
+            "coach": coach.to_dict(),
             "hints_used": [],
             "scored": False,
         }
@@ -339,7 +342,8 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
 
     return {
         "result": result.to_dict(),
-        "feedback": feedback,
+        "feedback": coach.feedback,
+        "coach": coach.to_dict(),
         "next_task": _task_view(nxt, session) if nxt else None,
         "remaining": len(session.tasks) - session.index,
         "skill_update": skill_update,

@@ -23,6 +23,19 @@ export interface EvaluationResult {
   score: number;
   max_score: number;
   rationale: string;
+  coach?: CoachContent;
+}
+
+export interface CoachStep {
+  title: string;
+  explanation: string;
+  code?: string | null;
+}
+
+export interface CoachContent {
+  feedback: string;
+  misconception: string;
+  steps: CoachStep[];
 }
 
 export interface SkillUpdate {
@@ -43,6 +56,7 @@ export interface StartResponse {
 export interface SubmitResponse {
   result: EvaluationResult;
   feedback: string;
+  coach?: CoachContent;
   next_task: Task | null;
   remaining: number;
   skill_update?: SkillUpdate;
@@ -67,6 +81,7 @@ export interface FeedbackEntry {
   user_answer: string;
   result: EvaluationResult;
   feedback: string;
+  coach?: CoachContent;
   hints_used?: string[];
 }
 

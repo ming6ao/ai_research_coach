@@ -4,7 +4,7 @@ Verifies that viewing hints reduces the effective mastery for a task even when
 the submitted code is perfect.
 """
 
-from evaluators.base import EvaluationResult
+from evaluators.base import EvaluationResult, CoachContent, CoachStep
 import app.agent as agent
 
 
@@ -13,8 +13,15 @@ class FakeJudge:
 
     def evaluate(self, task, answer):
         max_score = task.get("max_score", 5)
-        result = EvaluationResult(task["id"], task["skill"], max_score, max_score, "Perfect.")
-        return result, "Great job!"
+        coach = CoachContent(
+            feedback="Great job!",
+            misconception="You had no misconception; the solution is sound.",
+            steps=[CoachStep("Confirm the approach", "The implementation is correct.", None)],
+        )
+        result = EvaluationResult(
+            task["id"], task["skill"], max_score, max_score, "Perfect.", coach.to_dict()
+        )
+        return result, coach
 
 
 class FakeToolContext:
@@ -81,3 +88,23 @@ def test_submit_idempotent(monkeypatch):
     second = agent.submit_answer(task["id"], "code", tool_context=ctx)
     assert second["note"] == "Answer was already recorded; returning the stored result."
     assert second["result"]["task_id"] == first["result"]["task_id"]
+
+
+def test_submit_returns_coaching_and_next_task(monkeypatch):
+    ctx, started = start_session(monkeypatch)
+    task = started["first_task"]
+    resp = agent.submit_answer(task["id"], "def f(): pass", tool_context=ctx)
+    assert "error" not in resp
+    assert resp["coach"]["misconception"], "coach should identify a gap/misconception"
+    assert resp["coach"]["steps"], "coach should provide step-by-step guidance"
+    assert resp["coach"]["steps"][0]["title"]
+    assert "next_task" in resp, "the picked task is still returned (gated by the UI)"
+    assert resp["feedback"] == "Great job!"
+
+
+def test_stored_coach_returned_on_resubmit(monkeypatch):
+    ctx, started = start_session(monkeypatch)
+    task = started["first_task"]
+    first = agent.submit_answer(task["id"], "code", tool_context=ctx)
+    second = agent.submit_answer(task["id"], "code", tool_context=ctx)
+    assert second["coach"] == first["coach"]

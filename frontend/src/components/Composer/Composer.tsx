@@ -5,9 +5,10 @@ interface Props {
   onSubmit: (text: string) => void;
   disabled?: boolean;
   initialValue?: string;
+  allowEmpty?: boolean;
 }
 
-export function Composer({ placeholder = 'Ask anything about AI, ML, or coding…', onSubmit, disabled, initialValue }: Props) {
+export function Composer({ placeholder = 'Ask anything about AI, ML, or coding…', onSubmit, disabled, initialValue, allowEmpty }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -25,14 +26,14 @@ export function Composer({ placeholder = 'Ask anything about AI, ML, or coding�
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      const val = ref.current?.value.trim();
-      if (val) onSubmit(val);
+      const val = ref.current?.value.trim() ?? '';
+      if (val || allowEmpty) onSubmit(val);
     }
   };
 
   const handleSend = () => {
-    const val = ref.current?.value.trim();
-    if (val) {
+    const val = ref.current?.value.trim() ?? '';
+    if (val || allowEmpty) {
       onSubmit(val);
       if (ref.current) ref.current.value = '';
     }

@@ -22,15 +22,16 @@ ai_research_coach/
 │   ├── report.py         # skills profile + readiness verdict
 │   └── storage.py        # SQLite persistence of finished assessments
 └── evaluators/
-    ├── base.py           # EvaluationResult
-    └── judge.py          # LLM judge (score + rationale + feedback)
+    ├── base.py           # EvaluationResult + CoachContent (misconception + steps)
+    └── judge.py          # LLM judge (score + rationale + coaching response)
 ```
 
 ### Evaluation flow
 
 1. **Intake** — `start_assessment` loads the unified skill tree and the full task bank. Every candidate is evaluated the same way.
-2. **Task loop** — the adaptive picker selects one coding task at a time to maximize expected information gain per unit time. The candidate writes code in an editor and may view hints (which reduce effective mastery). The LLM judge returns a score, rationale, and feedback.
-3. **Report** — `get_report` aggregates per-skill scores into an overall score, a verdict (`Ready` / `Conditionally ready` / `Not ready`), a list of skill gaps (< 0.6 fraction), and persists the assessment to SQLite.
+2. **Task loop** — the adaptive picker selects one coding task at a time to maximize expected information gain per unit time. The candidate writes code in an editor and may view hints (which reduce effective mastery). The LLM judge returns a score, rationale, and a **coaching response**.
+3. **Teaching pause** — after a submit the system does **not** auto-advance to the next task. The judge's coaching response is shown instead: it identifies the candidate's specific misconception/gap ("where the gap is") and walks them **step by step** through the correct solution with explanations and code examples. The candidate reviews it and clicks **Next question** to continue.
+4. **Report** — `get_report` aggregates per-skill scores into an overall score, a verdict (`Ready` / `Conditionally ready` / `Not ready`), a list of skill gaps (< 0.6 fraction), and persists the assessment to SQLite.
 
 ## Project structure & setup
 
@@ -92,6 +93,11 @@ Google sign-in creates the account automatically; accounts unlock **scored
 assessments**: answers are judged, feedback and a skills report are produced, and
 history is saved to the account and resumable across devices. Anonymous practice is
 enforced server-side (scored `mode=assessment` starts require an authenticated user).
+
+After every submit — practice or assessed — the app pauses instead of jumping to the
+next question. The judge's **coaching response** explains the misconception/gap and
+walks the user step-by-step (with code examples) toward the correct solution; a
+**Next question** button advances when the user is ready.
 
 To enable Google login, create an OAuth 2.0 client in the
 [Google Cloud Console](https://console.cloud.google.com/apis/credentials) (authorized

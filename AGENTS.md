@@ -41,8 +41,9 @@ adk web --port 8000
 - **Adaptive picker**: `core/picker.py` selects the next question to maximize expected information gain (Bayesian posterior variance reduction) per unit of expected time, weighted by skill importance and coverage
 - **Bayesian scoring**: `core/score.py` keeps a Gaussian belief `N(mean, variance)` per skill; the judge's raw score is discounted by viewed hints before the conjugate update
 - **Hints**: `core/hints.py` — tasks declare ordered hints; weak candidates get them pre-revealed, others request them on demand; viewed hints reduce effective mastery
-- **Code eval**: `evaluators/judge.py` evaluates candidate code via a single structured LLM call (score + rationale + feedback)
-- **Feedback**: Integrated into the judge call — no separate feedback step
+- **Code eval**: `evaluators/judge.py` evaluates candidate code via a single structured LLM call (score + rationale + coaching response)
+- **Coaching**: The judge's coaching response (in `evaluators/base.py` as `CoachContent`) identifies the candidate's misconception/gap and walks them step-by-step to the correct solution with code examples — no separate feedback step
+- **Teaching pause**: After a submit the UI/agent does **not** auto-advance. The coaching response is shown and the candidate advances manually (`Next question`); the picked task is held in `pendingTask` on the frontend until then
 - **Persistence**: SQLite at `data/coach.db` (gitignored)
 - **Models**: `EVAL_CONV_MODEL` (agent) and `EVAL_MODEL` (judge/feedback) default to `gemini-3.5-flash-lite`
 
@@ -57,8 +58,8 @@ adk web --port 8000
 
 | Mode | Required | Scoring |
 |------|----------|---------|
-| `code` (function) | `prompt` | LLM judge returns score (0..max_score) + rationale + feedback |
-| `code` (scaffold) | `scaffold`, `prompt` | LLM judge returns score (0..max_score) + rationale + feedback |
+| `code` (function) | `prompt` | LLM judge returns score (0..max_score) + rationale + coaching (misconception + steps) |
+| `code` (scaffold) | `scaffold`, `prompt` | LLM judge returns score (0..max_score) + rationale + coaching (misconception + steps) |
 
 Optional per task: `hints` (ordered list with `id`, `text`, `weight` 0..1, and `reveal_threshold` ability below which the engine pre-reveals it) and `expected_time_min` (overrides the difficulty-based time prior).
 
@@ -67,6 +68,7 @@ Optional per task: `hints` (ordered list with `id`, `text`, `weight` 0..1, and `
 - Skill ability is a Gaussian belief (`N(mean, variance)`). The mean is the reported skill score; `1 - σ/σ_max` is the reported confidence.
 - Effective score = `raw_fraction − Σ weight(viewed hints)`, clamped to [0, 1] — solving correctly with many hints yields lower mastery.
 - `next_task` maximizes `EIG · importance · coverage / expected_time`, so it drills into informative, important, uncovered skills with cheap questions. It stops at max questions, the assessment time budget (`max_time_min`), or once all important skills are pinned (`variance < 0.01`) after the minimum question count.
+- After a submit, the picked task is returned as `next_task` but held back by the UI (in `pendingTask`) until the candidate reviews the coaching and clicks **Next question** — the system never auto-advances. A `next_task: null` after the last question means the candidate is done; the frontend then shows the report button.
 
 ## Environment Variables
 
@@ -82,17 +84,18 @@ EVAL_RETRY_MAX_DELAY=30.0       # Max backoff (seconds)
 ## Retry / Resilience
 
 - All model calls use exponential backoff (5 attempts, 1s→30s, jitter) on 408/429/5xx
-- Tools are idempotent: `submit_answer` returns stored result if already scored; `start_assessment` resumes in-progress session
+- Tools are idempotent: `submit_answer` returns stored result (+ stored coaching) if already scored; `start_assessment` resumes in-progress session
 
 ## Frontend Notes
 
 - React 19 + TypeScript + Vite + Tailwind v4
-- Chat-style UI: `ChatView`/`WelcomeView` in `frontend/src/components/Chat/` render the assessment as coach/user bubbles; the active task embeds Monaco via `CodeTask`
+- Chat-style UI: `ChatView`/`WelcomeView` in `frontend/src/components/Chat/` render the assessment as coach/user bubbles; the active task embeds Monaco via `CodeEditor`; submitted results render the judge's coaching (`CoachingBubble`: misconception + numbered steps with code examples)
 - Guest mode = no account → practice (unscored; `/api/practice/submit` returns judge feedback without recording). Logged-in users (bearer token in `localStorage`) get scored assessments + per-account history
 - Auth backend: `backend/auth.py` (bearer tokens, `get_current_user` FastAPI dependency) + `backend/google_auth.py` (Google OAuth authorization-code flow, stdlib only). Login is Google-only — `/auth/google/url` + `/auth/google/callback` exchange a code for a local user (keyed by email) and redirect to `FRONTEND_URL/?token=...`. Requires `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` in `.env`. Enforcement lives in `backend/routes.py` (`/start` returns 401 for anonymous `assessment` mode)
 - Linting: `oxlint` (config in `frontend/.oxlintrc.json`)
 - Typecheck: `tsc -b` (project references: `tsconfig.app.json`, `tsconfig.node.json`)
-- Tests: Node's built-in `node:test` runner via type stripping (`npm test` in `frontend/`), zero extra deps
+- Tests: Node's built-in `node:test` runner via type stripping (`npm test` in `frontend/`), zero extra deps; `tests/resolver.mjs` is a tiny loader that resolves the app's extensionless imports
+- Service worker: `frontend/public/sw.js` caches assets cache-first for offline PWA; bump `CACHE_VERSION` when shipping a new prod build or browsers keep serving the stale bundle
 - State: Zustand store (`frontend/src/stores/assessmentStore.ts`)
 
 ## Dependencies

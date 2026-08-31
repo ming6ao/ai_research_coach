@@ -1,10 +1,18 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
-import { useAssessmentStore } from '../../stores/assessmentStore';
-import { useAuthStore } from '../../stores/authStore';
-import { CodeTask } from '../TaskPanel/CodeTask';
+import { useAssessmentStore, type ResultWithFeedback } from '../../stores/assessmentStore';
+import { CodeEditor } from '../TaskPanel/CodeEditor';
+import { HintSection } from '../TaskPanel/HintSection';
 import { Markdown } from '../Markdown/Markdown';
 import { Composer } from '../Composer/Composer';
+import { CodeBlock } from '../CodeBlock/CodeBlock';
 
+const NOTE_SEPARATOR = '\n\n---\n';
+
+function splitNote(answer: string): { code: string; note: string } {
+  const idx = answer.indexOf(NOTE_SEPARATOR);
+  if (idx === -1) return { code: answer, note: '' };
+  return { code: answer.slice(0, idx), note: answer.slice(idx + NOTE_SEPARATOR.length).trim() };
+}
 
 function CoachBubble({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
   return (
@@ -14,19 +22,6 @@ function CoachBubble({ children, wide }: { children: React.ReactNode; wide?: boo
       </div>
       <div className={`min-w-0 flex-1 ${wide ? '' : 'max-w-[85%]'} text-sm leading-6 text-[var(--color-text-primary)]`}>
         {children}
-      </div>
-    </div>
-  );
-}
-
-function UserBubble({ code }: { code: string }) {
-  return (
-    <div className="flex justify-end">
-      <div className="max-w-[85%]">
-        <div className="mb-1 text-right text-[11px] text-[var(--color-text-muted)]">You</div>
-        <pre className="overflow-x-auto rounded-2xl rounded-tr-sm bg-[var(--color-bg-elevated)] px-4 py-3 text-[13px] leading-5 text-[var(--color-text-primary)]">
-          <code>{code}</code>
-        </pre>
       </div>
     </div>
   );
@@ -45,22 +40,52 @@ function UserTextBubble({ text }: { text: string }) {
   );
 }
 
-function FeedbackBubble({
-  result,
-  feedback,
-  practice,
-}: {
-  result: { score: number; max_score: number; skill: string };
-  feedback: string;
-  practice?: boolean;
-}) {
+function UserCodeBubble({ answer }: { answer: string }) {
+  const { code, note } = splitNote(answer);
   return (
-    <CoachBubble>
-      <div className="space-y-1">
+    <div className="space-y-2">
+      <CodeEditor code={code} readOnly />
+      {note && <UserTextBubble text={note} />}
+    </div>
+  );
+}
+
+function CoachingBubble({ r }: { r: ResultWithFeedback }) {
+  const coach = r.coach;
+  return (
+    <CoachBubble wide>
+      <div className="space-y-3">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-          {practice ? 'Feedback · not scored' : `${result.score}/${result.max_score} · ${result.skill}`}
+          {r.scored ? `${r.result.score}/${r.result.max_score} · ${r.result.skill}` : 'Feedback · not scored'}
         </p>
-        <Markdown text={feedback} />
+        {coach && (coach.misconception || coach.steps.length > 0) ? (
+          <>
+            {coach.feedback && <Markdown text={coach.feedback} />}
+            {coach.misconception && (
+              <div className="rounded-lg border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/5 p-3">
+                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-warning)]">
+                  Where the gap is
+                </p>
+                <Markdown text={coach.misconception} />
+              </div>
+            )}
+            {coach.steps.length > 0 && (
+              <ol className="space-y-3">
+                {coach.steps.map((step, i) => (
+                  <li key={i} className="space-y-1.5">
+                    <p className="text-sm font-semibold text-[var(--color-text-primary)]">
+                      {i + 1}. {step.title}
+                    </p>
+                    {step.explanation && <Markdown text={step.explanation} />}
+                    {step.code && <CodeBlock code={step.code} />}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </>
+        ) : (
+          <Markdown text={r.feedback} />
+        )}
       </div>
     </CoachBubble>
   );
@@ -104,39 +129,40 @@ function DoneBubble() {
   );
 }
 
-function WelcomeBubble() {
-  const { mode } = useAssessmentStore();
-  const { user } = useAuthStore();
-  const isPractice = mode === 'practice';
-  const name = user?.display_name || (user ? user.email.split('@')[0] : '');
-
+function NextTaskButton() {
+  const { advanceTask } = useAssessmentStore();
   return (
     <CoachBubble>
-      <p className="text-sm font-semibold text-[var(--color-text-primary)]">
-        {isPractice ? 'Welcome, guest!' : `Welcome${name ? `, ${name}` : ''}!`}
-      </p>
-      <p className="mt-1 text-[13px] text-[var(--color-text-secondary)]">
-        {isPractice
-          ? "You're in practice mode — nothing is scored or saved. Answer questions and get feedback."
-          : "I'll ask coding questions one at a time and score your answers. Let's begin."}
-      </p>
+      <div className="space-y-2">
+        <p className="text-sm text-[var(--color-text-primary)]">
+          Review the coaching above, then continue when you're ready.
+        </p>
+        <button
+          onClick={advanceTask}
+          className="rounded-lg bg-[var(--color-accent)] px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)]"
+        >
+          Next question
+        </button>
+      </div>
     </CoachBubble>
   );
 }
 
 export function ChatView() {
-  const { results, currentTask, mode, totalTasks, taskIndex, loading, initialQuestion } =
+  const { results, currentTask, mode, loading, initialQuestion, pendingTask } =
     useAssessmentStore();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const [code, setCode] = useState('');
   const [viewed, setViewed] = useState<Set<string>>(new Set());
+  const [submittedTaskId, setSubmittedTaskId] = useState<string | null>(null);
   const lastTaskId = useRef<string | null>(null);
 
   if (lastTaskId.current !== currentTask?.id) {
     lastTaskId.current = currentTask?.id ?? null;
     setCode(currentTask?.scaffold ?? '');
     setViewed(new Set((currentTask?.hints ?? []).filter((h) => h.pre_revealed).map((h) => h.id)));
+    setSubmittedTaskId(null);
   }
 
   const revealHint = (id: string) => {
@@ -149,49 +175,58 @@ export function ChatView() {
 
   const handleSubmit = (note: string) => {
     if (!currentTask) return;
-    const answer = note ? `${code}\n\n---\n${note}` : code;
+    setSubmittedTaskId(currentTask.id);
+    const answer = note ? `${code}${NOTE_SEPARATOR}${note}` : code;
     useAssessmentStore.getState().submitAnswer(currentTask.id, answer, Array.from(viewed));
   };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [results.length, currentTask?.id, loading]);
+  }, [results.length, currentTask?.id, pendingTask, loading]);
 
-  const allDone = totalTasks > 0 && taskIndex >= totalTasks && !currentTask;
   const hasHistory = results.length > 0;
+  const waiting = submittedTaskId === currentTask?.id;
+  const showAdvance = waiting && !loading;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-      {/* Left pane: conversation */}
-      <div className="min-h-0 flex-1 overflow-y-auto border-r border-[var(--color-border-default)]">
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Single scrollable page: question → hints → editor → composer in one flow */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-2xl space-y-5 px-4 py-6">
-          {/* Show user's typed question as first message, or welcome bubble */}
-          {initialQuestion && !hasHistory ? (
-            <UserTextBubble text={initialQuestion} />
-          ) : (
-            !hasHistory && <WelcomeBubble />
-          )}
+          {initialQuestion && !hasHistory && <UserTextBubble text={initialQuestion} />}
 
           {results.map((r, i) => (
             <Fragment key={`res-${i}`}>
               <TaskPromptBubble prompt={r.prompt} skill={r.skill} />
-              <UserBubble code={r.userAnswer} />
-              <FeedbackBubble result={r.result} feedback={r.feedback} practice={!r.scored} />
+              <UserCodeBubble answer={r.userAnswer} />
+              <CoachingBubble r={r} />
             </Fragment>
           ))}
 
-          {/* Show current task prompt only if there's history (not the initial question echo) */}
-          {currentTask && hasHistory && <TaskPromptBubble prompt={currentTask.prompt} skill={currentTask.skill} />}
-
-          {allDone && <DoneBubble key="done" />}
-
-          {loading && (
-            <CoachBubble>
-              <p className="text-[11px] text-[var(--color-text-muted)]">Working…</p>
-            </CoachBubble>
+          {!waiting && currentTask && (
+            <TaskPromptBubble prompt={currentTask.prompt} skill={currentTask.skill} />
           )}
 
-          {currentTask && (
+          {!waiting && currentTask && (currentTask.hints?.length ?? 0) > 0 && (
+            <HintSection
+              hints={currentTask.hints ?? []}
+              viewed={viewed}
+              onRevealHint={revealHint}
+              disabled={loading}
+              mode={mode}
+            />
+          )}
+
+          {!waiting && currentTask && (
+            <CodeEditor
+              key={`${currentTask.id}-${submittedTaskId === currentTask.id ? 'locked' : 'editable'}`}
+              code={code}
+              onChange={setCode}
+              readOnly={loading}
+            />
+          )}
+
+          {!waiting && currentTask && (
             <div className="space-y-2">
               {mode === 'practice' && (
                 <div className="flex justify-end">
@@ -205,49 +240,24 @@ export function ChatView() {
                 </div>
               )}
               <Composer
-                placeholder={
-                  mode === 'practice'
-                    ? 'Check my answer…'
-                    : 'Add a note (optional) and submit…'
-                }
+                placeholder="Add a note (optional) and submit…"
                 onSubmit={handleSubmit}
-                disabled={loading || !code.trim()}
+                disabled={loading}
+                allowEmpty
               />
             </div>
           )}
 
+          {showAdvance && (pendingTask ? <NextTaskButton key="next" /> : <DoneBubble key="done" />)}
+
+          {loading && (
+            <CoachBubble>
+              <p className="text-[11px] text-[var(--color-text-muted)]">Working…</p>
+            </CoachBubble>
+          )}
+
           <div ref={bottomRef} />
         </div>
-      </div>
-
-      {/* Right pane: active task */}
-      <div className="flex w-full flex-col border-t border-[var(--color-border-default)] min-h-[420px] lg:w-[42%] lg:min-h-0 lg:border-t-0">
-        {currentTask ? (
-          <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
-            <CodeTask
-              key={currentTask.id}
-              task={currentTask}
-              mode={mode}
-              code={code}
-              onChangeCode={setCode}
-              viewed={viewed}
-              onRevealHint={revealHint}
-              disabled={loading}
-            />
-          </div>
-        ) : allDone ? (
-          <div className="flex min-h-0 flex-1 items-center justify-center px-6">
-            <p className="text-sm text-[var(--color-text-muted)]">
-              {mode === 'assessment' ? 'All questions answered.' : 'All questions browsed.'}
-            </p>
-          </div>
-        ) : (
-          <div className="flex min-h-0 flex-1 items-center justify-center px-6">
-            <p className="text-sm text-[var(--color-text-muted)]">
-              {loading ? 'Loading…' : 'Waiting for next task…'}
-            </p>
-          </div>
-        )}
       </div>
     </div>
   );
