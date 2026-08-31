@@ -1,43 +1,23 @@
-import { useState } from 'react';
 import Editor from '@monaco-editor/react';
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/github.css';
 import type { Task } from '../../api/client';
 import { Markdown } from '../Markdown/Markdown';
-import { Composer } from '../Composer/Composer';
 
 interface Props {
   task: Task;
-  onSubmit: (taskId: string, answer: string, hintsUsed: string[]) => void;
-  onEndPractice?: () => void;
   mode: 'assessment' | 'practice';
   disabled: boolean;
+  code: string;
+  onChangeCode: (code: string) => void;
+  viewed: Set<string>;
+  onRevealHint: (id: string) => void;
 }
 
-export function CodeTask({ task, onSubmit, onEndPractice, mode, disabled }: Props) {
-  const [code, setCode] = useState(task.scaffold ?? '');
-  const [viewed, setViewed] = useState<Set<string>>(
-    () => new Set((task.hints ?? []).filter((h) => h.pre_revealed).map((h) => h.id))
-  );
-
+export function CodeTask({ task, mode, disabled, code, onChangeCode, viewed, onRevealHint }: Props) {
   const hints = task.hints ?? [];
   const hiddenCount = hints.length - viewed.size;
   const nextHint = hints.find((h) => !viewed.has(h.id));
-
-  const revealHint = (id: string) => {
-    setViewed((prev) => {
-      const next = new Set(prev);
-      next.add(id);
-      return next;
-    });
-  };
-
-  const buildAnswer = (note: string) =>
-    note ? `${code}\n\n---\n${note}` : code;
-
-  const handleSubmit = (note: string) => {
-    onSubmit(task.id, buildAnswer(note), Array.from(viewed));
-  };
 
   return (
     <div className="flex h-full flex-col">
@@ -76,7 +56,7 @@ export function CodeTask({ task, onSubmit, onEndPractice, mode, disabled }: Prop
             )}
             {nextHint && (
               <button
-                onClick={() => revealHint(nextHint.id)}
+                onClick={() => onRevealHint(nextHint.id)}
                 disabled={disabled}
                 className="rounded-lg border border-dashed border-[var(--color-border-default)] px-3 py-2 text-sm text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-accent)]/50 hover:text-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -99,7 +79,7 @@ export function CodeTask({ task, onSubmit, onEndPractice, mode, disabled }: Prop
           defaultLanguage="python"
           theme="light"
           value={code}
-          onChange={(v) => setCode(v ?? '')}
+          onChange={(v) => onChangeCode(v ?? '')}
           onMount={() => undefined}
           options={{
             fontSize: 13,
@@ -114,36 +94,6 @@ export function CodeTask({ task, onSubmit, onEndPractice, mode, disabled }: Prop
             tabSize: 4,
             readOnly: disabled,
           }}
-        />
-      </div>
-
-      {/* Composer + action buttons pinned to bottom */}
-      <div className="mt-3 flex flex-col gap-2">
-        {mode === 'practice' && (
-          <div className="flex items-center justify-between">
-            <p className="text-[11px] text-[var(--color-text-muted)]">
-              Anonymous — nothing is scored or saved.
-            </p>
-            {onEndPractice && (
-              <button
-                onClick={onEndPractice}
-                disabled={disabled}
-                className="rounded-lg px-2.5 py-1 text-[11px] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)] disabled:opacity-40"
-              >
-                End practice
-              </button>
-            )}
-          </div>
-        )}
-
-        <Composer
-          placeholder={
-            mode === 'practice'
-              ? 'Check my answer…'
-              : 'Add a note (optional) and submit…'
-          }
-          onSubmit={handleSubmit}
-          disabled={disabled || !code.trim()}
         />
       </div>
     </div>

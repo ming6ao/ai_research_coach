@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useRef } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useAssessmentStore } from '../../stores/assessmentStore';
 import { useAuthStore } from '../../stores/authStore';
 import { CodeTask } from '../TaskPanel/CodeTask';
 import { Markdown } from '../Markdown/Markdown';
+import { Composer } from '../Composer/Composer';
 
 
 function CoachBubble({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
@@ -128,6 +129,30 @@ export function ChatView() {
     useAssessmentStore();
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  const [code, setCode] = useState('');
+  const [viewed, setViewed] = useState<Set<string>>(new Set());
+  const lastTaskId = useRef<string | null>(null);
+
+  if (lastTaskId.current !== currentTask?.id) {
+    lastTaskId.current = currentTask?.id ?? null;
+    setCode(currentTask?.scaffold ?? '');
+    setViewed(new Set((currentTask?.hints ?? []).filter((h) => h.pre_revealed).map((h) => h.id)));
+  }
+
+  const revealHint = (id: string) => {
+    setViewed((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  };
+
+  const handleSubmit = (note: string) => {
+    if (!currentTask) return;
+    const answer = note ? `${code}\n\n---\n${note}` : code;
+    useAssessmentStore.getState().submitAnswer(currentTask.id, answer, Array.from(viewed));
+  };
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [results.length, currentTask?.id, loading]);
@@ -166,6 +191,31 @@ export function ChatView() {
             </CoachBubble>
           )}
 
+          {currentTask && (
+            <div className="space-y-2">
+              {mode === 'practice' && (
+                <div className="flex justify-end">
+                  <button
+                    onClick={useAssessmentStore.getState().endPractice}
+                    disabled={loading}
+                    className="rounded-lg px-2.5 py-1 text-[11px] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)] disabled:opacity-40"
+                  >
+                    End practice
+                  </button>
+                </div>
+              )}
+              <Composer
+                placeholder={
+                  mode === 'practice'
+                    ? 'Check my answer…'
+                    : 'Add a note (optional) and submit…'
+                }
+                onSubmit={handleSubmit}
+                disabled={loading || !code.trim()}
+              />
+            </div>
+          )}
+
           <div ref={bottomRef} />
         </div>
       </div>
@@ -178,8 +228,10 @@ export function ChatView() {
               key={currentTask.id}
               task={currentTask}
               mode={mode}
-              onSubmit={useAssessmentStore.getState().submitAnswer}
-              onEndPractice={useAssessmentStore.getState().endPractice}
+              code={code}
+              onChangeCode={setCode}
+              viewed={viewed}
+              onRevealHint={revealHint}
               disabled={loading}
             />
           </div>
