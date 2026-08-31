@@ -46,7 +46,7 @@ export function Composer({ placeholder = 'Ask anything about AI, ML, or codingâ€
   };
 
   return (
-    <div className="relative flex w-full items-end rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-4 py-3 transition-colors focus-within:border-[var(--color-border-focus)]">
+    <div className="relative flex w-full items-end rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-4 py-3 transition-colors focus-within:border-[var(--color-border-focus)]">
       <textarea
         ref={ref}
         rows={1}

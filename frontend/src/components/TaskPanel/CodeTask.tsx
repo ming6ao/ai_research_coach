@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Editor from '@monaco-editor/react';
 import 'katex/dist/katex.min.css';
-import 'highlight.js/styles/vs2015.css';
+import 'highlight.js/styles/github.css';
 import type { Task } from '../../api/client';
 import { Markdown } from '../Markdown/Markdown';
 import { Composer } from '../Composer/Composer';
@@ -97,7 +97,7 @@ export function CodeTask({ task, onSubmit, onEndPractice, mode, disabled }: Prop
         <Editor
           height="100%"
           defaultLanguage="python"
-          theme="vs-dark"
+          theme="light"
           value={code}
           onChange={(v) => setCode(v ?? '')}
           onMount={() => undefined}

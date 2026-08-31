@@ -10,7 +10,7 @@ interface Props {
 export function Markdown({ text, className = '' }: Props) {
   return (
     <div
-      className={`prose prose-invert prose-sm max-w-none text-[var(--color-text-secondary)] ${className}`}
+      className={`text-sm leading-6 text-[var(--color-text-secondary)] ${className}`}
     >
       <ReactMarkdown
         components={{

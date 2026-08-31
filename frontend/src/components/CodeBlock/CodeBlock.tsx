@@ -19,7 +19,7 @@ export function CodeBlock({ code, language = 'python' }: CodeBlockProps) {
       <pre
         className="m-0 p-3 text-[14px] leading-[1.5] [tab-size:4]"
         style={{
-          background: '#1e1e1e',
+          background: '#f6f8fa',
           fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
         }}
       >
