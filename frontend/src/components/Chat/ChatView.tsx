@@ -192,7 +192,7 @@ export function ChatView() {
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Single scrollable page: question → hints → editor → composer in one flow */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-2xl space-y-5 px-4 py-6">
+        <div className="mx-auto max-w-2xl space-y-5 px-4 py-6 lg:max-w-4xl xl:max-w-6xl">
           {initialQuestion && !hasHistory && <UserTextBubble text={initialQuestion} />}
 
           {results.map((r, i) => (

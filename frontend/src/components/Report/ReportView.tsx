@@ -23,7 +23,7 @@ export function ReportView() {
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      <div className="mx-auto max-w-2xl space-y-8">
+      <div className="mx-auto max-w-2xl space-y-8 lg:max-w-4xl xl:max-w-6xl">
         <div className="text-center">
           <h2 className="mb-2 text-2xl font-bold text-[var(--color-text-primary)]">
             Assessment Report

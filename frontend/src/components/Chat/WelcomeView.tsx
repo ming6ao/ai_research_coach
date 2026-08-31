@@ -72,7 +72,7 @@ export function WelcomeView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 pb-24">
-      <div className="flex w-full max-w-2xl flex-col items-center">
+      <div className="flex w-full max-w-2xl flex-col items-center lg:max-w-4xl xl:max-w-6xl">
         <h1 className="mb-2 text-2xl font-bold text-[var(--color-text-primary)] md:text-3xl">
           {user ? `Welcome back, ${name}!` : 'What would you like to practice?'}
         </h1>
