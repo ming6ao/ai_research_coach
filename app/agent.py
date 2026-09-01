@@ -43,6 +43,18 @@ def start_assessment(candidate_name: str, tool_context: ToolContext) -> dict:
     session = Session(candidate_name)
     tool_context.state["session"] = session.to_dict()
     task = next_task(session)
+
+    # Bootstrap the learning-partner MVP graph from the first task.
+    try:
+        from core.learner_bridge import LearnerBridge
+
+        bridge = LearnerBridge()
+        bridge.ensure_learner(candidate_name)
+        if task is not None:
+            bridge.bootstrap_task(task)
+    except Exception:
+        pass  # MVP integration must never break the agent.
+
     return {
         "message": f"Assessment started for {session.candidate}.",
         "total_tasks": len(session.tasks),
@@ -107,6 +119,17 @@ def submit_answer(task_id: str, answer: str, hints_used: list = None, tool_conte
     tool_context.state["session"] = session.to_dict()
 
     nxt = next_task(session)
+
+    # Feed the judge result into the learning-partner MVP.
+    try:
+        from core.learner_bridge import LearnerBridge
+
+        learner_update = LearnerBridge().record_submission(
+            session.candidate, task, result, coach, viewed_hints=viewed
+        )
+    except Exception:
+        learner_update = None
+
     return {
         "result": result.to_dict(),
         "feedback": coach.feedback,
@@ -119,6 +142,7 @@ def submit_answer(task_id: str, answer: str, hints_used: list = None, tool_conte
             "new_confidence": session.get_skill_state(skill_id).confidence,
             "hints_used": viewed,
         },
+        "learner_update": learner_update,
     }
 
 

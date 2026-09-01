@@ -28,6 +28,14 @@ export function Header({ onOpenAuth }: Props) {
           </span>
         </div>
         <div className="flex items-center gap-4">
+          <a
+            href="/admin"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
+          >
+            Debug
+          </a>
           <span className="text-sm text-[var(--color-text-secondary)]">
             {(report.overall_score * 100).toFixed(0)}%
           </span>
@@ -58,6 +66,14 @@ export function Header({ onOpenAuth }: Props) {
 
         {user ? (
           <>
+            <a
+              href="/admin"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
+            >
+              Debug
+            </a>
             <span className="hidden text-sm text-[var(--color-text-secondary)] sm:block">
               {user.display_name || user.email.split('@')[0]}
             </span>

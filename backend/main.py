@@ -21,6 +21,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.routes import router
+from backend.admin_routes import admin_router
+from backend.admin_page import admin_page_router
 
 app = FastAPI(title="AI Research Coach API", version="1.0.0")
 
@@ -33,6 +35,8 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(admin_router)
+app.include_router(admin_page_router)
 
 
 @app.get("/health")

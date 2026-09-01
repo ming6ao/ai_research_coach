@@ -178,6 +178,130 @@ async function api<T>(path: string, body?: unknown, method?: string): Promise<T>
   return res.json();
 }
 
+export interface AdminLearner {
+  candidate: string;
+  learner_id: string;
+  created_at: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface AdminGraphNode {
+  id: string;
+  type: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  importance: number;
+  status: string;
+}
+
+export interface AdminGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  edge_type: string;
+  weight: number;
+}
+
+export interface AdminLearnerState {
+  node_id: string;
+  slug: string;
+  node_name: string;
+  node_type: string;
+  mastery: number;
+  uncertainty: number;
+  status: string;
+  evidence_count: number;
+  conceptual: number;
+  procedural: number;
+  implementation: number;
+  transfer: number;
+  fluency: number;
+  self_confidence: number;
+  reasoning: number;
+}
+
+export interface AdminFrontierEntry {
+  node_id: string;
+  slug: string;
+  node_name: string;
+  priority: number;
+  reason: string;
+  status: string;
+}
+
+export interface AdminMisconception {
+  id: string;
+  node_id: string;
+  slug: string;
+  node_name: string;
+  description: string;
+  confidence: number;
+  status: string;
+  first_detected_at: string | null;
+  last_observed_at: string | null;
+}
+
+export interface AdminEvidence {
+  id: string;
+  node_id: string;
+  slug: string;
+  evidence_type: string;
+  observation_status: string;
+  correctness: number | null;
+  assessor_explanation: string | null;
+  created_at: string | null;
+}
+
+export interface AdminStateUpdate {
+  node_id: string;
+  slug: string;
+  previous_mastery: number;
+  new_mastery: number;
+  previous_uncertainty: number;
+  new_uncertainty: number;
+  update_reason: string;
+  created_at: string | null;
+}
+
+export interface AdminLearnerDetail {
+  learner_id: string;
+  candidate: string;
+  states: AdminLearnerState[];
+  frontier: AdminFrontierEntry[];
+  misconceptions: AdminMisconception[];
+  evidence: AdminEvidence[];
+  updates: AdminStateUpdate[];
+  next_action: {
+    action_type: string;
+    target_node_id: string;
+    slug: string;
+    total_score: number;
+    rationale: string;
+  } | null;
+}
+
+export interface AdminSkillStates {
+  source: string;
+  session_id?: string;
+  assessment_id?: string;
+  skill_states: Record<string, {
+    score: number;
+    variance: number;
+    confidence: number;
+    questions_answered: number;
+  }>;
+}
+
+export interface AdminStats {
+  knowledge_nodes: number;
+  knowledge_edges: number;
+  learners: number;
+  knowledge_states: number;
+  evidence_records: number;
+  misconceptions: number;
+}
+
 export const apiClient = {
   start: (candidate_name: string, initial_question?: string) =>
     api<StartResponse>('/start', { candidate_name, initial_question }),
@@ -214,4 +338,23 @@ export const apiClient = {
 
   fetchTasks: () =>
     api<{ tasks: TaskSummary[] }>('/tasks'),
+
+  // Admin endpoints
+  adminLearners: () =>
+    api<{ learners: AdminLearner[] }>('/learners', undefined, 'GET'),
+
+  adminGraph: () =>
+    api<{ nodes: AdminGraphNode[]; edges: AdminGraphEdge[] }>('/graph', undefined, 'GET'),
+
+  adminGraphNode: (nodeId: string) =>
+    api<{ node: AdminGraphNode; outgoing_edges: unknown[]; incoming_edges: unknown[]; related_nodes: unknown[] }>(`/graph/${encodeURIComponent(nodeId)}`, undefined, 'GET'),
+
+  adminLearnerDetail: (candidate: string) =>
+    api<AdminLearnerDetail>(`/learner/${encodeURIComponent(candidate)}`, undefined, 'GET'),
+
+  adminSkillStates: (candidate: string) =>
+    api<AdminSkillStates>(`/skill-states/${encodeURIComponent(candidate)}`, undefined, 'GET'),
+
+  adminStats: () =>
+    api<AdminStats>('/stats', undefined, 'GET'),
 };

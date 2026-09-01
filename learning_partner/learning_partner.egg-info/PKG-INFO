@@ -1,0 +1,8 @@
+Metadata-Version: 2.4
+Name: learning-partner
+Version: 0.1.0
+Summary: AI Learning Partner MVP: knowledge graph, learner model, evidence, frontier, policy.
+Requires-Python: >=3.10
+Requires-Dist: sqlalchemy>=2.0
+Requires-Dist: alembic>=1.13
+Requires-Dist: pydantic>=2.0

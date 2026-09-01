@@ -1,0 +1,33 @@
+{
+  "name": "A_weighted_sampling_strong",
+  "description": "Strong learner: already masters normalization and CDF construction.",
+  "starting_states": {
+    "normalize_weights": {"mastery": 0.9, "uncertainty": 0.08, "evidence_count": 8, "status": "mastered"},
+    "construct_cdf": {"mastery": 0.9, "uncertainty": 0.08, "evidence_count": 8, "status": "mastered"},
+    "map_sample_to_interval": {"mastery": 0.75, "uncertainty": 0.2, "evidence_count": 4, "status": "proficient"},
+    "analyze_sampling_complexity": {"mastery": 0.5, "uncertainty": 0.7, "evidence_count": 1, "status": "uncertain"}
+  },
+  "interactions": [
+    {
+      "message": "My sampler works: I normalize, build the CDF, and map samples.",
+      "evidence": [
+        {"node_slug": "map_sample_to_interval", "evidence_type": "code", "observation_status": "correct",
+         "correctness": 1.0, "confidence": 1.0, "independence": 1.0, "reasoning_quality": 1.0}
+      ]
+    },
+    {
+      "message": "Linear scan is O(n) per sample; a prefix array keeps it simple.",
+      "evidence": [
+        {"node_slug": "analyze_sampling_complexity", "evidence_type": "explanation", "observation_status": "correct",
+         "correctness": 1.0, "confidence": 0.9, "reasoning_quality": 0.8}
+      ]
+    }
+  ],
+  "assertions": [
+    {"kind": "status", "node": "construct_cdf", "expect": "mastered"},
+    {"kind": "status", "node": "map_sample_to_interval", "expect": "mastered"},
+    {"kind": "mastery_above", "node": "map_sample_to_interval", "value": 0.8},
+    {"kind": "frontier_rank_above", "above": ["analyze_sampling_complexity"], "below": ["normalize_weights", "construct_cdf"]},
+    {"kind": "action_not_targets", "nodes": ["normalize_weights", "construct_cdf"]}
+  ]
+}

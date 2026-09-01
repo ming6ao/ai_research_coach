@@ -18,6 +18,11 @@ CREATE TABLE IF NOT EXISTS assessments (
     session_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_assessments_candidate ON assessments (candidate);
+CREATE TABLE IF NOT EXISTS learner_bindings (
+    candidate TEXT PRIMARY KEY,
+    learner_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -140,3 +145,33 @@ def clear_all():
     with _connect() as conn:
         conn.execute("DELETE FROM active_sessions")
         conn.execute("DELETE FROM assessments")
+
+
+def get_learner_binding(candidate: str) -> str | None:
+    """Return the MVP learner id bound to a candidate, or None."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT learner_id FROM learner_bindings WHERE candidate = ?",
+            (candidate,),
+        ).fetchone()
+    return row[0] if row else None
+
+
+def set_learner_binding(candidate: str, learner_id: str) -> None:
+    """Idempotently bind a candidate to an MVP learner id."""
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO learner_bindings (candidate, learner_id, created_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(candidate) DO UPDATE SET learner_id = excluded.learner_id
+            """,
+            (candidate, learner_id, _utcnow()),
+        )
+
+
+def delete_learner_binding(candidate: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "DELETE FROM learner_bindings WHERE candidate = ?", (candidate,)
+        )

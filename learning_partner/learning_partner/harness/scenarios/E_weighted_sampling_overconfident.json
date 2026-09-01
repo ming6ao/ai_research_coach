@@ -1,0 +1,27 @@
+{
+  "name": "E_weighted_sampling_overconfident",
+  "description": "Overconfident learner: reports high self-confidence but performs poorly.",
+  "starting_states": {
+    "normalize_weights": {"mastery": 0.5, "uncertainty": 0.5, "evidence_count": 1, "status": "uncertain"}
+  },
+  "interactions": [
+    {
+      "message": "I'm very confident I understand normalization.",
+      "evidence": [
+        {"node_slug": "normalize_weights", "evidence_type": "self_report", "observation_status": "correct",
+         "correctness": 1.0, "confidence": 0.95}
+      ]
+    },
+    {
+      "message": "Actually I get confused dividing by the total.",
+      "evidence": [
+        {"node_slug": "normalize_weights", "evidence_type": "code", "observation_status": "incorrect",
+         "correctness": 0.0, "confidence": 0.5}
+      ]
+    }
+  ],
+  "assertions": [
+    {"kind": "dimension_above", "node": "normalize_weights", "dimension": "self_confidence", "value": 0.5},
+    {"kind": "mastery_below", "node": "normalize_weights", "value": 0.5}
+  ]
+}

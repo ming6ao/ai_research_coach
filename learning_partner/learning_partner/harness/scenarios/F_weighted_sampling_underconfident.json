@@ -1,0 +1,27 @@
+{
+  "name": "F_weighted_sampling_underconfident",
+  "description": "Underconfident learner: reports low self-confidence despite performing well.",
+  "starting_states": {
+    "normalize_weights": {"mastery": 0.5, "uncertainty": 0.5, "evidence_count": 1, "status": "uncertain"}
+  },
+  "interactions": [
+    {
+      "message": "I'm not confident I can normalize weights.",
+      "evidence": [
+        {"node_slug": "normalize_weights", "evidence_type": "self_report", "observation_status": "correct",
+         "correctness": 1.0, "confidence": 0.1}
+      ]
+    },
+    {
+      "message": "But I did it correctly: divide each weight by the sum.",
+      "evidence": [
+        {"node_slug": "normalize_weights", "evidence_type": "code", "observation_status": "correct",
+         "correctness": 1.0, "confidence": 0.5, "independence": 0.8}
+      ]
+    }
+  ],
+  "assertions": [
+    {"kind": "dimension_below", "node": "normalize_weights", "dimension": "self_confidence", "value": 0.5},
+    {"kind": "mastery_above", "node": "normalize_weights", "value": 0.5}
+  ]
+}

@@ -65,6 +65,62 @@ echo 'GOOGLE_API_KEY="YOUR_API_KEY"' > .env
 > (override with `EVAL_CONV_MODEL`), and the **feedback model** defaults to `gemini-3.5-flash-lite`
 > (override with `EVAL_MODEL`).
 
+### Learning-partner MVP integration
+
+This repo embeds the `learning_partner` MVP (installed as an editable package from
+`./learning_partner`) as a background learner model. The parent app drives it:
+
+- **On task pick** (`/start`, ADK `start_assessment`): the task (or custom
+  interview question) is decomposed into a fine-grained knowledge graph
+  (nodes + edges + a primary target) via an LLM call in `core/task_decomposer.py`.
+  If no `GOOGLE_API_KEY` is set or the LLM call fails, a deterministic
+  fallback creates a skill + problem node, so session startup never breaks.
+- **On answer submit** (`/submit`, ADK `submit_answer`): the judge's result is
+  converted into immutable MVP evidence and runs
+  `evidence → learner-state update → misconception → frontier → next action`
+  via `core/learner_bridge.py`. The parent's Bayesian `SkillState` scoring is
+  untouched; the MVP model runs in parallel with full evidence traceability.
+- **On report** (`/report`): a `learner` block (per-node states, frontier,
+  misconceptions, next action) is attached to the response.
+
+Storage: the MVP keeps its own SQLite DB (`data/learner.db` by default; override
+with `LEARNING_PARTNER_DB_URL`). The parent's `data/coach.db` gains one
+`learner_bindings` table mapping `candidate → learner_id` so repeat sessions
+reuse a single learner model per person. Both databases are gitignored.
+
+The MVP is LLM-free by design — all LLM decomposition happens in the parent app;
+the MVP only stores what it is given.
+
+#### Inspecting a learner from the CLI
+
+The integration is backend-only (no UI surface by design). To see the MVP model
+working, use the CLI inspector:
+
+```bash
+# Run one canned candidate through the full loop and print the snapshot
+# (uses the deterministic fallback decomposer — no API key needed):
+python -m core.learner_bridge --demo
+
+# Print the snapshot for a real candidate (after they've answered tasks):
+python -m core.learner_bridge alice@example.com
+
+# Point at a different MVP DB if you overrode LEARNING_PARTNER_DB_URL:
+python -m core.learner_bridge --db sqlite:///data/learner.db --demo
+```
+
+Output shows per-node `mastery`/`uncertainty`/`status`/`evidence`, the top
+frontier entries, active misconceptions, and the policy's next action.
+
+#### Why is `learning_partner` installed?
+
+It is the same repo, but a *separate Python package* (own `pyproject.toml`,
+own import root `learning_partner.*`, own DB and migrations). The parent app
+imports it like any package (`from learning_partner.container import ...`).
+Because it lives nested at `learning_partner/learning_partner/`, `pip install -e
+./learning_partner` registers it in the venv so `import learning_partner`
+resolves when running from the repo root — this is an import-resolution step,
+not a new dependency.
+
 ## Running the agent
 
 ADK provides both a command-line and a web interface for development.

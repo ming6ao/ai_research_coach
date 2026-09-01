@@ -1,0 +1,25 @@
+{
+  "name": "D_weighted_sampling_misconception",
+  "description": "Learner holds the CDF misconception: 'CDF is just the normalized array'.",
+  "starting_states": {
+    "normalize_weights": {"mastery": 0.85, "uncertainty": 0.1, "evidence_count": 6, "status": "mastered"},
+    "construct_cdf": {"mastery": 0.6, "uncertainty": 0.4, "evidence_count": 3, "status": "developing"}
+  },
+  "interactions": [
+    {
+      "message": "The CDF is just the normalized probability array, no accumulation needed.",
+      "evidence": [
+        {"node_slug": "construct_cdf", "evidence_type": "explanation", "observation_status": "incorrect",
+         "correctness": 0.0, "confidence": 0.9, "reasoning_quality": 0.4},
+        {"node_slug": "cdf_is_normalized_weights", "evidence_type": "debugging", "observation_status": "incorrect",
+         "assessment_payload": {"misconception_node_slug": "cdf_is_normalized_weights", "relationship": "supporting"}}
+      ]
+    }
+  ],
+  "assertions": [
+    {"kind": "misconception_active", "node": "cdf_is_normalized_weights"},
+    {"kind": "misconception_probe_action"},
+    {"kind": "mastery_below", "node": "construct_cdf", "value": 0.6},
+    {"kind": "frontier_includes", "nodes": ["construct_cdf"]}
+  ]
+}

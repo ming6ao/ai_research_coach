@@ -70,6 +70,17 @@ Optional per task: `hints` (ordered list with `id`, `text`, `weight` 0..1, and `
 - `next_task` maximizes `EIG · importance · coverage / expected_time`, so it drills into informative, important, uncovered skills with cheap questions. It stops at max questions, the assessment time budget (`max_time_min`), or once all important skills are pinned (`variance < 0.01`) after the minimum question count.
 - After a submit, the picked task is returned as `next_task` but held back by the UI (in `pendingTask`) until the candidate reviews the coaching and clicks **Next question** — the system never auto-advances. A `next_task: null` after the last question means the candidate is done; the frontend then shows the report button.
 
+## Learning-Partner MVP Integration
+
+- The `learning_partner` MVP is installed as an editable package (`-e ./learning_partner`); keep it installed after `pip install -r requirements.txt` or re-run the editable install.
+- `core/learner_bridge.py` (`LearnerBridge`) is the single facade: `ensure_learner(candidate)`, `bootstrap_task(task)`, `record_submission(candidate, task, result, coach, viewed)`, `learner_snapshot(candidate)`.
+- `core/task_decomposer.py` decomposes a task/interview question into knowledge nodes+edges+primary via an LLM; falls back to a deterministic skill+problem graph when no `GOOGLE_API_KEY` (keeps tests and startup hermetic).
+- Hooks: `/start` and ADK `start_assessment` call `ensure_learner` + `bootstrap_task`; `/submit` and ADK `submit_answer` call `record_submission`; `/report` attaches a `learner` block via `learner_snapshot`.
+- MVP has its own SQLite DB (`data/learner.db`; override `LEARNING_PARTNER_DB_URL`). The parent's `coach.db` keeps a `learner_bindings` table (`candidate → learner_id`). Both DBs are gitignored.
+- The MVP is LLM-free; all LLM work stays in the parent app. The parent's Bayesian `SkillState` scoring is untouched; the MVP runs in parallel.
+- `learning_partner` is the same repo but a separate Python package (own import root `learning_partner.*`); the editable install makes `import learning_partner` resolve from the repo root — not a new dependency.
+- CLI inspector: `python -m core.learner_bridge --demo` (canned learner, no API key) or `python -m core.learner_bridge <candidate>` to print states/frontier/misconceptions/next action. The integration is backend-only (no UI surface).
+
 ## Environment Variables
 
 ```bash
@@ -79,6 +90,7 @@ EVAL_CONV_MODEL=gemini-3.5-flash-lite  # Conversation model
 EVAL_RETRY_ATTEMPTS=5           # Retry attempts (all layers)
 EVAL_RETRY_INITIAL_DELAY=1.0    # Initial backoff (seconds)
 EVAL_RETRY_MAX_DELAY=30.0       # Max backoff (seconds)
+LEARNING_PARTNER_DB_URL=sqlite:///data/learner.db  # MVP DB (optional; defaults to data/learner.db)
 ```
 
 ## Retry / Resilience

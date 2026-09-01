@@ -1,0 +1,36 @@
+{
+  "name": "B_weighted_sampling_beginner",
+  "description": "Beginner with no prior state; builds mastery from the first interactions.",
+  "starting_states": {},
+  "interactions": [
+    {
+      "message": "I think weights are normalized by dividing each by the sum.",
+      "evidence": [
+        {"node_slug": "normalize_weights", "evidence_type": "explanation", "observation_status": "correct",
+         "correctness": 1.0, "confidence": 0.9, "independence": 0.8}
+      ]
+    },
+    {
+      "message": "I tried to build the CDF but got lost.",
+      "evidence": [
+        {"node_slug": "construct_cdf", "evidence_type": "code", "observation_status": "incorrect",
+         "correctness": 0.0, "confidence": 0.8}
+      ]
+    },
+    {
+      "message": "I haven't attempted binary search yet.",
+      "evidence": [
+        {"node_slug": "binary_search_cdf", "evidence_type": "answer", "observation_status": "not_observed"}
+      ]
+    }
+  ],
+  "assertions": [
+    {"kind": "status_not", "node": "normalize_weights", "expect": "unknown"},
+    {"kind": "mastery_above", "node": "normalize_weights", "value": 0.5},
+    {"kind": "mastery_below", "node": "construct_cdf", "value": 0.5},
+    {"kind": "uncertainty_below", "node": "normalize_weights", "value": 1.0},
+    {"kind": "evidence_count_above", "node": "normalize_weights", "value": 0},
+    {"kind": "not_observed_not_incorrect", "node": "binary_search_cdf"},
+    {"kind": "frontier_includes", "nodes": ["binary_search_cdf", "construct_cdf"]}
+  ]
+}

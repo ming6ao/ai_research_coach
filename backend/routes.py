@@ -189,6 +189,7 @@ def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
     from core.session import Session
     from core.picker import next_task
     from app.agent import _task_view
+    from core.learner_bridge import LearnerBridge
 
     store = get_store()
     if user is not None:
@@ -226,6 +227,21 @@ def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
         task = next_task(session)
         first_task = _task_view(task, session) if task else None
 
+    # Bootstrap the learning-partner knowledge graph from the picked task.
+    learner = None
+    try:
+        bridge = LearnerBridge()
+        bridge.ensure_learner(candidate)
+        if first_task is not None:
+            boot = bridge.bootstrap_task(first_task)
+            learner = {
+                "learner_id": str(bridge.learner_id(candidate)),
+                "primary_node_slug": boot.get("primary_node_slug"),
+            }
+    except Exception:
+        # Never let MVP integration break session startup.
+        learner = None
+
     return {
         "session_id": session_id,
         "candidate": session.candidate,
@@ -233,6 +249,7 @@ def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
         "message": f"Assessment started for {session.candidate}.",
         "total_tasks": len(session.tasks),
         "first_task": first_task,
+        "learner": learner,
     }
 
 
@@ -340,6 +357,18 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
 
     nxt = next_task(session)
 
+    # Feed the judge result into the learning-partner MVP (evidence -> state ->
+    # frontier -> next action). Never allowed to break the response.
+    learner_update = None
+    try:
+        from core.learner_bridge import LearnerBridge
+
+        learner_update = LearnerBridge().record_submission(
+            session.candidate, task, result, coach, viewed_hints=req.hints_used or []
+        )
+    except Exception:
+        learner_update = None
+
     return {
         "result": result.to_dict(),
         "feedback": coach.feedback,
@@ -347,6 +376,7 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
         "next_task": _task_view(nxt, session) if nxt else None,
         "remaining": len(session.tasks) - session.index,
         "skill_update": skill_update,
+        "learner_update": learner_update,
     }
 
 
@@ -373,6 +403,15 @@ def get_report(req: ReportRequest, user: dict = Depends(get_current_user)):
 
     report = build_report(session)
     report["assessment_id"] = save_assessment(session, report)
+
+    # Attach the learning-partner learner snapshot (states, frontier,
+    # misconceptions, next action). Non-fatal on any MVP error.
+    try:
+        from core.learner_bridge import LearnerBridge
+
+        report["learner"] = LearnerBridge().learner_snapshot(session.candidate)
+    except Exception:
+        report["learner"] = None
 
     store.delete(req.session_id)
 

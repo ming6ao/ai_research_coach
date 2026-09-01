@@ -1,0 +1,34 @@
+{
+  "name": "C_weighted_sampling_strong_concepts_weak_implementation",
+  "description": "Strong concepts but weak implementation: knows the theory, struggles to code it.",
+  "starting_states": {
+    "normalize_weights": {"mastery": 0.9, "uncertainty": 0.08, "evidence_count": 8, "status": "mastered"},
+    "construct_cdf": {"mastery": 0.9, "uncertainty": 0.08, "evidence_count": 8, "status": "mastered"},
+    "map_sample_to_interval": {"mastery": 0.5, "uncertainty": 0.9, "evidence_count": 1, "status": "uncertain"},
+    "binary_search_cdf": {"mastery": 0.5, "uncertainty": 1.0, "evidence_count": 0, "status": "unknown"}
+  },
+  "interactions": [
+    {
+      "message": "I finally wrote a working linear-scan sampler.",
+      "evidence": [
+        {"node_slug": "map_sample_to_interval", "evidence_type": "code", "observation_status": "correct",
+         "correctness": 1.0, "confidence": 0.9, "independence": 1.0, "reasoning_quality": 0.8}
+      ]
+    },
+    {
+      "message": "I understand binary search in the abstract but haven't applied it to the CDF.",
+      "evidence": [
+        {"node_slug": "binary_search_cdf", "evidence_type": "explanation", "observation_status": "partially_correct",
+         "correctness": 0.5, "confidence": 0.7, "reasoning_quality": 0.6}
+      ]
+    }
+  ],
+  "assertions": [
+    {"kind": "status", "node": "construct_cdf", "expect": "mastered"},
+    {"kind": "status", "node": "normalize_weights", "expect": "mastered"},
+    {"kind": "dimension_above", "node": "map_sample_to_interval", "dimension": "implementation", "value": 0.5},
+    {"kind": "mastery_above", "node": "map_sample_to_interval", "value": 0.6},
+    {"kind": "frontier_includes", "nodes": ["binary_search_cdf"]},
+    {"kind": "frontier_rank_above", "above": ["binary_search_cdf"], "below": ["normalize_weights", "construct_cdf"]}
+  ]
+}
