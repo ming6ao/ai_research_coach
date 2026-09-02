@@ -180,6 +180,54 @@ class TestSubmission:
         snap = bridge.learner_snapshot("grace@example.com")
         assert any(m["status"] == "suspected" for m in snap["misconceptions"])
 
+    def test_misconception_links_to_skill_node_and_routes_remediation(self, bridge):
+        task = _task(score=5)
+        bridge.bootstrap_task(task)
+        bridge.ensure_learner("grace@example.com")
+        coach = CoachContent(feedback="no", misconception="Confused caching with eviction.", steps=[])
+        result = EvaluationResult(task["id"], task["skill"], 1, task["max_score"], "x", coach.to_dict())
+
+        out = bridge.record_submission("grace@example.com", task, result, coach)
+
+        session = bridge._session()
+        try:
+            container = bridge._container(session)
+            mc_node = container.knowledge_service.get_node_by_slug("confused-caching-with-eviction")
+            assert mc_node is not None
+            assert mc_node.type == NodeType.MISCONCEPTION
+            assert "skill_node_id" in (mc_node.metadata or {})
+            # Remediation should drill the skill node, not the misconception node.
+            skill_node = container.knowledge_service.get_node(
+                uuid.UUID(mc_node.metadata["skill_node_id"])
+            )
+            assert skill_node.slug == "ml-systems"
+        finally:
+            session.close()
+
+        assert out["next_action"] is not None
+        assert out["next_action"]["target_node_id"] == mc_node.metadata["skill_node_id"]
+        assert out["next_action"]["slug"] == "ml-systems"
+        assert out["next_action"]["action_type"] == "misconception_probe"
+
+    def test_next_action_carries_real_node_name_and_description(self, bridge):
+        task = _task(score=5)
+        bridge.bootstrap_task(task)
+        bridge.ensure_learner("jill@example.com")
+        result, coach = _result(task, 1)
+        out = bridge.record_submission("jill@example.com", task, result, coach)
+        assert out["next_action"] is not None
+        # The real node's name/description must flow through (not slug-derived).
+        session = bridge._session()
+        try:
+            container = bridge._container(session)
+            node = container.knowledge_repository.get_node(
+                uuid.UUID(out["next_action"]["target_node_id"])
+            )
+        finally:
+            session.close()
+        assert out["next_action"]["name"] == node.name
+        assert out["next_action"]["description"] == node.description
+
     def test_no_misconception_on_high_score(self, bridge):
         task = _task(score=5)
         bridge.bootstrap_task(task)

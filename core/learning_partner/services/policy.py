@@ -162,10 +162,15 @@ class PolicyEngine:
         self, learner_id: uuid.UUID, node_id: uuid.UUID, mc: LearnerMisconception
     ) -> CandidateAction:
         node = self._knowledge.get_node(node_id)
-        slug = node.slug if node else str(node_id)
+        # Remediate the underlying skill the misconception applies to, so a
+        # follow-up drills a real topic rather than the misconception node itself.
+        skill_id = (node.metadata or {}).get("skill_node_id") if node else None
+        target_id = uuid.UUID(skill_id) if skill_id else node_id
+        target = self._knowledge.get_node(target_id)
+        slug = target.slug if target else (node.slug if node else str(node_id))
         return CandidateAction(
             action_type=ActionType.MISCONCEPTION_PROBE,
-            target_node_id=node_id,
+            target_node_id=target_id,
             target_task_id=None,
             information_gain=1.0,
             learning_value=0.5,

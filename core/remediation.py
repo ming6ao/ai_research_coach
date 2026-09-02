@@ -120,6 +120,8 @@ class RemediationPlanner:
             return {
                 "node_id": action.get("target_node_id"),
                 "slug": action.get("slug"),
+                "name": action.get("name"),
+                "description": action.get("description"),
             }
 
         frontier = (learner_update or {}).get("frontier") or []
@@ -131,7 +133,12 @@ class RemediationPlanner:
         for entry in ranked:
             u = self._state_uncertainty(entry.get("slug"), states)
             if u is not None and u >= self.uncertainty_remediate_at:
-                return {"node_id": entry.get("node_id"), "slug": entry.get("slug")}
+                return {
+                    "node_id": entry.get("node_id"),
+                    "slug": entry.get("slug"),
+                    "name": entry.get("name"),
+                    "description": entry.get("description"),
+                }
         return None
 
     # -- actionability -----------------------------------------------------------
@@ -196,10 +203,14 @@ class RemediationPlanner:
     def _node_dict(target: dict, states: dict) -> dict:
         slug = target.get("slug") or ""
         state = states.get(slug) or {}
+        name = target.get("name") or slug.replace("-", " ").title()
+        description = target.get("description")
+        if not description:
+            description = state.get("status", "")
         return {
             "slug": slug,
-            "name": slug.replace("-", " ").title(),
-            "description": state.get("status", ""),
+            "name": name,
+            "description": description,
         }
 
     @staticmethod

@@ -308,11 +308,14 @@ class LearnerBridge:
                 evidence_ids.append(str(ev.id))
 
             # Misconception: only when the coach names one and the score is low.
+            # Linked to the primary (skill) node so remediation drills the skill,
+            # not the misconception node itself.
+            primary_node = self._primary_node_id(container, mvp_task)
             misconception = self._maybe_misconception(
-                container, candidate, learner_id, task, coach, fraction, evidence_ids
+                container, candidate, learner_id, task, coach, fraction, evidence_ids,
+                skill_node_id=primary_node,
             )
 
-            primary_node = self._primary_node_id(container, mvp_task)
             frontier = container.frontier_service.generate(learner_id, primary_node)
             actions = container.policy_engine.generate(learner_id, frontier)
 
@@ -336,11 +339,14 @@ class LearnerBridge:
             return ObservationStatus.INCORRECT
         return ObservationStatus.PARTIALLY_CORRECT
 
-    def _maybe_misconception(self, container, candidate, learner_id, task, coach, fraction, evidence_ids):
+    def _maybe_misconception(self, container, candidate, learner_id, task, coach, fraction, evidence_ids, skill_node_id=None):
         text = (coach.misconception if coach else "") or ""
         if not text.strip() or fraction >= MISCONCEPTION_SCORE_MAX:
             return None
         slug = self._misconception_slug(text)
+        metadata = {}
+        if skill_node_id is not None:
+            metadata["skill_node_id"] = str(skill_node_id)
         node = container.knowledge_service.get_node_by_slug(slug)
         if node is None:
             node = container.knowledge_service.create_node(
@@ -349,7 +355,12 @@ class LearnerBridge:
                     slug=slug,
                     name=f"Misconception: {task['id']}",
                     description=text.strip()[:300],
+                    metadata=metadata,
                 )
+            )
+        elif metadata:
+            node = container.knowledge_service.update_node(
+                node.id, metadata={**(node.metadata or {}), **metadata}
             )
         mc = container.misconception_service.suspect_misconception(learner_id, node.id)
         if evidence_ids:
@@ -361,7 +372,12 @@ class LearnerBridge:
         import re
 
         slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-        return (slug[:48] or "misconception")
+        if len(slug) <= 48:
+            return slug or "misconception"
+        # Truncate on a word boundary so slugs never cut mid-word.
+        head = slug[:48]
+        cut = head.rfind("-")
+        return head[:cut] if cut > 0 else head
 
     @staticmethod
     def _primary_node_id(container, mvp_task) -> Optional[uuid.UUID]:
@@ -374,6 +390,8 @@ class LearnerBridge:
         return {
             "node_id": str(entry.node_id),
             "slug": node.slug if node else None,
+            "name": node.name if node else None,
+            "description": node.description if node else None,
             "priority": entry.priority,
             "reason": entry.reason,
             "status": entry.status.value,
@@ -386,6 +404,8 @@ class LearnerBridge:
             "action_type": action.action_type.value,
             "target_node_id": str(action.target_node_id),
             "slug": node.slug if node else None,
+            "name": node.name if node else None,
+            "description": node.description if node else None,
             "total_score": action.total_score,
             "rationale": action.rationale,
         }

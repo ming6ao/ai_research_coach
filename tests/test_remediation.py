@@ -57,10 +57,10 @@ def _base_task(skill="ml_systems", difficulty=3):
 
 def _learner_update(status="incorrect", fraction=0.2, frontier=None, next_action=None, misconceptions=False):
     frontier = frontier or [
-        {"node_id": str(uuid.uuid4()), "slug": "cache-eviction", "priority": 0.9, "reason": "uncertain"},
-        {"node_id": str(uuid.uuid4()), "slug": "cache-invalidation", "priority": 0.8, "reason": "uncertain"},
+        {"node_id": str(uuid.uuid4()), "slug": "cache-eviction", "name": "Cache Eviction", "description": "Choosing what to drop.", "priority": 0.9, "reason": "uncertain"},
+        {"node_id": str(uuid.uuid4()), "slug": "cache-invalidation", "name": "Cache Invalidation", "description": "Keeping stale data out.", "priority": 0.8, "reason": "uncertain"},
     ]
-    next_action = next_action or {"action_type": "code", "target_node_id": frontier[0]["node_id"], "slug": frontier[0]["slug"]}
+    next_action = next_action or {"action_type": "code", "target_node_id": frontier[0]["node_id"], "slug": frontier[0]["slug"], "name": frontier[0]["name"], "description": frontier[0]["description"]}
     return {
         "observation_status": status,
         "fraction": fraction,
@@ -130,12 +130,39 @@ class TestTrigger:
 class TestTargetSelection:
     def test_uses_next_action_target(self):
         planner = RemediationPlanner(decomposer=FakeDecomposer())
-        action = {"action_type": "code", "target_node_id": "n1", "slug": "cache-invalidation"}
+        action = {"action_type": "code", "target_node_id": "n1", "slug": "cache-invalidation", "name": "Cache Invalidation", "description": "Keeping stale data out."}
         gen = planner.decide(
             _session(), _base_task(), None,
             _learner_update(status="incorrect", next_action=action), _snapshot(),
         )
         assert gen["mvp_target_slug"] == "cache-invalidation"
+
+    def test_generated_task_uses_real_node_name_and_description(self):
+        decomposer = FakeDecomposer()
+        planner = RemediationPlanner(decomposer=decomposer)
+        action = {"action_type": "code", "target_node_id": "n1", "slug": "cache-invalidation", "name": "Cache Invalidation", "description": "Keeping stale data out."}
+        gen = planner.decide(
+            _session(), _base_task(), None,
+            _learner_update(status="incorrect", next_action=action), _snapshot(),
+        )
+        assert gen is not None
+        assert gen["mvp_target_slug"] == "cache-invalidation"
+        node = decomposer.calls[-1][0]
+        assert node["name"] == "Cache Invalidation"
+        assert node["description"] == "Keeping stale data out."
+
+    def test_node_dict_falls_back_to_slug_when_name_absent(self):
+        decomposer = FakeDecomposer()
+        planner = RemediationPlanner(decomposer=decomposer)
+        action = {"action_type": "code", "target_node_id": "n1", "slug": "cache-invalidation"}
+        gen = planner.decide(
+            _session(), _base_task(), None,
+            _learner_update(status="incorrect", next_action=action), _snapshot(),
+        )
+        assert gen is not None
+        node = decomposer.calls[-1][0]
+        assert node["name"] == "Cache Invalidation"  # slug-derived fallback
+        assert node["description"] == "uncertain"  # falls back to node status
 
     def test_falls_back_to_highest_uncertainty_when_no_action(self):
         planner = RemediationPlanner(decomposer=FakeDecomposer())
