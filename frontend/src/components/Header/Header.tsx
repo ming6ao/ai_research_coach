@@ -6,9 +6,8 @@ interface Props {
 }
 
 export function Header({ onOpenAuth }: Props) {
-  const { mode, taskIndex, totalTasks, report, endPractice } = useAssessmentStore();
+  const { taskIndex, totalTasks, report, endPractice } = useAssessmentStore();
   const { user, logout } = useAuthStore();
-  const isPractice = mode === 'practice';
 
   const handleLogout = () => {
     logout();
@@ -60,7 +59,6 @@ export function Header({ onOpenAuth }: Props) {
         {totalTasks > 0 && (
           <span className="rounded-full bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-xs text-[var(--color-text-muted)]">
             Q {Math.min(taskIndex + 1, totalTasks)} / {totalTasks}
-            {isPractice && ' · Practice'}
           </span>
         )}
 

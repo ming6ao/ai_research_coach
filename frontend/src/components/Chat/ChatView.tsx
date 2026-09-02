@@ -105,26 +105,28 @@ function TaskPromptBubble({ prompt, skill }: { prompt: string; skill: string }) 
 }
 
 function DoneBubble() {
-  const { loadReport, mode, endPractice, loading } = useAssessmentStore();
+  const { loadReport, loading, mode } = useAssessmentStore();
   const isPractice = mode === 'practice';
   return (
     <CoachBubble>
       <p className="mb-3 text-sm text-[var(--color-text-primary)]">
         {isPractice
-          ? "You've browsed all the practice questions. Nice work!"
+          ? "You've browsed all the questions. Nice work!"
           : "You've completed all the questions. Ready to see your results?"}
       </p>
-      <button
-        onClick={isPractice ? endPractice : loadReport}
-        disabled={loading}
-        className={`rounded-lg px-5 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-          isPractice
-            ? 'border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:border-[var(--color-border-focus)] hover:text-[var(--color-text-primary)]'
-            : 'bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)]'
-        }`}
-      >
-        {isPractice ? 'Back to start' : loading ? 'Generating…' : 'View Report'}
-      </button>
+      {isPractice ? (
+        <p className="text-xs text-[var(--color-text-muted)]">
+          Sign in to save your progress and get a scored report.
+        </p>
+      ) : (
+        <button
+          onClick={loadReport}
+          disabled={loading}
+          className="rounded-lg bg-[var(--color-accent)] px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {loading ? 'Generating…' : 'View Report'}
+        </button>
+      )}
     </CoachBubble>
   );
 }
@@ -228,17 +230,7 @@ export function ChatView() {
 
           {!waiting && currentTask && (
             <div className="space-y-2">
-              {mode === 'practice' && (
-                <div className="flex justify-end">
-                  <button
-                    onClick={useAssessmentStore.getState().endPractice}
-                    disabled={loading}
-                    className="rounded-lg px-2.5 py-1 text-[11px] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)] disabled:opacity-40"
-                  >
-                    End practice
-                  </button>
-                </div>
-              )}
+
               <Composer
                 placeholder="Add a note (optional) and submit…"
                 onSubmit={handleSubmit}

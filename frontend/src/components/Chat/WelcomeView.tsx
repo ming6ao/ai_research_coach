@@ -38,11 +38,6 @@ export function WelcomeView() {
     }
   };
 
-  const handleStartPractice = () => {
-    if (loading) return;
-    startAssessment('guest');
-  };
-
   const handleRandomQuestion = async () => {
     if (loading) return;
     startAssessment('guest');
@@ -150,18 +145,6 @@ export function WelcomeView() {
               </div>
             )}
           </div>
-        )}
-
-        {!user && (
-          <p className="mt-6 text-xs text-[var(--color-text-muted)]">
-            Want a scored assessment?{' '}
-            <button
-              onClick={handleStartPractice}
-              className="text-[var(--color-accent)] underline-offset-2 hover:underline"
-            >
-              Try practice mode
-            </button>
-          </p>
         )}
       </div>
     </div>

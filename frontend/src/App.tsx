@@ -25,7 +25,7 @@ function OfflineBanner() {
   if (online) return null;
   return (
     <div className="bg-[var(--color-error)] px-4 py-1.5 text-center text-xs font-medium text-white">
-      You're offline. The app is cached, but practice and assessment need a connection.
+      You're offline. The app is cached, but assessments need a connection.
     </div>
   );
 }
