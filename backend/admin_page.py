@@ -249,6 +249,8 @@ const NODE_COLORS = {
   problem: '#f97316', strategy: '#14b8a6', misconception: '#ef4444', domain: '#6b7280'
 };
 
+let cachedPositions = new Map();
+
 async function loadGraph() {
   try {
     graphData = await api('/graph');
@@ -266,44 +268,53 @@ function renderGraph() {
   const H = container.clientHeight || 400;
   svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
 
-  const nodes = graphData.nodes.map((n, i) => ({
-    ...n, x: W/2 + (Math.random()-0.5)*W*0.6, y: H/2 + (Math.random()-0.5)*H*0.6,
-    vx: 0, vy: 0, idx: i
-  }));
+  const nodes = graphData.nodes.map((n, i) => {
+    const c = cachedPositions.get(n.id);
+    return {
+      ...n,
+      x: c ? c.x : W/2 + (Math.random()-0.5)*W*0.6,
+      y: c ? c.y : H/2 + (Math.random()-0.5)*H*0.6,
+      vx: 0, vy: 0, idx: i
+    };
+  });
   const nodeMap = {};
   nodes.forEach(n => nodeMap[n.id] = n);
   const edges = graphData.edges.filter(e => nodeMap[e.source] && nodeMap[e.target]);
 
-  // Force simulation
-  const REPULSION = 3000, ATTRACTION = 0.005, CENTER = 0.01, DAMPING = 0.85;
-  for (let iter = 0; iter < 200; iter++) {
-    nodes.forEach(a => { a.vx = 0; a.vy = 0; });
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i+1; j < nodes.length; j++) {
-        let dx = nodes[j].x - nodes[i].x, dy = nodes[j].y - nodes[i].y;
-        let d = Math.sqrt(dx*dx + dy*dy) || 1;
-        let f = REPULSION / (d*d);
-        nodes[i].vx -= dx/d*f; nodes[i].vy -= dy/d*f;
-        nodes[j].vx += dx/d*f; nodes[j].vy += dy/d*f;
+  // Force simulation (skip if all positions already cached)
+  const needsLayout = nodes.some(n => !cachedPositions.has(n.id));
+  if (needsLayout) {
+    const REPULSION = 3000, ATTRACTION = 0.005, CENTER = 0.01, DAMPING = 0.85;
+    for (let iter = 0; iter < 200; iter++) {
+      nodes.forEach(a => { a.vx = 0; a.vy = 0; });
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i+1; j < nodes.length; j++) {
+          let dx = nodes[j].x - nodes[i].x, dy = nodes[j].y - nodes[i].y;
+          let d = Math.sqrt(dx*dx + dy*dy) || 1;
+          let f = REPULSION / (d*d);
+          nodes[i].vx -= dx/d*f; nodes[i].vy -= dy/d*f;
+          nodes[j].vx += dx/d*f; nodes[j].vy += dy/d*f;
+        }
       }
+      edges.forEach(e => {
+        const a = nodeMap[e.source], b = nodeMap[e.target];
+        if (!a || !b) return;
+        let dx = b.x - a.x, dy = b.y - a.y;
+        let d = Math.sqrt(dx*dx + dy*dy) || 1;
+        let f = (d - 80) * ATTRACTION;
+        a.vx += dx/d*f; a.vy += dy/d*f;
+        b.vx -= dx/d*f; b.vy -= dy/d*f;
+      });
+      nodes.forEach(n => {
+        n.vx += (W/2 - n.x) * CENTER;
+        n.vy += (H/2 - n.y) * CENTER;
+        n.vx *= DAMPING; n.vy *= DAMPING;
+        n.x += n.vx; n.y += n.vy;
+        n.x = Math.max(30, Math.min(W-30, n.x));
+        n.y = Math.max(30, Math.min(H-30, n.y));
+      });
     }
-    edges.forEach(e => {
-      const a = nodeMap[e.source], b = nodeMap[e.target];
-      if (!a || !b) return;
-      let dx = b.x - a.x, dy = b.y - a.y;
-      let d = Math.sqrt(dx*dx + dy*dy) || 1;
-      let f = (d - 80) * ATTRACTION;
-      a.vx += dx/d*f; a.vy += dy/d*f;
-      b.vx -= dx/d*f; b.vy -= dy/d*f;
-    });
-    nodes.forEach(n => {
-      n.vx += (W/2 - n.x) * CENTER;
-      n.vy += (H/2 - n.y) * CENTER;
-      n.vx *= DAMPING; n.vy *= DAMPING;
-      n.x += n.vx; n.y += n.vy;
-      n.x = Math.max(30, Math.min(W-30, n.x));
-      n.y = Math.max(30, Math.min(H-30, n.y));
-    });
+    nodes.forEach(n => cachedPositions.set(n.id, { x: n.x, y: n.y }));
   }
 
   // Build SVG
