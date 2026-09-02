@@ -49,7 +49,6 @@ def test_next_task_prefers_matched_difficulty():
 def test_probes_all_skills_before_revisiting():
     tasks = [make_task(i, skill) for i, skill in enumerate(SKILLS)]
     session = make_session(tasks)
-    session.max_time_min = 1000.0  # keep the 45-min budget from truncating the probe
     seen_skills = []
     for _ in range(len(tasks)):
         task = next_task(session)
@@ -63,15 +62,11 @@ def test_probes_all_skills_before_revisiting():
     assert len(set(seen_skills)) == len(SKILLS)
 
 
-def test_time_budget_terminates():
-    session = make_session([make_task(0, "ml_fundamentals"), make_task(1, "deep_learning")])
-    session.max_time_min = 0.0
-    assert next_task(session) is None
-
-
 def test_practice_mode_bypasses_termination():
     session = Session("guest-abc12345", tasks=[make_task(0, "ml_fundamentals"), make_task(1, "deep_learning")])
-    session.max_time_min = 0.0
+    session.index = 20
+    for skill in SKILLS:
+        session.get_skill_state(skill).variance = 0.0001
     assert next_task(session) is not None
 
 
@@ -108,7 +103,6 @@ def test_unified_bank_includes_all_former_roles():
     assert "ml_modeling" in skills
     assert "ml_systems" in skills
     # The picker can choose from any former role in one pass.
-    session.max_time_min = 0.0  # force selection (no termination yet)
-    first = next_task(Session("candidate"))
-    second = next_task(session)
-    assert first is not None and second is None
+    first = next_task(session)
+    assert first is not None
+    assert first["skill"] in skills

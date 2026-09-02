@@ -52,7 +52,6 @@ adk web --port 8000
 - **Add question**: Append to `config/tasks.yaml` with unique `id`, `skill`, and `prompt` (+ optional `hints` and `expected_time_min`)
 - **Add skill**: Add a block in `config/skills.yaml` (id, name, description, importance), then tag tasks with that `skill`
 - **Change model**: Set `EVAL_CONV_MODEL` or `EVAL_MODEL` in `.env`
-- **Change time budget**: set `max_time_min` in `config/skills.yaml`
 
 ## Task Types & Required Fields
 
@@ -67,7 +66,7 @@ Optional per task: `hints` (ordered list with `id`, `text`, `weight` 0..1, and `
 
 - Skill ability is a Gaussian belief (`N(mean, variance)`). The mean is the reported skill score; `1 - σ/σ_max` is the reported confidence.
 - Effective score = `raw_fraction − Σ weight(viewed hints)`, clamped to [0, 1] — solving correctly with many hints yields lower mastery.
-- `next_task` maximizes `EIG · importance · coverage / expected_time`, so it drills into informative, important, uncovered skills with cheap questions. It stops at max questions, the assessment time budget (`max_time_min`), or once all important skills are pinned (`variance < 0.01`) after the minimum question count.
+- `next_task` maximizes `EIG · importance · coverage / expected_time`, so it drills into informative, important, uncovered skills with cheap questions. It stops once all important skills are pinned (`variance < 0.01`) after the minimum question count, or when the task bank is exhausted.
 - After a submit, the picked task is returned as `next_task` but held back by the UI (in `pendingTask`) until the candidate reviews the coaching and clicks **Next question** — the system never auto-advances. A `next_task: null` after the last question means the candidate is done; the frontend then shows the report button.
 
 ## Learning-Partner MVP Integration

@@ -4,8 +4,8 @@ Selects the next question to maximize expected information gain (posterior
 variance reduction of the per-skill ability belief) per unit of expected
 assessment time, weighted by skill importance and skill coverage.
 
-Termination balances a hard question/time cap against pinning down every
-important skill's ability estimate.
+The assessment stops once every important skill's ability estimate is pinned
+down (variance below tolerance) after the minimum question count.
 """
 
 from typing import Optional
@@ -15,12 +15,9 @@ from core.score import expected_variance_reduction, measurement_variance
 
 
 # Termination configuration
-MAX_QUESTIONS = 25
 MIN_QUESTIONS = 15
 IMPORTANT_SKILL_THRESHOLD = 4
 VARIANCE_TOLERANCE = 0.01  # sigma ~ 0.1 => ability estimate is effectively pinned
-
-DEFAULT_MAX_TIME_MIN = 45.0
 
 # Static expected-time model (minutes) used as the cost of a question.
 TIME_BASE_MIN = 4.0
@@ -98,31 +95,12 @@ def _get_skill_importance(skill_id: str, session: Session) -> int:
     return session.get_skill_cfg(skill_id).get("importance", 3)
 
 
-def _elapsed_time(session: Session) -> float:
-    """Sum of expected times for the tasks already administered."""
-    return sum(
-        expected_time(t) for t in session.tasks if t["id"] in session.asked_task_ids
-    )
-
-
-def _max_time_min(session: Session) -> float:
-    return session.max_time_min
-
-
 def _should_terminate(session: Session) -> bool:
     """Check whether the assessment should stop.
 
-    Termination conditions:
-    1. Maximum questions reached
-    2. Expected time budget exhausted
-    3. Minimum questions answered AND every important skill's ability is pinned
+    Termination condition: minimum questions answered AND every important
+    skill's ability estimate is pinned (variance below tolerance).
     """
-    if session.index >= MAX_QUESTIONS:
-        return True
-
-    if _elapsed_time(session) >= _max_time_min(session):
-        return True
-
     if session.index < MIN_QUESTIONS:
         return False
 

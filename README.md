@@ -11,7 +11,7 @@ ai_research_coach/
 ├── app/
 │   └── agent.py          # root_agent + 5 tools (orchestrator)
 ├── config/
-│   ├── skills.yaml       # unified skill tree (importance, max_time_min)
+│   ├── skills.yaml       # unified skill tree (importance)
 │   └── tasks.yaml        # question/task bank (code only, with optional hints)
 ├── core/
 │   ├── config.py         # paths + model selection

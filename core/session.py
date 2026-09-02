@@ -72,7 +72,6 @@ class Session:
     def __post_init__(self):
         cfg = load_yaml("skills.yaml")
         self.skills_cfg = cfg.get("skills", [])
-        self.max_time_min = float(cfg.get("max_time_min", 45.0))
         if not self.tasks:
             all_tasks = load_yaml("tasks.yaml")["tasks"]
             self.tasks = list(all_tasks)
