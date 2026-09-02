@@ -369,7 +369,7 @@ class LearnerBridge:
 
 
 def clear_learner_data(learner_id: str, db_url: Optional[str] = None) -> int:
-    """Delete all per-learner data from learner.db.
+    """Delete all per-learner data from the MVP database.
 
     Returns the total number of rows deleted across all tables.
     Knowledge graph nodes/edges and assessment tasks are global and left intact.
@@ -520,7 +520,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     parser.add_argument("candidate", nargs="?", help="candidate identity (email or guest id)")
     parser.add_argument("--demo", action="store_true", help="run a canned learner through the full loop")
-    parser.add_argument("--db", help="MVP database URL (defaults to data/learner.db)")
+    parser.add_argument("--db", help="MVP database URL (defaults to data/coach.db)")
     args = parser.parse_args(argv)
 
     if args.db:
