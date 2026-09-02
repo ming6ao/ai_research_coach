@@ -2,8 +2,8 @@
 
 import pytest
 
-from learning_partner.domain.types import EdgeType, NodeType
-from learning_partner.seed.weighted_sampling import (
+from core.learning_partner.domain.types import EdgeType, NodeType
+from core.learning_partner.seed.weighted_sampling import (
     EDGE_SPECS,
     NODE_SPECS,
     seed_weighted_sampling,
@@ -75,7 +75,7 @@ class TestSeedGraph:
         assert stats["total_edges"] == len(EDGE_SPECS)
 
     def test_problem_prerequisites_via_traversal(self, service, repository):
-        from learning_partner.seed import seed_weighted_sampling
+        from core.learning_partner.seed import seed_weighted_sampling
 
         seed_weighted_sampling(repository)
         problem = service.get_node_by_slug("weighted_sampling_from_scratch")

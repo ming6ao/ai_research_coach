@@ -9,20 +9,20 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
-from learning_partner.domain.errors import (
+from core.learning_partner.domain.errors import (
     DuplicateEvidenceError,
     LearnerNotFoundError,
     NodeNotFoundError,
 )
-from learning_partner.domain.evidence import (
+from core.learning_partner.domain.evidence import (
     Evidence,
     EvidenceFilter,
     EvidenceType,
     ObservationStatus,
 )
-from learning_partner.domain.knowledge import utcnow
-from learning_partner.domain.learner import Learner
-from learning_partner.seed import seed_weighted_sampling
+from core.learning_partner.domain.knowledge import utcnow
+from core.learning_partner.domain.learner import Learner
+from core.learning_partner.seed import seed_weighted_sampling
 
 
 @pytest.fixture()

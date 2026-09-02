@@ -21,7 +21,7 @@ from google import genai
 from google.genai import types
 
 from core.config import MODEL, http_retry_options
-from learning_partner.domain.types import EdgeType, NodeType
+from core.learning_partner.domain.types import EdgeType, NodeType
 
 # Valid edge types in the MVP knowledge graph.
 _EDGE_TYPES = {e.value for e in EdgeType}

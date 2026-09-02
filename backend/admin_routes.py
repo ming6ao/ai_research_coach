@@ -67,7 +67,7 @@ def get_graph(user: dict = Depends(_require_user)):
         container = bridge._container(session)
         nodes_raw = container.knowledge_repository.list_all_nodes() if hasattr(container.knowledge_repository, 'list_all_nodes') else []
         if not nodes_raw:
-            from learning_partner.storage.models import KnowledgeNodeModel, KnowledgeEdgeModel
+            from core.learning_partner.storage.models import KnowledgeNodeModel, KnowledgeEdgeModel
             from sqlalchemy import select
             node_models = session.scalars(select(KnowledgeNodeModel)).all()
             edge_models = session.scalars(select(KnowledgeEdgeModel)).all()
@@ -376,7 +376,7 @@ def get_stats(user: dict = Depends(_require_user)):
     bridge = LearnerBridge()
     session = bridge._session()
     try:
-        from learning_partner.storage.models import (
+        from core.learning_partner.storage.models import (
             KnowledgeNodeModel, KnowledgeEdgeModel, EvidenceModel,
             LearnerModel, LearnerKnowledgeStateModel, LearnerMisconceptionModel,
         )

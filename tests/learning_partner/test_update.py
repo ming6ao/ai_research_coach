@@ -6,14 +6,14 @@ import uuid
 
 import pytest
 
-from learning_partner.domain.evidence import Evidence, EvidenceType, ObservationStatus
-from learning_partner.domain.learner import (
+from core.learning_partner.domain.evidence import Evidence, EvidenceType, ObservationStatus
+from core.learning_partner.domain.learner import (
     Learner,
     LearnerKnowledgeState,
     StateStatus,
 )
-from learning_partner.domain.update import UpdateEngine, UpdateConfig
-from learning_partner.seed import seed_weighted_sampling
+from core.learning_partner.domain.update import UpdateEngine, UpdateConfig
+from core.learning_partner.seed import seed_weighted_sampling
 
 
 @pytest.fixture()
@@ -329,7 +329,7 @@ class TestAuditAndPersistence:
         node = repository.get_node_by_slug("construct_cdf")
         ev = _evidence(learner, node.id, ObservationStatus.CORRECT,
                        correctness=1.0, confidence=1.0, evidence_type=EvidenceType.CODE)
-        from learning_partner.services.update import LearnerUpdateService
+        from core.learning_partner.services.update import LearnerUpdateService
 
         svc = LearnerUpdateService(
             learner_service._learners, repository, update_repo
@@ -351,7 +351,7 @@ class TestAuditAndPersistence:
         _, _, learner = seeded_ctx
         node = repository.get_node_by_slug("construct_cdf")
         svc = learner_service
-        from learning_partner.services.update import LearnerUpdateService
+        from core.learning_partner.services.update import LearnerUpdateService
 
         usvc = LearnerUpdateService(svc._learners, repository, update_repo)
         result = usvc.apply_evidence(

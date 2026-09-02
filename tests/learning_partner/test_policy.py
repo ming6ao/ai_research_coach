@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from learning_partner.domain.action import ActionType
-from learning_partner.domain.learner import LearnerKnowledgeState, StateStatus
-from learning_partner.seed import seed_weighted_sampling, seed_weighted_sampling_task
+from core.learning_partner.domain.action import ActionType
+from core.learning_partner.domain.learner import LearnerKnowledgeState, StateStatus
+from core.learning_partner.seed import seed_weighted_sampling, seed_weighted_sampling_task
 
 
 @pytest.fixture()
@@ -55,7 +55,7 @@ class TestActionSelection:
         strong_ids = {n.id for n in strong}
 
         problem = ctx["repo"].get_node_by_slug("weighted_sampling_from_scratch")
-        from learning_partner.services.frontier import FrontierService
+        from core.learning_partner.services.frontier import FrontierService
 
         # Build frontier through the policy's own inputs by calling generate directly.
         # Use frontier_service from container-like wiring (policy reads states directly).
@@ -67,13 +67,13 @@ class TestActionSelection:
 
     @staticmethod
     def _frontier(ctx):
-        from learning_partner.domain.frontier import FrontierStatus
+        from core.learning_partner.domain.frontier import FrontierStatus
 
         states = ctx["learner_service"].list_learner_states(ctx["learner"].id)
         problem = ctx["repo"].get_node_by_slug("weighted_sampling_from_scratch")
         # Reuse the frontier service through a manual pass: simulate frontier entries.
-        from learning_partner.domain.frontier import LearnerFrontier
-        from learning_partner.domain.knowledge import utcnow
+        from core.learning_partner.domain.frontier import LearnerFrontier
+        from core.learning_partner.domain.knowledge import utcnow
 
         entries = []
         for s in states:
@@ -113,8 +113,8 @@ class TestActionTypes:
 
     @staticmethod
     def _make_frontier(ctx, node):
-        from learning_partner.domain.frontier import FrontierStatus, LearnerFrontier
-        from learning_partner.domain.knowledge import utcnow
+        from core.learning_partner.domain.frontier import FrontierStatus, LearnerFrontier
+        from core.learning_partner.domain.knowledge import utcnow
 
         return [LearnerFrontier(
             learner_id=ctx["learner"].id,
@@ -128,7 +128,7 @@ class TestActionTypes:
 
 class TestMisconceptionBoost:
     def test_misconception_probe_is_strong_candidate(self, ctx, misconception_service, repository):
-        from learning_partner.seed import seed_misconceptions
+        from core.learning_partner.seed import seed_misconceptions
 
         seed_misconceptions(repository)
         mc_node = repository.get_node_by_slug("cdf_is_normalized_weights")

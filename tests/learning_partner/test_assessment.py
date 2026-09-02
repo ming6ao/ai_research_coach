@@ -11,15 +11,15 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from learning_partner.domain.assessment import (
+from core.learning_partner.domain.assessment import (
     AssessmentTask,
     AssessmentTarget,
     TargetRole,
     TaskType,
 )
-from learning_partner.domain.errors import DuplicateTargetError, TaskNotFoundError
-from learning_partner.seed import seed_weighted_sampling, seed_weighted_sampling_task
-from learning_partner.seed.assessment_tasks import TASK_SPEC, TARGET_SPECS
+from core.learning_partner.domain.errors import DuplicateTargetError, TaskNotFoundError
+from core.learning_partner.seed import seed_weighted_sampling, seed_weighted_sampling_task
+from core.learning_partner.seed.assessment_tasks import TASK_SPEC, TARGET_SPECS
 
 
 @pytest.fixture()

@@ -9,10 +9,10 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from learning_partner.harness.replay import ReplayEngine
-from learning_partner.storage.database import Base
+from core.learning_partner.harness.replay import ReplayEngine
+from core.learning_partner.storage.database import Base
 
-SCENARIOS_DIR = Path(__file__).resolve().parent.parent / "learning_partner" / "harness" / "scenarios"
+SCENARIOS_DIR = Path(__file__).resolve().parent.parent.parent / "core" / "learning_partner" / "harness" / "scenarios"
 
 
 def _session():
@@ -74,14 +74,14 @@ class TestScenarioSuite:
 
     def test_not_observed_never_incorrect(self):
         """Direct check independent of a full scenario."""
-        from learning_partner.domain.evidence import Evidence, EvidenceType, ObservationStatus
-        from learning_partner.domain.learner import Learner
-        from learning_partner.container import build_container
+        from core.learning_partner.domain.evidence import Evidence, EvidenceType, ObservationStatus
+        from core.learning_partner.domain.learner import Learner
+        from core.learning_partner.container import build_container
 
         engine, session = _session()
         try:
             c = build_container(session)
-            from learning_partner.seed import seed_weighted_sampling, seed_misconceptions
+            from core.learning_partner.seed import seed_weighted_sampling, seed_misconceptions
 
             seed_weighted_sampling(c.knowledge_repository)
             seed_misconceptions(c.knowledge_repository)

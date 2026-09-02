@@ -8,12 +8,14 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent / "core" / "learning_partner"
 
 
 def _config(db_path: Path) -> Config:
     cfg = Config(str(ROOT / "alembic.ini"))
     cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
+    cfg.set_main_option("script_location", str(ROOT / "alembic"))
+    cfg.set_main_option("prepend_sys_path", str(ROOT))
     return cfg
 
 

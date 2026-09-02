@@ -1,4 +1,4 @@
-"""CLI entry point: ``python -m learning_partner``.
+"""CLI entry point: ``python -m core.learning_partner``.
 
 Subcommands:
   seed   Create tables if needed and seed sample data.
@@ -11,9 +11,9 @@ import sys
 
 
 def _service():
-    from learning_partner.services.knowledge_graph import KnowledgeGraphService
-    from learning_partner.storage.database import Base, create_session_factory
-    from learning_partner.storage.repositories import SQLKnowledgeGraphRepository
+    from core.learning_partner.services.knowledge_graph import KnowledgeGraphService
+    from core.learning_partner.storage.database import Base, create_session_factory
+    from core.learning_partner.storage.repositories import SQLKnowledgeGraphRepository
 
     session_factory, engine = create_session_factory()
     Base.metadata.create_all(engine)
@@ -22,7 +22,7 @@ def _service():
 
 
 def cmd_seed() -> int:
-    from learning_partner.seed import seed_weighted_sampling
+    from core.learning_partner.seed import seed_weighted_sampling
 
     service, session = _service()
     try:
@@ -34,7 +34,7 @@ def cmd_seed() -> int:
 
 
 def cmd_demo() -> int:
-    from learning_partner.seed import seed_weighted_sampling
+    from core.learning_partner.seed import seed_weighted_sampling
 
     service, session = _service()
     try:
@@ -59,12 +59,12 @@ def cmd_demo() -> int:
 
 
 def cmd_learner() -> int:
-    from learning_partner.domain.learner import LearnerKnowledgeState, StateStatus
-    from learning_partner.seed import seed_weighted_sampling
-    from learning_partner.services.learner_model import LearnerModelService
-    from learning_partner.storage.database import Base, create_session_factory
-    from learning_partner.storage.learner_repositories import SQLLearnerModelRepository
-    from learning_partner.storage.repositories import SQLKnowledgeGraphRepository
+    from core.learning_partner.domain.learner import LearnerKnowledgeState, StateStatus
+    from core.learning_partner.seed import seed_weighted_sampling
+    from core.learning_partner.services.learner_model import LearnerModelService
+    from core.learning_partner.storage.database import Base, create_session_factory
+    from core.learning_partner.storage.learner_repositories import SQLLearnerModelRepository
+    from core.learning_partner.storage.repositories import SQLKnowledgeGraphRepository
 
     session_factory, engine = create_session_factory()
     Base.metadata.create_all(engine)
@@ -109,14 +109,14 @@ def cmd_learner() -> int:
 def cmd_evidence() -> int:
     import uuid
 
-    from learning_partner.domain.evidence import Evidence, EvidenceType, ObservationStatus
-    from learning_partner.domain.learner import Learner
-    from learning_partner.seed import seed_weighted_sampling
-    from learning_partner.services.evidence import EvidenceService
-    from learning_partner.storage.database import Base, create_session_factory
-    from learning_partner.storage.evidence_repositories import SQLEvidenceRepository
-    from learning_partner.storage.learner_repositories import SQLLearnerModelRepository
-    from learning_partner.storage.repositories import SQLKnowledgeGraphRepository
+    from core.learning_partner.domain.evidence import Evidence, EvidenceType, ObservationStatus
+    from core.learning_partner.domain.learner import Learner
+    from core.learning_partner.seed import seed_weighted_sampling
+    from core.learning_partner.services.evidence import EvidenceService
+    from core.learning_partner.storage.database import Base, create_session_factory
+    from core.learning_partner.storage.evidence_repositories import SQLEvidenceRepository
+    from core.learning_partner.storage.learner_repositories import SQLLearnerModelRepository
+    from core.learning_partner.storage.repositories import SQLKnowledgeGraphRepository
 
     session_factory, engine = create_session_factory()
     Base.metadata.create_all(engine)
@@ -171,15 +171,15 @@ def cmd_evidence() -> int:
 def cmd_assessment() -> int:
     import uuid
 
-    from learning_partner.domain.assessment import TargetRole
-    from learning_partner.seed import seed_weighted_sampling_task
-    from learning_partner.services.assessment import AssessmentService
-    from learning_partner.storage.assessment_repositories import (
+    from core.learning_partner.domain.assessment import TargetRole
+    from core.learning_partner.seed import seed_weighted_sampling_task
+    from core.learning_partner.services.assessment import AssessmentService
+    from core.learning_partner.storage.assessment_repositories import (
         SQLAssessmentTargetRepository,
         SQLAssessmentTaskRepository,
     )
-    from learning_partner.storage.database import Base, create_session_factory
-    from learning_partner.storage.repositories import SQLKnowledgeGraphRepository
+    from core.learning_partner.storage.database import Base, create_session_factory
+    from core.learning_partner.storage.repositories import SQLKnowledgeGraphRepository
 
     session_factory, engine = create_session_factory()
     Base.metadata.create_all(engine)
@@ -219,8 +219,8 @@ def cmd_eval() -> int:
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
-    from learning_partner.harness.replay import ReplayEngine
-    from learning_partner.storage.database import Base
+    from core.learning_partner.harness.replay import ReplayEngine
+    from core.learning_partner.storage.database import Base
 
     scenarios_dir = Path(__file__).resolve().parent / "harness" / "scenarios"
     all_passed = True
@@ -247,16 +247,16 @@ def cmd_simulate() -> int:
     """Simulate the 4-interaction end-to-end weighted-sampling session (Stage 9)."""
     import uuid
 
-    from learning_partner.container import build_container
-    from learning_partner.domain.orchestrator import LearnerInteraction
-    from learning_partner.seed import (
+    from core.learning_partner.container import build_container
+    from core.learning_partner.domain.orchestrator import LearnerInteraction
+    from core.learning_partner.seed import (
         seed_misconceptions,
         seed_weighted_sampling,
         seed_weighted_sampling_task,
     )
-    from learning_partner.services.assessors import RuleBasedEvidenceAssessor
-    from learning_partner.services.orchestrator import LearningOrchestrator
-    from learning_partner.storage.database import Base, create_session_factory
+    from core.learning_partner.services.assessors import RuleBasedEvidenceAssessor
+    from core.learning_partner.services.orchestrator import LearningOrchestrator
+    from core.learning_partner.storage.database import Base, create_session_factory
 
     RULES = [
         {"keywords": ["normalize", "cdf"], "node_slug": "normalize_weights",

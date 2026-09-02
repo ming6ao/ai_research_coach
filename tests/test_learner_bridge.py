@@ -15,7 +15,7 @@ import pytest
 # Point the MVP at a per-test DB before importing the bridge (module reads env at init).
 from evaluators.base import CoachContent, EvaluationResult
 from core.task_decomposer import DecomposedEdge, DecomposedNode, TaskKnowledge
-from learning_partner.domain.types import EdgeType, NodeType
+from core.learning_partner.domain.types import EdgeType, NodeType
 
 
 class FakeDecomposer:
@@ -209,7 +209,7 @@ class TestNotObserved:
         session = bridge._session()
         try:
             c = bridge._container(session)
-            from learning_partner.domain.evidence import Evidence, EvidenceType, ObservationStatus
+            from core.learning_partner.domain.evidence import Evidence, EvidenceType, ObservationStatus
 
             node = c.knowledge_repository.get_node_by_slug("ml-systems")
             c.evidence_service.add_evidence(

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from learning_partner.domain.frontier import FrontierStatus
-from learning_partner.domain.learner import LearnerKnowledgeState, StateStatus
-from learning_partner.seed import seed_weighted_sampling, seed_weighted_sampling_task
-from learning_partner.services.frontier import FrontierService
+from core.learning_partner.domain.frontier import FrontierStatus
+from core.learning_partner.domain.learner import LearnerKnowledgeState, StateStatus
+from core.learning_partner.seed import seed_weighted_sampling, seed_weighted_sampling_task
+from core.learning_partner.services.frontier import FrontierService
 
 
 def _set_state(ctx, slug, mastery, uncertainty, evidence_count, status):

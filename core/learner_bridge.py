@@ -25,15 +25,15 @@ from sqlalchemy.orm import Session
 
 from core import storage
 from core.task_decomposer import TaskDecomposer
-from learning_partner.container import build_container
-from learning_partner.domain.assessment import AssessmentTarget, AssessmentTask, TargetRole, TaskType
-from learning_partner.domain.evidence import Evidence, EvidenceType, ObservationStatus
-from learning_partner.domain.knowledge import KnowledgeEdge, KnowledgeNode
-from learning_partner.domain.learner import Learner
-from learning_partner.domain.types import NodeType
-from learning_partner.storage.database import Base, create_session_factory
+from core.learning_partner.container import build_container
+from core.learning_partner.domain.assessment import AssessmentTarget, AssessmentTask, TargetRole, TaskType
+from core.learning_partner.domain.evidence import Evidence, EvidenceType, ObservationStatus
+from core.learning_partner.domain.knowledge import KnowledgeEdge, KnowledgeNode
+from core.learning_partner.domain.learner import Learner
+from core.learning_partner.domain.types import NodeType
+from core.learning_partner.storage.database import Base, create_session_factory
 
-_DEFAULT_LEARNER_DB = Path(__file__).resolve().parent.parent / "data" / "learner.db"
+_DEFAULT_LEARNER_DB = Path(__file__).resolve().parent.parent / "data" / "coach.db"
 
 # Thresholds for mapping judge fraction -> observation status.
 CORRECT_AT = 0.8
@@ -374,8 +374,8 @@ def clear_learner_data(learner_id: str, db_url: Optional[str] = None) -> int:
     Returns the total number of rows deleted across all tables.
     Knowledge graph nodes/edges and assessment tasks are global and left intact.
     """
-    from learning_partner.storage.database import create_session_factory
-    from learning_partner.storage.models import (
+    from core.learning_partner.storage.database import create_session_factory
+    from core.learning_partner.storage.models import (
         EvidenceModel,
         LearnerKnowledgeStateModel,
         LearnerMisconceptionModel,

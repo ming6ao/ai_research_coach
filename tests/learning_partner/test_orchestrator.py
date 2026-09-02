@@ -8,17 +8,17 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from learning_partner.container import build_container
-from learning_partner.domain.learner import StateStatus
-from learning_partner.domain.orchestrator import LearnerInteraction
-from learning_partner.seed import (
+from core.learning_partner.container import build_container
+from core.learning_partner.domain.learner import StateStatus
+from core.learning_partner.domain.orchestrator import LearnerInteraction
+from core.learning_partner.seed import (
     seed_misconceptions,
     seed_weighted_sampling,
     seed_weighted_sampling_task,
 )
-from learning_partner.services.assessors import RuleBasedEvidenceAssessor
-from learning_partner.services.orchestrator import LearningOrchestrator
-from learning_partner.storage.database import Base
+from core.learning_partner.services.assessors import RuleBasedEvidenceAssessor
+from core.learning_partner.services.orchestrator import LearningOrchestrator
+from core.learning_partner.storage.database import Base
 
 
 @pytest.fixture()

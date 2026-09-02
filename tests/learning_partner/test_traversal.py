@@ -1,6 +1,6 @@
 """Traversal utilities: prerequisites, dependents, neighbors, descendants, ancestors."""
 
-from learning_partner.domain.types import EdgeType
+from core.learning_partner.domain.types import EdgeType
 from tests.conftest import make_edge, make_node
 
 

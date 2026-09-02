@@ -9,10 +9,13 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 # Make the project package importable regardless of CWD.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Now lives under the parent `core/learning_partner` package; ensure repo root is on path.
+ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-from learning_partner.storage.database import Base  # noqa: E402
-from learning_partner.storage import models  # noqa: E402,F401  (register tables)
+from core.learning_partner.storage.database import Base  # noqa: E402
+from core.learning_partner.storage import models  # noqa: E402,F401  (register tables)
 
 config = context.config
 

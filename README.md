@@ -67,8 +67,9 @@ echo 'GOOGLE_API_KEY="YOUR_API_KEY"' > .env
 
 ### Learning-partner MVP integration
 
-This repo embeds the `learning_partner` MVP (installed as an editable package from
-`./learning_partner`) as a background learner model. The parent app drives it:
+This repo embeds the `learning_partner` MVP as the `core.learning_partner`
+package (in-repo, no install step) as a background learner model. The parent app
+drives it:
 
 - **On task pick** (`/start`, ADK `start_assessment`): the task (or custom
   interview question) is decomposed into a fine-grained knowledge graph
@@ -83,10 +84,12 @@ This repo embeds the `learning_partner` MVP (installed as an editable package fr
 - **On report** (`/report`): a `learner` block (per-node states, frontier,
   misconceptions, next action) is attached to the response.
 
-Storage: the MVP keeps its own SQLite DB (`data/learner.db` by default; override
-with `LEARNING_PARTNER_DB_URL`). The parent's `data/coach.db` gains one
-`learner_bindings` table mapping `candidate → learner_id` so repeat sessions
-reuse a single learner model per person. Both databases are gitignored.
+Storage: the MVP and the parent share one SQLite DB (`data/coach.db`). The
+parent's raw-`sqlite3` tables (`assessments`, `learner_bindings`, auth) coexist
+with the MVP's 13 SQLAlchemy tables in the same file; `learner_bindings` maps
+`candidate → learner_id` so repeat sessions reuse a single learner model per
+person. Override the MVP file with `LEARNING_PARTNER_DB_URL` if needed. The DB is
+gitignored.
 
 The MVP is LLM-free by design — all LLM decomposition happens in the parent app;
 the MVP only stores what it is given.
@@ -105,21 +108,23 @@ python -m core.learner_bridge --demo
 python -m core.learner_bridge alice@example.com
 
 # Point at a different MVP DB if you overrode LEARNING_PARTNER_DB_URL:
-python -m core.learner_bridge --db sqlite:///data/learner.db --demo
+python -m core.learner_bridge --db sqlite:///data/coach.db --demo
 ```
 
 Output shows per-node `mastery`/`uncertainty`/`status`/`evidence`, the top
 frontier entries, active misconceptions, and the policy's next action.
 
-#### Why is `learning_partner` installed?
+#### Why is `learning_partner` a package?
 
-It is the same repo, but a *separate Python package* (own `pyproject.toml`,
-own import root `learning_partner.*`, own DB and migrations). The parent app
-imports it like any package (`from learning_partner.container import ...`).
-Because it lives nested at `learning_partner/learning_partner/`, `pip install -e
-./learning_partner` registers it in the venv so `import learning_partner`
-resolves when running from the repo root — this is an import-resolution step,
-not a new dependency.
+It started as a separate package (own `pyproject.toml`, own import root
+`learning_partner.*`, own DB and migrations) that was installed with
+`pip install -e ./learning_partner`. It has since been folded into the parent
+repo as `core.learning_partner` (a sub-package of `core`, importable from the
+repo root — no editable install, no extra dependency). Its internal modules use
+relative imports; the parent reaches it via `from core.learning_partner...`.
+Its legacy standalone CLI (`python -m core.learning_partner`) and Alembic
+migrations remain under `core/learning_partner/`, but the runtime integration
+uses `Base.metadata.create_all` on the shared `coach.db`.
 
 ## Running the agent
 

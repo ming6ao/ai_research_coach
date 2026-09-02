@@ -10,9 +10,9 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from learning_partner.domain.errors import LearnerNotFoundError, NodeNotFoundError
-from learning_partner.domain.knowledge import utcnow
-from learning_partner.domain.learner import (
+from core.learning_partner.domain.errors import LearnerNotFoundError, NodeNotFoundError
+from core.learning_partner.domain.knowledge import utcnow
+from core.learning_partner.domain.learner import (
     LOW_MASTERY_THRESHOLD,
     UNKNOWN_DIMENSION,
     UNKNOWN_MASTERY,
