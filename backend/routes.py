@@ -168,7 +168,12 @@ def open_session(req: SessionOpenRequest, user: dict = Depends(get_current_user)
     else:
         raise HTTPException(status_code=400, detail="status must be 'active' or 'completed'")
 
-    task = next_task(session)
+    # Resume an in-flight remediation task if one is pending (generated tasks
+    # are excluded from the bank picker, so we surface them directly).
+    task = next(
+        (t for t in session.tasks if t.get("generated") and t["id"] not in session.asked_task_ids),
+        None,
+    ) or next_task(session)
     return {
         "session_id": session_id,
         "candidate": session.candidate,
@@ -256,7 +261,7 @@ def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
 @router.post("/submit")
 def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
     from core.session import Session, SkillState
-    from core.picker import next_task
+    from core.picker import next_task as next_task_bank
     from core.score import bayesian_update, effective_score, measurement_variance
     from core.hints import hint_penalty
     from evaluators.judge import LLMJudge
@@ -279,7 +284,7 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
 
     existing = next((r for r in session.results if r.task_id == req.task_id), None)
     if existing is not None:
-        nxt = next_task(session)
+        nxt = next_task_bank(session)
         return {
             "result": existing.to_dict(),
             "coach": existing.coach,
@@ -352,11 +357,6 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
     session.asked_task_ids.add(req.task_id)
     session.index += 1
 
-    state["session"] = session.to_dict()
-    store.save(req.session_id, state, feedback_list)
-
-    nxt = next_task(session)
-
     # Feed the judge result into the learning-partner MVP (evidence -> state ->
     # frontier -> next action). Never allowed to break the response.
     learner_update = None
@@ -369,11 +369,38 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
     except Exception:
         learner_update = None
 
+    # Iterative remediation: if the learner model still has an actionable gap,
+    # generate a simpler task for the highest-information-gain node and make it
+    # the next question (overriding the bank picker). The generated task is
+    # persisted in the session, so a later /submit for it records evidence.
+    next_task = None
+    if learner_update is not None:
+        from core.remediation import plan_remediation
+
+        snapshot = None
+        try:
+            snapshot = LearnerBridge().learner_snapshot(session.candidate)
+        except Exception:
+            snapshot = None
+
+        generated = plan_remediation(
+            session, task, result, learner_update, snapshot or {}
+        )
+        if generated is not None:
+            next_task = _task_view(generated, session)
+
+    if next_task is None:
+        nxt = next_task_bank(session)
+        next_task = _task_view(nxt, session) if nxt else None
+
+    state["session"] = session.to_dict()
+    store.save(req.session_id, state, feedback_list)
+
     return {
         "result": result.to_dict(),
         "feedback": coach.feedback,
         "coach": coach.to_dict(),
-        "next_task": _task_view(nxt, session) if nxt else None,
+        "next_task": next_task,
         "remaining": len(session.tasks) - session.index,
         "skill_update": skill_update,
         "learner_update": learner_update,

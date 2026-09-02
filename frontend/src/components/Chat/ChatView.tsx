@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useAssessmentStore, type ResultWithFeedback } from '../../stores/assessmentStore';
+import type { Task } from '../../api/client';
 import { CodeEditor } from '../TaskPanel/CodeEditor';
 import { HintSection } from '../TaskPanel/HintSection';
 import { Markdown } from '../Markdown/Markdown';
@@ -91,13 +92,18 @@ function CoachingBubble({ r }: { r: ResultWithFeedback }) {
   );
 }
 
-function TaskPromptBubble({ prompt, skill }: { prompt: string; skill: string }) {
+function TaskPromptBubble({ prompt, skill, remediation }: { prompt: string; skill: string; remediation?: Task['remediation'] }) {
   return (
     <CoachBubble>
       <div className="space-y-1">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
           Question · {skill}
         </p>
+        {remediation && (
+          <p className="inline-flex items-center gap-1 rounded-full border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-2.5 py-0.5 text-[11px] font-semibold text-[var(--color-accent)]">
+            Warm-up{remediation.node_slug ? ` · focus: ${remediation.node_slug}` : ''}
+          </p>
+        )}
         <Markdown text={prompt} />
       </div>
     </CoachBubble>
@@ -131,27 +137,8 @@ function DoneBubble() {
   );
 }
 
-function NextTaskButton() {
-  const { advanceTask } = useAssessmentStore();
-  return (
-    <CoachBubble>
-      <div className="space-y-2">
-        <p className="text-sm text-[var(--color-text-primary)]">
-          Review the coaching above, then continue when you're ready.
-        </p>
-        <button
-          onClick={advanceTask}
-          className="rounded-lg bg-[var(--color-accent)] px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)]"
-        >
-          Next question
-        </button>
-      </div>
-    </CoachBubble>
-  );
-}
-
 export function ChatView() {
-  const { results, currentTask, mode, loading, initialQuestion, pendingTask } =
+  const { results, currentTask, mode, loading, initialQuestion } =
     useAssessmentStore();
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -184,11 +171,11 @@ export function ChatView() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [results.length, currentTask?.id, pendingTask, loading]);
+  }, [results.length, currentTask?.id, loading]);
 
   const hasHistory = results.length > 0;
   const waiting = submittedTaskId === currentTask?.id;
-  const showAdvance = waiting && !loading;
+  const finished = !currentTask && results.length > 0 && !loading;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -206,7 +193,7 @@ export function ChatView() {
           ))}
 
           {!waiting && currentTask && (
-            <TaskPromptBubble prompt={currentTask.prompt} skill={currentTask.skill} />
+            <TaskPromptBubble prompt={currentTask.prompt} skill={currentTask.skill} remediation={currentTask.remediation} />
           )}
 
           {!waiting && currentTask && (currentTask.hints?.length ?? 0) > 0 && (
@@ -240,7 +227,7 @@ export function ChatView() {
             </div>
           )}
 
-          {showAdvance && (pendingTask ? <NextTaskButton key="next" /> : <DoneBubble key="done" />)}
+          {finished && <DoneBubble key="done" />}
 
           {loading && (
             <CoachBubble>

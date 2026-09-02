@@ -34,8 +34,15 @@ COVERAGE_BONUS = 3.0
 
 
 def next_task(session: Session) -> Optional[dict]:
-    """Select next task maximizing expected information gain per unit time."""
-    available = [t for t in session.tasks if t["id"] not in session.asked_task_ids]
+    """Select next task maximizing expected information gain per unit time.
+
+    Generated remediation tasks are excluded: they are injected directly by the
+    remediation loop, never picked from the bank.
+    """
+    available = [
+        t for t in session.tasks
+        if t["id"] not in session.asked_task_ids and not t.get("generated")
+    ]
     if not available:
         return None
 

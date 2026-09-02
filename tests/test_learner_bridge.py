@@ -199,6 +199,51 @@ class TestSubmission:
         assert out["next_action"]["action_type"] in ("probe", "explain", "misconception_probe", "code")
 
 
+class TestGeneratedTask:
+    def test_bootstrap_generated_task_targets_existing_node(self, bridge):
+        task = _task()
+        bridge.bootstrap_task(task)
+        bridge.ensure_learner("gen@example.com")
+
+        generated = {
+            "id": "remed_abc123",
+            "skill": "ml_systems",
+            "type": "code",
+            "difficulty": 2,
+            "prompt": "Simpler task.",
+            "max_score": 5,
+            "hints": [],
+            "generated": True,
+            "mvp_target_slug": "ml-systems",
+        }
+        boot = bridge.bootstrap_generated_task(generated)
+        assert boot["target_slug"] == "ml-systems"
+        assert boot["mvp_task_id"]
+
+        # Scoring the generated task updates the primary node.
+        from evaluators.base import CoachContent, EvaluationResult
+
+        coach = CoachContent(feedback="ok", misconception="", steps=[])
+        result = EvaluationResult(generated["id"], "ml_systems", 5, 5, "r", coach.to_dict())
+        out = bridge.record_submission("gen@example.com", generated, result, coach)
+        assert out["observation_status"] == "correct"
+
+        snap = bridge.learner_snapshot("gen@example.com")
+        assert snap["states"]["ml-systems"]["mastery"] > 0.5
+
+    def test_generated_task_nodes_are_tagged_with_skill(self, bridge):
+        task = _task()
+        bridge.bootstrap_task(task)
+        bridge.ensure_learner("tag@example.com")
+        session = bridge._session()
+        try:
+            c = bridge._container(session)
+            node = c.knowledge_repository.get_node_by_slug("ml-systems")
+            assert node.metadata.get("skill") == "ml_systems"
+        finally:
+            session.close()
+
+
 class TestNotObserved:
     def test_not_observed_evidence_not_incorrect(self, bridge):
         """The bridge never creates not_observed evidence; but the MVP rule holds."""

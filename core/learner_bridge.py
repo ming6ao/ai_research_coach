@@ -114,6 +114,7 @@ class LearnerBridge:
             container = self._container(session)
             kg = container.knowledge_service
             node_ids: dict[str, uuid.UUID] = {}
+            skill = task.get("skill", "general")
 
             for node in knowledge.nodes:
                 existing = kg.get_node_by_slug(node.slug)
@@ -126,7 +127,7 @@ class LearnerBridge:
                         slug=node.slug,
                         name=node.name,
                         description=node.description,
-                        metadata={"importance": node.importance},
+                        metadata={"importance": node.importance, "skill": skill},
                     )
                 )
                 node_ids[node.slug] = created.id
@@ -168,6 +169,76 @@ class LearnerBridge:
             if task.metadata.get("coach_task_id") == coach_task_id:
                 return task
         return None
+
+    def bootstrap_generated_task(self, task: dict) -> dict:
+        """Register a generated remediation task targeting an existing KG node.
+
+        Unlike ``bootstrap_task``, no decomposition is needed: the target node
+        already exists (created from the parent task's decomposition). We attach
+        a new MVP task whose PRIMARY target is that existing node, so a later
+        ``record_submission`` updates exactly the node the remediation drills.
+
+        Args:
+            task: a generated task dict carrying ``mvp_target_slug``.
+
+        Returns {"mvp_task_id", "target_slug", "target_node_id"}.
+        """
+        target_slug = task.get("mvp_target_slug")
+        if not target_slug:
+            raise ValueError("generated remediation task missing mvp_target_slug")
+
+        session = self._session()
+        try:
+            container = self._container(session)
+            kg = container.knowledge_service
+            node = kg.get_node_by_slug(target_slug)
+            if node is None:
+                # Node vanished: fall back to registering under the skill slug.
+                skill_slug = self._slugify(task.get("skill", "general"))
+                node = kg.get_node_by_slug(skill_slug)
+            if node is None:
+                raise ValueError(f"target node not found for slug {target_slug!r}")
+
+            mvp_task = self._find_mvp_task(container, task["id"])
+            if mvp_task is None:
+                mvp_task = container.assessment_service.create_task(
+                    AssessmentTask(
+                        task_type=TaskType.CODING if task.get("type", "code") == "code" else TaskType.EXPLANATION,
+                        title=(task.get("prompt", "")[:80] or task["id"]),
+                        prompt=task.get("prompt", ""),
+                        difficulty=max(0.0, min(1.0, (int(task.get("difficulty", 2)) - 1) / 4)),
+                        metadata={
+                            "coach_task_id": task["id"],
+                            "skill": task.get("skill", "general"),
+                            "generated": True,
+                        },
+                    )
+                )
+
+            existing = container.target_repository.list_targets_for_task(mvp_task.id)
+            if not existing:
+                container.assessment_service.add_target(
+                    mvp_task.id,
+                    node.id,
+                    TargetRole.PRIMARY,
+                    1.0,
+                    metadata={"slug": node.slug, "generated": True},
+                )
+
+            return {
+                "mvp_task_id": str(mvp_task.id),
+                "target_slug": node.slug,
+                "target_node_id": str(node.id),
+            }
+        finally:
+            session.close()
+
+    @staticmethod
+    def _slugify(text: str) -> str:
+        import re
+
+        slug = re.sub(r"[^a-z0-9]+", "-", text.strip().lower()).strip("-")
+        return slug[:60] or "general"
 
     @staticmethod
     def _ensure_targets(container, mvp_task, knowledge, node_ids) -> None:

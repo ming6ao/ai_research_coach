@@ -63,6 +63,7 @@ class Session:
     skill_states: Dict[str, SkillState] = field(default_factory=dict)
     asked_task_ids: Set[str] = field(default_factory=set)
     viewed_hints: Dict[str, List[str]] = field(default_factory=dict)
+    generated_task_ids: Set[str] = field(default_factory=set)
 
     @property
     def mode(self) -> str:
@@ -94,6 +95,11 @@ class Session:
                 return skill
         return {"id": skill_id, "name": skill_id, "importance": 3}
 
+    def add_generated_task(self, task: dict) -> None:
+        """Persist a generated remediation task in the session and track it."""
+        self.tasks.append(task)
+        self.generated_task_ids.add(task["id"])
+
     def to_dict(self):
         return {
             "candidate": self.candidate,
@@ -103,6 +109,7 @@ class Session:
             "skill_states": {k: v.to_dict() for k, v in self.skill_states.items()},
             "asked_task_ids": list(self.asked_task_ids),
             "viewed_hints": self.viewed_hints,
+            "generated_task_ids": list(self.generated_task_ids),
         }
 
     @classmethod
@@ -114,4 +121,5 @@ class Session:
         }
         s.asked_task_ids = set(d.get("asked_task_ids", []))
         s.viewed_hints = dict(d.get("viewed_hints", {}))
+        s.generated_task_ids = set(d.get("generated_task_ids", []))
         return s

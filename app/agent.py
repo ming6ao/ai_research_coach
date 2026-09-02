@@ -14,7 +14,7 @@ from google.adk.tools import ToolContext
 
 from core.config import CONV_MODEL, http_retry_options
 from core.session import Session, SkillState
-from core.picker import next_task
+from core.picker import next_task as next_task_bank
 from core.score import bayesian_update, effective_score, measurement_variance
 from core.hints import select_hints, hint_penalty, next_hidden_hint
 
@@ -33,7 +33,7 @@ def start_assessment(candidate_name: str, tool_context: ToolContext) -> dict:
     existing = tool_context.state.get("session")
     if existing and existing.get("candidate") == candidate_name:
         session = Session.from_dict(existing)
-        task = next_task(session)
+        task = next_task_bank(session)
         return {
             "message": f"Resumed existing assessment for {session.candidate}.",
             "total_tasks": len(session.tasks),
@@ -42,7 +42,7 @@ def start_assessment(candidate_name: str, tool_context: ToolContext) -> dict:
         }
     session = Session(candidate_name)
     tool_context.state["session"] = session.to_dict()
-    task = next_task(session)
+    task = next_task_bank(session)
 
     # Bootstrap the learning-partner MVP graph from the first task.
     try:
@@ -79,7 +79,7 @@ def submit_answer(task_id: str, answer: str, hints_used: list = None, tool_conte
         return {"error": f"Task {task_id} not found in this assessment."}
     existing = next((r for r in session.results if r.task_id == task_id), None)
     if existing is not None:
-        nxt = next_task(session)
+        nxt = next_task_bank(session)
         return {
             "result": existing.to_dict(),
             "coach": existing.coach,
@@ -115,11 +115,6 @@ def submit_answer(task_id: str, answer: str, hints_used: list = None, tool_conte
     session.results.append(result)
     session.index += 1
 
-    # Save updated session
-    tool_context.state["session"] = session.to_dict()
-
-    nxt = next_task(session)
-
     # Feed the judge result into the learning-partner MVP.
     try:
         from core.learner_bridge import LearnerBridge
@@ -130,11 +125,39 @@ def submit_answer(task_id: str, answer: str, hints_used: list = None, tool_conte
     except Exception:
         learner_update = None
 
+    # Iterative remediation: if the learner model still has an actionable gap,
+    # generate a simpler task for the highest-information-gain node and make it
+    # the next question (overriding the bank picker).
+    next_task = None
+    if learner_update is not None:
+        from core.learner_bridge import LearnerBridge
+        from core.remediation import plan_remediation
+
+        snapshot = None
+        try:
+            snapshot = LearnerBridge().learner_snapshot(session.candidate)
+        except Exception:
+            snapshot = None
+
+        generated = plan_remediation(
+            session, task, result, learner_update, snapshot or {}
+        )
+        if generated is not None:
+            # A generated task persists in the session and is presented next.
+            next_task = _task_view(generated, session)
+
+    if next_task is None:
+        nxt = next_task_bank(session)
+        next_task = _task_view(nxt, session) if nxt else None
+
+    # Save updated session (may include newly generated tasks).
+    tool_context.state["session"] = session.to_dict()
+
     return {
         "result": result.to_dict(),
         "feedback": coach.feedback,
         "coach": coach.to_dict(),
-        "next_task": _task_view(nxt, session) if nxt else None,
+        "next_task": next_task,
         "remaining": len(session.tasks) - session.index,
         "skill_update": {
             "skill": skill_id,
@@ -207,7 +230,7 @@ def _task_view(task: dict, session: Session) -> dict:
     if task is None:
         return None
     ability = session.get_skill_state(task["skill"]).score
-    return {
+    view = {
         "id": task["id"],
         "skill": task["skill"],
         "type": "code",
@@ -216,6 +239,9 @@ def _task_view(task: dict, session: Session) -> dict:
         "scaffold": _build_code_stub(task),
         "hints": select_hints(task, ability),
     }
+    if task.get("generated"):
+        view["remediation"] = {"node_slug": task.get("mvp_target_slug")}
+    return view
 
 
 root_agent = Agent(

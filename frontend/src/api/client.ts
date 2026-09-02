@@ -15,6 +15,7 @@ export interface Task {
   difficulty: number;
   scaffold?: string;
   hints?: Hint[];
+  remediation?: { node_slug?: string };
 }
 
 export interface EvaluationResult {

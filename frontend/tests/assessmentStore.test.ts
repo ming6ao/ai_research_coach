@@ -16,7 +16,7 @@ class MemoryStorage {
   }
 }
 
-test('submit does not auto-advance; next task waits for advanceTask', async () => {
+test('submit auto-advances to the next task immediately', async () => {
   (globalThis as Record<string, unknown>).localStorage = new MemoryStorage();
   const store = useAssessmentStore.getState();
 
@@ -61,16 +61,52 @@ test('submit does not auto-advance; next task waits for advanceTask', async () =
 
   await useAssessmentStore.getState().submitAnswer('t1', 'code');
   const after = useAssessmentStore.getState();
-  assert.equal(after.currentTask?.id, 't1', 'current task must NOT advance after submit');
-  assert.equal(after.pendingTask?.id, 't2', 'next task is held in pendingTask');
+  assert.equal(after.currentTask?.id, 't2', 'current task auto-advances to next task');
   assert.equal(after.results.length, 1);
   assert.equal(after.results[0].coach?.misconception, 'none');
 
-  useAssessmentStore.getState().advanceTask();
-  const advanced = useAssessmentStore.getState();
-  assert.equal(advanced.currentTask?.id, 't2');
-  assert.equal(advanced.pendingTask, null);
+  assert.equal(start.mock.callCount(), 1);
+  assert.equal(submit.mock.callCount(), 1);
+  mock.restoreAll();
+});
 
+test('submit with null next_task leaves no current task (done)', async () => {
+  (globalThis as Record<string, unknown>).localStorage = new MemoryStorage();
+  const store = useAssessmentStore.getState();
+
+  const task = {
+    id: 't1',
+    skill: 'ml_modeling',
+    type: 'code' as const,
+    prompt: 'Implement foo',
+    difficulty: 2,
+    hints: [],
+  };
+
+  const start = mock.method(apiClient, 'start', async () =>
+    ({
+      session_id: 's1',
+      candidate: 'guest-abc12345',
+      message: 'Assessment started.',
+      total_tasks: 1,
+      first_task: task,
+    }) as StartResponse,
+  );
+  const submit = mock.method(apiClient, 'submit', async () =>
+    ({
+      result: { task_id: 't1', skill: 'ml_modeling', score: 5, max_score: 5, rationale: 'ok' },
+      feedback: 'Great job!',
+      coach: { feedback: 'Great job!', misconception: 'none', steps: [] },
+      next_task: null,
+      remaining: 0,
+    }) as SubmitResponse,
+  );
+
+  await store.startAssessment('guest');
+  await useAssessmentStore.getState().submitAnswer('t1', 'code');
+  const after = useAssessmentStore.getState();
+  assert.equal(after.currentTask, null, 'no current task when finished');
+  assert.equal(after.results.length, 1);
   assert.equal(start.mock.callCount(), 1);
   assert.equal(submit.mock.callCount(), 1);
   mock.restoreAll();
