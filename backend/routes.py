@@ -512,12 +512,18 @@ def delete_assessment_endpoint(assessment_id: str, user: dict = Depends(get_curr
 @router.delete("/sessions/clear/{candidate}")
 def clear_candidate_data(candidate: str, user: dict = Depends(get_current_user)):
     store = get_store()
-    from core.storage import delete_assessments_by_candidate
+    from core.storage import delete_assessments_by_candidate, get_learner_binding, delete_learner_binding
+    from core.learner_bridge import clear_learner_data
     if user is not None:
         candidate = user["email"]
     active_deleted = store.delete_by_candidate(candidate)
     assessments_deleted = delete_assessments_by_candidate(candidate)
+    learner_deleted = 0
+    learner_id = get_learner_binding(candidate)
+    if learner_id:
+        learner_deleted = clear_learner_data(learner_id)
+        delete_learner_binding(candidate)
     return {
         "ok": True,
-        "deleted": active_deleted + assessments_deleted,
+        "deleted": active_deleted + assessments_deleted + learner_deleted,
     }

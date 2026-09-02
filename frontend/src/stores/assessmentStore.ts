@@ -208,10 +208,6 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
   },
 
   endPractice: () => {
-    const { sessionId, mode } = get();
-    if (sessionId && mode === 'practice') {
-      apiClient.deleteActiveSession(sessionId).catch(() => undefined);
-    }
     localStorage.removeItem(SESSION_KEY);
     set({
       sessionId: null,

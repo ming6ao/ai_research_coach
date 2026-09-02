@@ -368,6 +368,71 @@ class LearnerBridge:
             session.close()
 
 
+def clear_learner_data(learner_id: str, db_url: Optional[str] = None) -> int:
+    """Delete all per-learner data from learner.db.
+
+    Returns the total number of rows deleted across all tables.
+    Knowledge graph nodes/edges and assessment tasks are global and left intact.
+    """
+    from learning_partner.storage.database import create_session_factory
+    from learning_partner.storage.models import (
+        EvidenceModel,
+        LearnerKnowledgeStateModel,
+        LearnerMisconceptionModel,
+        LearnerModel,
+        LearnerStateUpdateModel,
+        MisconceptionEvidenceModel,
+        LearnerFrontierModel,
+    )
+
+    lid = str(learner_id)
+    url = db_url or os.environ.get("LEARNING_PARTNER_DB_URL") or f"sqlite:///{_DEFAULT_LEARNER_DB}"
+    session_factory, _ = create_session_factory(url)
+    session = session_factory()
+    total = 0
+    try:
+        # misconception_evidence (child of learner_misconceptions)
+        mc_ids = [m.id for m in session.query(LearnerMisconceptionModel.id).filter(
+            LearnerMisconceptionModel.learner_id == lid
+        ).all()]
+        if mc_ids:
+            total += session.query(MisconceptionEvidenceModel).filter(
+                MisconceptionEvidenceModel.misconception_id.in_(mc_ids)
+            ).delete(synchronize_session=False)
+
+        total += session.query(LearnerMisconceptionModel).filter(
+            LearnerMisconceptionModel.learner_id == lid
+        ).delete(synchronize_session=False)
+
+        total += session.query(LearnerFrontierModel).filter(
+            LearnerFrontierModel.learner_id == lid
+        ).delete(synchronize_session=False)
+
+        total += session.query(LearnerStateUpdateModel).filter(
+            LearnerStateUpdateModel.learner_id == lid
+        ).delete(synchronize_session=False)
+
+        total += session.query(EvidenceModel).filter(
+            EvidenceModel.learner_id == lid
+        ).delete(synchronize_session=False)
+
+        total += session.query(LearnerKnowledgeStateModel).filter(
+            LearnerKnowledgeStateModel.learner_id == lid
+        ).delete(synchronize_session=False)
+
+        total += session.query(LearnerModel).filter(
+            LearnerModel.id == lid
+        ).delete(synchronize_session=False)
+
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+    return total
+
+
 # ---------------------------------------------------------------------------
 # CLI inspector
 #
