@@ -56,7 +56,7 @@ test('submit auto-advances to the next task immediately', async () => {
     }) as SubmitResponse,
   );
 
-  await store.startAssessment('guest');
+  await store.startAssessment();
   assert.equal(useAssessmentStore.getState().currentTask?.id, 't1');
 
   await useAssessmentStore.getState().submitAnswer('t1', 'code');
@@ -102,7 +102,7 @@ test('submit with null next_task leaves no current task (done)', async () => {
     }) as SubmitResponse,
   );
 
-  await store.startAssessment('guest');
+  await store.startAssessment();
   await useAssessmentStore.getState().submitAnswer('t1', 'code');
   const after = useAssessmentStore.getState();
   assert.equal(after.currentTask, null, 'no current task when finished');

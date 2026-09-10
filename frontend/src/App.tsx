@@ -6,7 +6,7 @@ import { Header } from './components/Header/Header';
 import { ChatView } from './components/Chat/ChatView';
 import { WelcomeView } from './components/Chat/WelcomeView';
 import { AuthModal } from './components/Auth/AuthModal';
-import { ReportView } from './components/Report/ReportView';
+import { LearnerProgressView } from './components/Progress/LearnerProgressView';
 
 function OfflineBanner() {
   const [online, setOnline] = useState(() => navigator.onLine);
@@ -25,7 +25,7 @@ function OfflineBanner() {
   if (online) return null;
   return (
     <div className="bg-[var(--color-error)] px-4 py-1.5 text-center text-xs font-medium text-white">
-      You're offline. The app is cached, but assessments need a connection.
+      You're offline. The app is cached, but sessions need a connection.
     </div>
   );
 }
@@ -42,7 +42,7 @@ function Splash() {
 }
 
 export default function App() {
-  const { report, sessionId, error } = useAssessmentStore();
+  const { progressView, sessionId, error } = useAssessmentStore();
   const { authLoading, restore } = useAuthStore();
   const [authModal, setAuthModal] = useState<null | 'login' | 'signup'>(null);
   const [restored, setRestored] = useState(false);
@@ -57,18 +57,6 @@ export default function App() {
     restore().finally(() => setRestored(true));
   }, [restore]);
 
-  if (report) {
-    return (
-      <div className="flex h-screen flex-col">
-        <Header onOpenAuth={setAuthModal} />
-        <OfflineBanner />
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <ReportView />
-        </div>
-      </div>
-    );
-  }
-
   if (!restored || authLoading) {
     return <Splash />;
   }
@@ -80,7 +68,9 @@ export default function App() {
       <Header onOpenAuth={setAuthModal} />
       <OfflineBanner />
 
-      {sessionId ? (
+      {progressView ? (
+        <LearnerProgressView />
+      ) : sessionId ? (
         <ChatView />
       ) : (
         <WelcomeView />

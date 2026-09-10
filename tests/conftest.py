@@ -14,21 +14,20 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from core.learning_partner.domain.knowledge import KnowledgeNode
-from core.learning_partner.domain.types import NodeType
-from core.learning_partner.storage.assessment_repositories import (
+from core.learner.domain.knowledge import KnowledgeNode
+from core.learner.domain.types import NodeType
+from core.learner.storage.assessment_repositories import (
     SQLAssessmentTargetRepository,
     SQLAssessmentTaskRepository,
 )
-from core.learning_partner.storage.database import Base
-from core.learning_partner.storage.evidence_repositories import SQLEvidenceRepository
-from core.learning_partner.storage.learner_repositories import SQLLearnerModelRepository
-from core.learning_partner.storage.repositories import SQLKnowledgeGraphRepository
-from core.learning_partner.storage import models  # noqa: F401  (register tables)
-from core.learning_partner.storage.update_repositories import (
+from core.learner.storage.database import Base
+from core.learner.storage.evidence_repositories import SQLEvidenceRepository
+from core.learner.storage.learner_repositories import SQLLearnerModelRepository
+from core.learner.storage.repositories import SQLKnowledgeGraphRepository
+from core.learner.storage import models  # noqa: F401  (register tables)
+from core.learner.storage.update_repositories import (
     SQLFrontierRepository,
     SQLLearnerMisconceptionRepository,
-    SQLStateUpdateRepository,
 )
 
 
@@ -78,12 +77,6 @@ def target_repository(session):
 
 
 @pytest.fixture()
-def update_repo(session):
-    """In-memory SQLite state-update audit repository, fresh per test."""
-    return SQLStateUpdateRepository(session)
-
-
-@pytest.fixture()
 def misconception_repo(session):
     """In-memory SQLite misconception repository, fresh per test."""
     return SQLLearnerMisconceptionRepository(session)
@@ -97,7 +90,7 @@ def frontier_repo(session):
 
 @pytest.fixture()
 def misconception_service(misconception_repo, learner_repository, repository, evidence_repository):
-    from core.learning_partner.services.misconception import MisconceptionService
+    from core.learner.services.misconception import MisconceptionService
 
     return MisconceptionService(
         misconception_repo, learner_repository, repository, evidence_repository
@@ -106,7 +99,7 @@ def misconception_service(misconception_repo, learner_repository, repository, ev
 
 @pytest.fixture()
 def frontier_service(frontier_repo, learner_repository, repository, task_repository, target_repository):
-    from core.learning_partner.services.frontier import FrontierService
+    from core.learner.services.frontier import FrontierService
 
     return FrontierService(
         frontier_repo, learner_repository, repository, task_repository, target_repository
@@ -115,7 +108,7 @@ def frontier_service(frontier_repo, learner_repository, repository, task_reposit
 
 @pytest.fixture()
 def policy_engine(learner_repository, repository, misconception_repo, task_repository, target_repository):
-    from core.learning_partner.services.policy import PolicyEngine
+    from core.learner.services.policy import PolicyEngine
 
     return PolicyEngine(
         learner_repository, repository, misconception_repo, task_repository, target_repository
@@ -124,28 +117,28 @@ def policy_engine(learner_repository, repository, misconception_repo, task_repos
 
 @pytest.fixture()
 def service(repository):
-    from core.learning_partner.services.knowledge_graph import KnowledgeGraphService
+    from core.learner.services.knowledge_graph import KnowledgeGraphService
 
     return KnowledgeGraphService(repository)
 
 
 @pytest.fixture()
 def learner_service(learner_repository, repository):
-    from core.learning_partner.services.learner_model import LearnerModelService
+    from core.learner.services.learner_model import LearnerModelService
 
     return LearnerModelService(learner_repository, repository)
 
 
 @pytest.fixture()
 def evidence_service(evidence_repository, learner_repository, repository):
-    from core.learning_partner.services.evidence import EvidenceService
+    from core.learner.services.evidence import EvidenceService
 
     return EvidenceService(evidence_repository, learner_repository, repository)
 
 
 @pytest.fixture()
 def assessment_service(task_repository, target_repository, repository):
-    from core.learning_partner.services.assessment import AssessmentService
+    from core.learner.services.assessment import AssessmentService
 
     return AssessmentService(task_repository, target_repository, repository)
 
@@ -153,7 +146,7 @@ def assessment_service(task_repository, target_repository, repository):
 @pytest.fixture()
 def seeded_repository(repository):
     """Knowledge graph seeded with the Weighted Sampling From Scratch graph."""
-    from core.learning_partner.seed import seed_weighted_sampling
+    from tests.learning_partner.fixtures import seed_weighted_sampling
 
     seed_weighted_sampling(repository)
     return repository
@@ -183,6 +176,6 @@ def make_edge(
     edge_type,
     **kwargs,
 ):
-    from core.learning_partner.domain.knowledge import KnowledgeEdge
+    from core.learner.domain.knowledge import KnowledgeEdge
 
     return KnowledgeEdge(source_node_id=source.id, target_node_id=target.id, edge_type=edge_type, **kwargs)

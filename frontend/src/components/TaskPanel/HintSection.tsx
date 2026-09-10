@@ -6,10 +6,9 @@ interface Props {
   viewed: Set<string>;
   disabled: boolean;
   onRevealHint: (id: string) => void;
-  mode: 'assessment' | 'practice';
 }
 
-export function HintSection({ hints, viewed, disabled, onRevealHint, mode }: Props) {
+export function HintSection({ hints, viewed, disabled, onRevealHint }: Props) {
   const hiddenCount = hints.length - viewed.size;
   const nextHint = hints.find((h) => !viewed.has(h.id));
 
@@ -45,7 +44,7 @@ export function HintSection({ hints, viewed, disabled, onRevealHint, mode }: Pro
           + Request hint
         </button>
       )}
-      {viewed.size > 0 && mode === 'assessment' && (
+      {viewed.size > 0 && (
         <p className="text-[11px] text-[var(--color-text-muted)]">
           Using help adjusts your mastery for this task.
         </p>

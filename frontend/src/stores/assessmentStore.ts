@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { apiClient } from '../api/client';
-import type { Task, EvaluationResult, Report, FeedbackEntry, ResumeResponse, CoachContent } from '../api/client';
+import type { Task, EvaluationResult, FeedbackEntry, ResumeResponse, CoachContent, LearnerSnapshot } from '../api/client';
 
 export interface LogEntry {
   id: number;
@@ -23,24 +23,24 @@ export interface ResultWithFeedback {
 interface AssessmentState {
   sessionId: string | null;
   candidate: string;
-  mode: 'assessment' | 'practice';
   currentTask: Task | null;
   taskIndex: number;
   totalTasks: number;
   results: ResultWithFeedback[];
   skillStates: Record<string, { score: number; confidence: number; questions_answered: number }>;
-  report: Report | null;
+  learnerSnapshot: LearnerSnapshot | null;
+  progressView: boolean;
   chatLog: LogEntry[];
   loading: boolean;
   error: string | null;
   submitted: boolean;
   initialQuestion: string | null;
 
-  startAssessment: (name: string, initialQuestion?: string) => Promise<void>;
+  startAssessment: (initialQuestion?: string) => Promise<void>;
   resumeSession: (response: ResumeResponse) => void;
   submitAnswer: (taskId: string, answer: string, hintsUsed?: string[]) => Promise<void>;
-  endPractice: () => void;
-  loadReport: () => Promise<void>;
+  completeSession: () => Promise<void>;
+  reset: () => void;
   addLog: (message: string) => void;
 }
 
@@ -66,20 +66,16 @@ export function getStoredSessionId(): string | null {
   return localStorage.getItem(SESSION_KEY);
 }
 
-function deriveMode(candidate: string): 'assessment' | 'practice' {
-  return candidate.startsWith('guest') || candidate === 'Guest' ? 'practice' : 'assessment';
-}
-
 export const useAssessmentStore = create<AssessmentState>((set, get) => ({
   sessionId: null,
   candidate: '',
-  mode: 'assessment',
   currentTask: null,
   taskIndex: 0,
   totalTasks: 0,
   results: [],
   skillStates: {},
-  report: null,
+  learnerSnapshot: null,
+  progressView: false,
   chatLog: [],
   loading: false,
   error: null,
@@ -97,40 +93,43 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
 
   resumeSession: (res: ResumeResponse) => {
     const results = res.results.map(toResultWithFeedback);
-    const mode = deriveMode(res.candidate);
+    const done = res.current_task === null && results.length > 0;
     set({
       sessionId: res.session_id,
-      candidate: mode === 'practice' ? 'Guest' : res.candidate,
-      mode,
+      candidate: res.candidate,
       currentTask: res.current_task,
       taskIndex: res.task_index,
       totalTasks: res.total_tasks,
       results,
       skillStates: res.skill_states,
-      report: null,
+      learnerSnapshot: res.learner,
+      progressView: done,
       submitted: false,
     });
     localStorage.setItem(SESSION_KEY, res.session_id);
-    get().addLog(`Resumed ${mode === 'practice' ? 'practice' : `assessment for ${res.candidate}`} (${res.task_index}/${res.total_tasks})`);
+    if (done) {
+      get().addLog(`Resumed a completed session (${results.length} questions).`);
+    } else {
+      get().addLog(`Resumed session for ${res.candidate} (${res.task_index}/${res.total_tasks})`);
+    }
   },
 
-  startAssessment: async (name, initialQuestion) => {
-    const mode = deriveMode(name);
+  startAssessment: async (initialQuestion) => {
     set({ loading: true, error: null });
-    get().addLog(mode === 'practice' ? 'Starting practice mode...' : `Starting assessment for "${name}"...`);
+    get().addLog('Starting a session...');
     try {
-      const res = await apiClient.start(name, initialQuestion);
+      const res = await apiClient.start(initialQuestion);
       localStorage.setItem(SESSION_KEY, res.session_id);
       set({
         sessionId: res.session_id,
-        candidate: mode === 'practice' ? 'Guest' : res.candidate || name,
-        mode,
+        candidate: res.candidate,
         currentTask: res.first_task,
         taskIndex: 0,
         totalTasks: res.total_tasks,
         results: [],
         skillStates: {},
-        report: null,
+        learnerSnapshot: null,
+        progressView: false,
         submitted: false,
         initialQuestion: initialQuestion?.trim() || null,
       });
@@ -162,7 +161,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         result: res.result,
         feedback: res.feedback,
         coach: res.coach,
-        scored: res.skill_update !== undefined,
+        scored: true,
       };
 
       const newSkillStates = { ...get().skillStates };
@@ -181,12 +180,10 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         skillStates: newSkillStates,
         submitted: false,
       });
-      if (res.skill_update) {
-        const score = res.result.score;
-        const max = res.result.max_score;
-        get().addLog(`Score: ${score}/${max} — review the teaching below, then continue`);
+      if (res.next_task) {
+        get().addLog('Review the teaching below, then continue to the next question.');
       } else {
-        get().addLog(`Feedback received — nothing was scored.`);
+        get().addLog('That was the last question — review the teaching, then view your progress.');
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -197,35 +194,19 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
     }
   },
 
-  endPractice: () => {
-    localStorage.removeItem(SESSION_KEY);
-    set({
-      sessionId: null,
-      candidate: '',
-      mode: 'assessment',
-      currentTask: null,
-      taskIndex: 0,
-      totalTasks: 0,
-      results: [],
-      skillStates: {},
-      report: null,
-      chatLog: [],
-      error: null,
-      submitted: false,
-      initialQuestion: null,
-    });
-  },
-
-  loadReport: async () => {
+  completeSession: async () => {
     const { sessionId } = get();
     if (!sessionId) return;
     set({ loading: true, error: null });
-    get().addLog("Generating final report...");
+    get().addLog('Loading your progress summary...');
     try {
-      const report = await apiClient.report(sessionId);
-      localStorage.removeItem(SESSION_KEY);
-      set({ report, sessionId: null });
-      get().addLog(`Report ready — Verdict: ${report.verdict}`);
+      const res = await apiClient.complete(sessionId);
+      set({
+        skillStates: res.skill_states,
+        learnerSnapshot: res.learner,
+        progressView: true,
+      });
+      get().addLog('Progress summary ready.');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       set({ error: msg });
@@ -234,5 +215,23 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       set({ loading: false });
     }
   },
-}));
 
+  reset: () => {
+    localStorage.removeItem(SESSION_KEY);
+    set({
+      sessionId: null,
+      candidate: '',
+      currentTask: null,
+      taskIndex: 0,
+      totalTasks: 0,
+      results: [],
+      skillStates: {},
+      learnerSnapshot: null,
+      progressView: false,
+      chatLog: [],
+      error: null,
+      submitted: false,
+      initialQuestion: null,
+    });
+  },
+}));

@@ -15,7 +15,7 @@ import pytest
 # Point the MVP at a per-test DB before importing the bridge (module reads env at init).
 from evaluators.base import CoachContent, EvaluationResult
 from core.task_decomposer import DecomposedEdge, DecomposedNode, TaskKnowledge
-from core.learning_partner.domain.types import EdgeType, NodeType
+from core.learner.domain.types import EdgeType, NodeType
 
 
 class FakeDecomposer:
@@ -41,13 +41,13 @@ class FakeDecomposer:
 @pytest.fixture()
 def bridge(tmp_path, monkeypatch):
     # Isolate both the MVP DB and the parent's coach.db per test.
-    from core import storage
+    import core.db as storage
 
     monkeypatch.setattr(storage, "DB_PATH", tmp_path / "coach.db")
     monkeypatch.setenv("LEARNING_PARTNER_DB_URL", f"sqlite:///{tmp_path}/learner.db")
-    from core.learner_bridge import LearnerBridge
+    from core.learner.engine import LearnerEngine
 
-    b = LearnerBridge(db_url=f"sqlite:///{tmp_path}/learner.db", decomposer=FakeDecomposer())
+    b = LearnerEngine(db_url=f"sqlite:///{tmp_path}/learner.db", decomposer=FakeDecomposer())
     return b
 
 
@@ -302,7 +302,7 @@ class TestNotObserved:
         session = bridge._session()
         try:
             c = bridge._container(session)
-            from core.learning_partner.domain.evidence import Evidence, EvidenceType, ObservationStatus
+            from core.learner.domain.evidence import Evidence, EvidenceType, ObservationStatus
 
             node = c.knowledge_repository.get_node_by_slug("ml-systems")
             c.evidence_service.add_evidence(
@@ -339,8 +339,8 @@ class TestSnapshot:
 
 class TestCli:
     def test_demo_prints_snapshot(self, tmp_path, monkeypatch, capsys):
-        from core import storage
-        from core.learner_bridge import main
+        import core.db as storage
+        from core.learner.engine import main
 
         monkeypatch.setattr(storage, "DB_PATH", tmp_path / "coach.db")
         url = f"sqlite:///{tmp_path}/learner.db"
@@ -353,8 +353,8 @@ class TestCli:
         assert "next_action:" in out
 
     def test_inspect_existing_candidate(self, bridge, tmp_path, monkeypatch, capsys):
-        from core import storage
-        from core.learner_bridge import main
+        import core.db as storage
+        from core.learner.engine import main
 
         monkeypatch.setattr(storage, "DB_PATH", tmp_path / "coach.db")
         bridge.ensure_learner("cli@example.com")
@@ -366,8 +366,8 @@ class TestCli:
         assert "Learner snapshot for cli@example.com" in out
 
     def test_missing_candidate_prints_help(self, tmp_path, monkeypatch, capsys):
-        from core import storage
-        from core.learner_bridge import main
+        import core.db as storage
+        from core.learner.engine import main
 
         monkeypatch.setattr(storage, "DB_PATH", tmp_path / "coach.db")
         exit_code = main([], )

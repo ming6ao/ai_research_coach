@@ -31,23 +31,19 @@ export function WelcomeView() {
 
   const handleSend = (text: string) => {
     if (loading) return;
-    if (user) {
-      startAssessment(user.email, text);
-    } else {
-      startAssessment('guest', text);
-    }
+    startAssessment(text);
   };
 
   const handleRandomQuestion = async () => {
     if (loading) return;
-    startAssessment('guest');
+    startAssessment();
   };
 
   const name = user?.display_name || (user ? user.email.split('@')[0] : '');
 
   const handleOpen = (s: UnifiedSession) => {
     apiClient
-      .openSession(s.id, s.status)
+      .openSession(s.id)
       .then((res) => {
         useAssessmentStore.getState().resumeSession(res);
       })
@@ -56,7 +52,7 @@ export function WelcomeView() {
 
   const handleClearAll = async () => {
     if (!user) return;
-    if (!window.confirm('Delete ALL sessions and assessments for your account? This cannot be undone.')) return;
+    if (!window.confirm('Delete ALL sessions and learner data for your account? This cannot be undone.')) return;
     try {
       await apiClient.clearCandidateData(user.email);
       setSessions([]);
@@ -73,8 +69,8 @@ export function WelcomeView() {
         </h1>
         <p className="mb-8 text-sm text-[var(--color-text-secondary)]">
           {user
-            ? 'Start a scored assessment to track your progress.'
-            : 'Try ML interview questions — nothing is scored or saved.'}
+            ? 'Ask AI/ML questions or pick a task — sessions are saved to your account.'
+            : 'Try AI/ML interview questions — sessions are saved in this browser.'}
         </p>
 
         <div className="w-full">
@@ -93,7 +89,7 @@ export function WelcomeView() {
             Random question
           </button>
           <p className="text-[11px] text-[var(--color-text-muted)]">
-            AI Research Coach can make mistakes. Practice isn't scored.
+            AI Research Coach can make mistakes.
           </p>
         </div>
 
@@ -123,15 +119,14 @@ export function WelcomeView() {
                   >
                     <span
                       className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                        s.status === 'active'
-                          ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
-                          : 'bg-[var(--color-success)]/15 text-[var(--color-success)]'
+                        s.done
+                          ? 'bg-[var(--color-success)]/15 text-[var(--color-success)]'
+                          : 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
                       }`}
                     >
-                      {s.status === 'active' ? 'IN PROGRESS' : 'DONE'}
+                      {s.done ? 'DONE' : 'IN PROGRESS'}
                     </span>
                     <span className="min-w-0 flex-1 truncate">
-                      {s.score != null && `${(s.score * 100).toFixed(0)}% · `}
                       {new Date(s.updated_at).toLocaleString()}
                     </span>
                   </button>

@@ -62,12 +62,14 @@ def test_probes_all_skills_before_revisiting():
     assert len(set(seen_skills)) == len(SKILLS)
 
 
-def test_practice_mode_bypasses_termination():
+def test_termination_applies_to_all_candidates():
+    # Guests and signed-in candidates are coached the same way: the picker
+    # terminates once every important skill is pinned.
     session = Session("guest-abc12345", tasks=[make_task(0, "ml_fundamentals"), make_task(1, "deep_learning")])
     session.index = 20
     for skill in SKILLS:
         session.get_skill_state(skill).variance = 0.0001
-    assert next_task(session) is not None
+    assert next_task(session) is None
 
 
 def test_early_termination_when_important_skills_pinned():

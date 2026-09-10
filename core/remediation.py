@@ -248,9 +248,9 @@ def plan_remediation(
     """
     try:
         if bridge is None:
-            from core.learner_bridge import LearnerBridge
+            from core.learner.engine import LearnerEngine
 
-            bridge = LearnerBridge()
+            bridge = LearnerEngine()
         if planner is None:
             planner = RemediationPlanner()
 

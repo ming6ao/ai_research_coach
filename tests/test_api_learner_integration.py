@@ -1,6 +1,6 @@
-"""End-to-end API integration test: /start -> /submit -> /report.
+"""End-to-end API integration test: /start -> /submit -> /complete -> /session/open.
 
-Confirms the learning-partner bridge runs inside the real FastAPI routes
+Confirms the learner engine runs inside the real FastAPI routes
 (fake judge + fake decomposer, isolated DBs, no LLM calls).
 """
 
@@ -9,9 +9,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+import core.db as db
 import backend.auth as auth
-import backend.dependencies as deps
-import core.storage as storage
 from evaluators.base import CoachContent, CoachStep, EvaluationResult
 from tests.test_learner_bridge import FakeDecomposer
 
@@ -31,22 +30,24 @@ class FakeJudge:
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
-    db = tmp_path / "coach.db"
-    monkeypatch.setattr(auth, "DB_PATH", db)
-    monkeypatch.setattr(deps, "DB_PATH", db)
-    monkeypatch.setattr(storage, "DB_PATH", db)
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "coach.db")
     monkeypatch.setenv("LEARNING_PARTNER_DB_URL", f"sqlite:///{tmp_path}/learner.db")
 
-    import core.learner_bridge as bridge_mod
-    from core.learner_bridge import LearnerBridge
+    import core.learner.engine as engine_mod
+    from core.learner.engine import LearnerEngine
 
-    monkeypatch.setattr(bridge_mod, "LearnerBridge", lambda: LearnerBridge(
-        db_url=f"sqlite:///{tmp_path}/learner.db", decomposer=FakeDecomposer()
-    ))
+    def make_engine(*args, **kwargs):
+        kwargs.setdefault("decomposer", FakeDecomposer())
+        return LearnerEngine(*args, **kwargs)
+
+    monkeypatch.setattr(engine_mod, "LearnerEngine", make_engine)
+    import evaluators.judge as judge_mod
+
+    monkeypatch.setattr(judge_mod, "LLMJudge", FakeJudge)
+
     from backend.main import app
     client = TestClient(app)
 
-    # Real authenticated session (assessment mode) so /report is reachable.
     user = auth.upsert_google_user("student@example.com", "Student")
     token = auth.create_token(user["id"])
     client.headers.update({"Authorization": f"Bearer {token}"})
@@ -55,18 +56,14 @@ def client(tmp_path, monkeypatch):
 
 class TestApiFlow:
     def test_start_bootstraps_learner(self, client):
-        res = client.post("/api/start", json={"candidate_name": "student@example.com"})
+        res = client.post("/api/start", json={})
         assert res.status_code == 200
         data = res.json()
         assert data["learner"] is not None
         assert data["learner"]["learner_id"]
 
-    def test_submit_records_learner_update(self, client, monkeypatch):
-        import evaluators.judge as judge_mod
-
-        monkeypatch.setattr(judge_mod, "LLMJudge", FakeJudge)
-
-        started = client.post("/api/start", json={"candidate_name": "dev@example.com"}).json()
+    def test_submit_records_learner_update(self, client):
+        started = client.post("/api/start", json={}).json()
         task = started["first_task"]
         res = client.post("/api/submit", json={
             "session_id": started["session_id"],
@@ -79,21 +76,14 @@ class TestApiFlow:
         assert data["learner_update"] is not None
         assert data["learner_update"]["learner_id"]
 
-    def test_custom_question_bootstraps_general_skill(self, client, monkeypatch):
-        import evaluators.judge as judge_mod
-
-        monkeypatch.setattr(judge_mod, "LLMJudge", FakeJudge)
+    def test_custom_question_bootstraps_general_skill(self, client):
         started = client.post("/api/start", json={
-            "candidate_name": "interview@example.com",
             "initial_question": "Explain what a cache eviction policy is.",
         }).json()
         assert started["learner"]["primary_node_slug"] == "general"
 
-    def test_report_includes_learner_snapshot(self, client, monkeypatch):
-        import evaluators.judge as judge_mod
-
-        monkeypatch.setattr(judge_mod, "LLMJudge", FakeJudge)
-        started = client.post("/api/start", json={"candidate_name": "final@example.com"}).json()
+    def test_complete_includes_learner_snapshot(self, client):
+        started = client.post("/api/start", json={}).json()
         task = started["first_task"]
         client.post("/api/submit", json={
             "session_id": started["session_id"],
@@ -101,20 +91,27 @@ class TestApiFlow:
             "answer": "def f(): pass",
             "hints_used": [],
         })
-        report = client.post("/api/report", json={"session_id": started["session_id"]}).json()
-        assert report["learner"] is not None
-        assert isinstance(report["learner"]["states"], dict)
-        assert isinstance(report["learner"]["frontier_top"], list)
-        assert isinstance(report["learner"]["misconceptions"], list)
+        complete = client.post("/api/complete", json={"session_id": started["session_id"]}).json()
+        assert complete["done"] is True
+        assert complete["learner"] is not None
+        assert isinstance(complete["learner"]["states"], dict)
+        assert isinstance(complete["learner"]["frontier_top"], list)
+        assert isinstance(complete["learner"]["misconceptions"], list)
+
+    def test_open_session_returns_learner(self, client):
+        started = client.post("/api/start", json={}).json()
+        opened = client.post("/api/session/open", json={"id": started["session_id"]}).json()
+        assert opened["candidate"] == "student@example.com"
+        assert opened["current_task"] is not None
+        assert opened["learner"] is not None
 
     def test_guest_start_also_records_learner(self, client):
-        # Override auth to anonymous so /start creates a guest (practice) session.
         import backend.auth as auth_mod
 
         original = auth_mod.user_from_token
         auth_mod.user_from_token = lambda token: None
         try:
-            res = client.post("/api/start", json={"candidate_name": "Guest"})
+            res = client.post("/api/start", json={})
         finally:
             auth_mod.user_from_token = original
         assert res.status_code == 200

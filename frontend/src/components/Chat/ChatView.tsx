@@ -9,6 +9,15 @@ import { CodeBlock } from '../CodeBlock/CodeBlock';
 
 const NOTE_SEPARATOR = '\n\n---\n';
 
+function verdictFor(r: ResultWithFeedback): { label: string; cls: string } | null {
+  const max = r.result.max_score;
+  if (!max) return null;
+  const fraction = r.result.score / max;
+  if (fraction >= 0.8) return { label: 'Correct', cls: 'bg-[var(--color-success)]/15 text-[var(--color-success)]' };
+  if (fraction <= 0.4) return { label: 'Incorrect', cls: 'bg-[var(--color-error)]/15 text-[var(--color-error)]' };
+  return { label: 'Partially correct', cls: 'bg-[var(--color-warning)]/15 text-[var(--color-warning)]' };
+}
+
 function splitNote(answer: string): { code: string; note: string } {
   const idx = answer.indexOf(NOTE_SEPARATOR);
   if (idx === -1) return { code: answer, note: '' };
@@ -53,11 +62,15 @@ function UserCodeBubble({ answer }: { answer: string }) {
 
 function CoachingBubble({ r }: { r: ResultWithFeedback }) {
   const coach = r.coach;
+  const verdict = verdictFor(r);
   return (
     <CoachBubble wide>
       <div className="space-y-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-          {r.scored ? `${r.result.score}/${r.result.max_score} · ${r.result.skill}` : 'Feedback · not scored'}
+        <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+          {verdict && (
+            <span className={`rounded-full px-2 py-0.5 text-[10px] ${verdict.cls}`}>{verdict.label}</span>
+          )}
+          <span>{r.result.skill}</span>
         </p>
         {coach && (coach.misconception || coach.steps.length > 0) ? (
           <>
@@ -111,34 +124,25 @@ function TaskPromptBubble({ prompt, skill, remediation }: { prompt: string; skil
 }
 
 function DoneBubble() {
-  const { loadReport, loading, mode } = useAssessmentStore();
-  const isPractice = mode === 'practice';
+  const { completeSession, loading } = useAssessmentStore();
   return (
     <CoachBubble>
       <p className="mb-3 text-sm text-[var(--color-text-primary)]">
-        {isPractice
-          ? "You've browsed all the questions. Nice work!"
-          : "You've completed all the questions. Ready to see your results?"}
+        You've worked through all the questions. Nice work!
       </p>
-      {isPractice ? (
-        <p className="text-xs text-[var(--color-text-muted)]">
-          Sign in to save your progress and get a scored report.
-        </p>
-      ) : (
-        <button
-          onClick={loadReport}
-          disabled={loading}
-          className="rounded-lg bg-[var(--color-accent)] px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {loading ? 'Generating…' : 'View Report'}
-        </button>
-      )}
+      <button
+        onClick={completeSession}
+        disabled={loading}
+        className="rounded-lg bg-[var(--color-accent)] px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {loading ? 'Loading…' : 'View your progress'}
+      </button>
     </CoachBubble>
   );
 }
 
 export function ChatView() {
-  const { results, currentTask, mode, loading, initialQuestion } =
+  const { results, currentTask, loading, initialQuestion } =
     useAssessmentStore();
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -202,7 +206,6 @@ export function ChatView() {
               viewed={viewed}
               onRevealHint={revealHint}
               disabled={loading}
-              mode={mode}
             />
           )}
 

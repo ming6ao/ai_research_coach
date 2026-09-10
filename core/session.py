@@ -1,7 +1,9 @@
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Set
 
 from core.config import load_yaml
+from core.hints import select_hints
 from core.score import INITIAL_SCORE, INITIAL_VARIANCE, confidence_from_variance
 from evaluators.base import EvaluationResult
 
@@ -47,14 +49,13 @@ class SkillState:
 
 @dataclass
 class Session:
-    """A candidate's assessment session against the unified skill tree.
+    """A candidate's coaching session against the unified skill tree.
 
-    All candidates are evaluated the same way: every task in the bank is
-    eligible and the same skill tree is measured for everyone.
-
-    Mode is derived from the candidate identity: guests (candidate starts
-    with "guest-") are always in practice mode; authenticated users are
-    always in assessment mode.
+    All candidates are coached the same way: every task in the bank is
+    eligible and the same skill tree is measured for everyone. ``candidate``
+    is the user email or a ``guest-<hex>`` id; it drives learner identity,
+    resume ownership, and history scoping only (no behavioral difference
+    between the two).
     """
     candidate: str
     tasks: List[dict] = field(default_factory=list)
@@ -64,10 +65,6 @@ class Session:
     asked_task_ids: Set[str] = field(default_factory=set)
     viewed_hints: Dict[str, List[str]] = field(default_factory=dict)
     generated_task_ids: Set[str] = field(default_factory=set)
-
-    @property
-    def mode(self) -> str:
-        return "practice" if self.candidate.startswith("guest-") else "assessment"
 
     def __post_init__(self):
         cfg = load_yaml("skills.yaml")
@@ -122,3 +119,38 @@ class Session:
         s.viewed_hints = dict(d.get("viewed_hints", {}))
         s.generated_task_ids = set(d.get("generated_task_ids", []))
         return s
+
+
+def build_code_stub(task: dict) -> str | None:
+    """Build an editor scaffold for a code task.
+
+    Scaffold-mode tasks already carry a `scaffold`. For function-mode tasks
+    (no scaffold) we generate a stub from the signature mentioned in the prompt
+    so the coding area is pre-filled instead of blank.
+    """
+    if task.get("scaffold"):
+        return task["scaffold"]
+    m = re.search(r"def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)", task.get("prompt", ""))
+    if m:
+        name, params = m.group(1), m.group(2)
+        return f"def {name}({params}):\n    # TODO: implement {name}\n    pass\n"
+    return None
+
+
+def task_view(task: dict, session: Session) -> dict | None:
+    """Build the client-facing view of a task (hints pre-revealed by ability)."""
+    if task is None:
+        return None
+    ability = session.get_skill_state(task["skill"]).score
+    view = {
+        "id": task["id"],
+        "skill": task["skill"],
+        "type": "code",
+        "prompt": task["prompt"],
+        "difficulty": task.get("difficulty", 1),
+        "scaffold": build_code_stub(task),
+        "hints": select_hints(task, ability),
+    }
+    if task.get("generated"):
+        view["remediation"] = {"node_slug": task.get("mvp_target_slug")}
+    return view

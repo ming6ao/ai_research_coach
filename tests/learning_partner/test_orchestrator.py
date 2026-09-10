@@ -8,17 +8,17 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from core.learning_partner.container import build_container
-from core.learning_partner.domain.learner import StateStatus
-from core.learning_partner.domain.orchestrator import LearnerInteraction
-from core.learning_partner.seed import (
+from core.learner.container import build_container
+from core.learner.domain.learner import StateStatus
+from core.learner.domain.orchestrator import LearnerInteraction
+from tests.learning_partner.fixtures import (
     seed_misconceptions,
     seed_weighted_sampling,
     seed_weighted_sampling_task,
 )
-from core.learning_partner.services.assessors import RuleBasedEvidenceAssessor
-from core.learning_partner.services.orchestrator import LearningOrchestrator
-from core.learning_partner.storage.database import Base
+from core.learner.services.assessors import RuleBasedEvidenceAssessor
+from core.learner.services.orchestrator import LearningOrchestrator
+from core.learner.storage.database import Base
 
 
 @pytest.fixture()
@@ -234,12 +234,3 @@ class TestEndToEndLoop:
         assert r.current_topic_slug == "weighted_sampling_from_scratch"
         assert r.frontier  # frontier expanded
         assert r.selected_action is not None
-
-    def test_each_evidence_traceable_to_update(self, world):
-        orch = world["orchestrator"]
-        r1 = orch.process(_interaction(world, "I normalize the weights and build the CDF.", 1))
-        c = world["c"]
-        updates = c.state_update_repository.list_updates(learner_id=world["learner"].id)
-        # Every persisted evidence that produced an update has an audit row.
-        assert len(updates) == len(r1.updated_states)
-        assert all(u.evidence_id in {e.id for e in r1.new_evidence} for u in updates)

@@ -37,8 +37,8 @@ export function AuthModal({ open, onClose, initialTab = 'login' }: Props) {
           <h2 className="text-lg font-bold text-[var(--color-text-primary)]">AI Research Coach</h2>
           <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
             {isSignup
-              ? 'Create an account to run scored assessments and keep your history.'
-              : 'Log in to run scored assessments and keep your history.'}
+              ? 'Create an account to keep your sessions and progress across devices.'
+              : 'Log in to keep your sessions and progress across devices.'}
           </p>
         </div>
 
@@ -70,7 +70,7 @@ export function AuthModal({ open, onClose, initialTab = 'login' }: Props) {
             and add <code className="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5">GOOGLE_CLIENT_ID</code> and{' '}
             <code className="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5">GOOGLE_CLIENT_SECRET</code> to{' '}
             <code className="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5">.env</code>.
-            You can keep using the app in guest practice mode meanwhile.
+            You can keep using the app as a guest meanwhile.
           </div>
         )}
 

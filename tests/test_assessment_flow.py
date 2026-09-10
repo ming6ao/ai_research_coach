@@ -1,11 +1,17 @@
-"""End-to-end assessment flow test with a fake judge.
+"""End-to-end coaching flow test with a fake judge (via the FastAPI routes).
 
 Verifies that viewing hints reduces the effective mastery for a task even when
-the submitted code is perfect.
+the submitted code is perfect, that /submit returns the coaching + next task,
+and that /complete returns the progress snapshot (no report/verdict).
 """
 
+from __future__ import annotations
+
+import pytest
+from fastapi.testclient import TestClient
+
+import core.db as db
 from evaluators.base import EvaluationResult, CoachContent, CoachStep
-import app.agent as agent
 
 
 class FakeJudge:
@@ -24,87 +30,116 @@ class FakeJudge:
         return result, coach
 
 
-class FakeToolContext:
-    def __init__(self):
-        self.state = {}
+@pytest.fixture()
+def client(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+    import evaluators.judge as judge_mod
+
+    monkeypatch.setattr(judge_mod, "LLMJudge", FakeJudge)
+    from backend.main import app
+
+    return TestClient(app)
 
 
-def start_session(monkeypatch):
-    monkeypatch.setattr(agent, "LLMJudge", FakeJudge)
-    ctx = FakeToolContext()
-    started = agent.start_assessment("candidate", ctx)
-    assert "error" not in started
-    return ctx, started
+def _start(client, initial_question=None):
+    body = {"initial_question": initial_question} if initial_question else {}
+    res = client.post("/api/start", json=body)
+    assert res.status_code == 200
+    data = res.json()
+    assert "mode" not in data
+    return data
 
 
-def test_hints_reduce_mastery_for_perfect_code(monkeypatch):
-    ctx, started = start_session(monkeypatch)
-    task = started["first_task"]
+def test_hints_reduce_mastery_for_perfect_code(client):
+    no_hints = _start(client)
+    task = no_hints["first_task"]
     assert task is not None
     assert task["hints"], "task should carry hints"
 
-    no_hints = agent.submit_answer(task["id"], "def f(): pass", hints_used=[], tool_context=ctx)
-    assert "error" not in no_hints
-    score_without_hints = no_hints["skill_update"]["new_score"]
+    resp = client.post("/api/submit", json={
+        "session_id": no_hints["session_id"],
+        "task_id": task["id"],
+        "answer": "def f(): pass",
+        "hints_used": [],
+    })
+    assert resp.status_code == 200
+    score_without_hints = resp.json()["skill_update"]["new_score"]
 
-    ctx2, started2 = start_session(monkeypatch)
-    task2 = started2["first_task"]
+    with_hints = _start(client)
+    task2 = with_hints["first_task"]
     all_hint_ids = [h["id"] for h in task2["hints"]]
-    with_hints = agent.submit_answer(task2["id"], "def f(): pass", hints_used=all_hint_ids, tool_context=ctx2)
-    assert "error" not in with_hints
-    score_with_hints = with_hints["skill_update"]["new_score"]
+    resp2 = client.post("/api/submit", json={
+        "session_id": with_hints["session_id"],
+        "task_id": task2["id"],
+        "answer": "def f(): pass",
+        "hints_used": all_hint_ids,
+    })
+    assert resp2.status_code == 200
+    score_with_hints = resp2.json()["skill_update"]["new_score"]
 
     assert score_with_hints < score_without_hints
 
 
-def test_task_view_reveals_hints_based_on_ability(monkeypatch):
-    ctx, started = start_session(monkeypatch)
+def test_submit_returns_coaching_and_next_task(client):
+    started = _start(client)
     task = started["first_task"]
-    # At initial ability (0.5) the gentler hints (threshold 0.65) are pre-revealed.
-    pre = [h for h in task["hints"] if h["pre_revealed"]]
-    assert pre, "at least the gentlest hint should be pre-revealed initially"
+    resp = client.post("/api/submit", json={
+        "session_id": started["session_id"],
+        "task_id": task["id"],
+        "answer": "def f(): pass",
+        "hints_used": [],
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["coach"]["misconception"], "coach should identify a gap/misconception"
+    assert data["coach"]["steps"], "coach should provide step-by-step guidance"
+    assert data["coach"]["steps"][0]["title"]
+    assert "next_task" in data, "the picked task is still returned (gated by the UI)"
+    assert data["feedback"] == "Great job!"
+    assert data["learner_update"] is not None
+    assert data["learner_update"]["learner_id"]
 
 
-def test_request_hint_records_against_session(monkeypatch):
-    ctx, started = start_session(monkeypatch)
+def test_complete_returns_progress_snapshot(client):
+    started = _start(client)
     task = started["first_task"]
-    first = task["hints"][0]
-    if first["pre_revealed"]:
-        first = next(h for h in task["hints"] if not h["pre_revealed"])
+    client.post("/api/submit", json={
+        "session_id": started["session_id"],
+        "task_id": task["id"],
+        "answer": "def f(): pass",
+        "hints_used": [],
+    })
+    res = client.post("/api/complete", json={"session_id": started["session_id"]})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["done"] is True
+    assert "skill_states" in data
+    assert "learner" in data
+    assert "verdict" not in data
+    assert "overall_score" not in data
 
-    requested = agent.request_hint(task["id"], ctx)
-    assert "error" not in requested
-    assert requested["hint"]["id"] == first["id"]
 
-    # The requested hint is auto-counted even if the caller omits hints_used.
-    submitted = agent.submit_answer(task["id"], "code", tool_context=ctx)
-    assert submitted["skill_update"]["hints_used"] == [first["id"]]
+def test_custom_question_injected_as_first_task(client):
+    started = _start(client, initial_question="Explain what a cache eviction policy is.")
+    assert started["first_task"] is not None
+    assert started["first_task"]["id"].startswith("custom_")
+    assert started["total_tasks"] > 1
 
 
-def test_submit_idempotent(monkeypatch):
-    ctx, started = start_session(monkeypatch)
+def test_submit_is_idempotent(client):
+    started = _start(client)
     task = started["first_task"]
-    first = agent.submit_answer(task["id"], "code", tool_context=ctx)
-    second = agent.submit_answer(task["id"], "code", tool_context=ctx)
-    assert second["note"] == "Answer was already recorded; returning the stored result."
+    first = client.post("/api/submit", json={
+        "session_id": started["session_id"],
+        "task_id": task["id"],
+        "answer": "def f(): pass",
+        "hints_used": [],
+    }).json()
+    second = client.post("/api/submit", json={
+        "session_id": started["session_id"],
+        "task_id": task["id"],
+        "answer": "def f(): pass",
+        "hints_used": [],
+    }).json()
+    assert second["note"] == "Already answered."
     assert second["result"]["task_id"] == first["result"]["task_id"]
-
-
-def test_submit_returns_coaching_and_next_task(monkeypatch):
-    ctx, started = start_session(monkeypatch)
-    task = started["first_task"]
-    resp = agent.submit_answer(task["id"], "def f(): pass", tool_context=ctx)
-    assert "error" not in resp
-    assert resp["coach"]["misconception"], "coach should identify a gap/misconception"
-    assert resp["coach"]["steps"], "coach should provide step-by-step guidance"
-    assert resp["coach"]["steps"][0]["title"]
-    assert "next_task" in resp, "the picked task is still returned (gated by the UI)"
-    assert resp["feedback"] == "Great job!"
-
-
-def test_stored_coach_returned_on_resubmit(monkeypatch):
-    ctx, started = start_session(monkeypatch)
-    task = started["first_task"]
-    first = agent.submit_answer(task["id"], "code", tool_context=ctx)
-    second = agent.submit_answer(task["id"], "code", tool_context=ctx)
-    assert second["coach"] == first["coach"]

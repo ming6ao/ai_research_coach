@@ -46,12 +46,55 @@ export interface SkillUpdate {
   hints_used?: string[];
 }
 
+export interface LearnerState {
+  mastery: number;
+  uncertainty: number;
+  status: string;
+  evidence_count: number;
+}
+
+export interface LearnerFrontierEntry {
+  node_id: string;
+  slug: string | null;
+  name: string | null;
+  description: string | null;
+  priority: number;
+  reason: string;
+  status: string;
+}
+
+export interface LearnerMisconception {
+  node_id: string;
+  status: string;
+  confidence: number;
+  slug: string | null;
+}
+
+export interface LearnerAction {
+  action_type: string;
+  target_node_id: string;
+  slug: string | null;
+  name: string | null;
+  description: string | null;
+  total_score: number;
+  rationale: string;
+}
+
+export interface LearnerSnapshot {
+  learner_id: string | null;
+  states: Record<string, LearnerState>;
+  frontier_top: LearnerFrontierEntry[];
+  misconceptions: LearnerMisconception[];
+  next_action: LearnerAction | null;
+}
+
 export interface StartResponse {
   session_id: string;
   candidate: string;
   message: string;
   total_tasks: number;
   first_task: Task | null;
+  learner?: { learner_id: string; primary_node_slug?: string | null } | null;
 }
 
 export interface SubmitResponse {
@@ -61,7 +104,14 @@ export interface SubmitResponse {
   next_task: Task | null;
   remaining: number;
   skill_update?: SkillUpdate;
+  learner_update?: Record<string, unknown> | null;
   note?: string;
+}
+
+export interface CompleteResponse {
+  done: boolean;
+  skill_states: Record<string, { score: number; confidence: number; questions_answered: number }>;
+  learner: LearnerSnapshot | null;
 }
 
 export interface ResumeResponse {
@@ -72,6 +122,7 @@ export interface ResumeResponse {
   current_task: Task | null;
   results: FeedbackEntry[];
   skill_states: Record<string, { score: number; confidence: number; questions_answered: number }>;
+  learner: LearnerSnapshot | null;
 }
 
 export interface FeedbackEntry {
@@ -86,40 +137,11 @@ export interface FeedbackEntry {
   hints_used?: string[];
 }
 
-export interface SkillBreakdown {
-  name: string;
-  score: number;
-  confidence: number;
-  questions_answered: number;
-  evidence: string[];
-  importance: number;
-}
-
-export interface Report {
-  assessment_id: string;
-  candidate: string;
-  title: string;
-  overall_score: number;
-  verdict: string;
-  skill_breakdown: Record<string, SkillBreakdown>;
-  gaps: string[];
-  questions_answered: number;
-}
-
-export interface TaskSummary {
-  id: string;
-  skill: string;
-  difficulty: number;
-  prompt: string;
-}
-
 export interface UnifiedSession {
   id: string;
   candidate: string;
-  status: 'active' | 'completed';
+  done: boolean;
   updated_at: string;
-  score: number | null;
-  verdict: string | null;
 }
 
 export interface AuthUser {
@@ -180,9 +202,9 @@ async function api<T>(path: string, body?: unknown, method?: string): Promise<T>
 }
 
 export interface AdminLearner {
-  candidate: string;
+  candidate: string | null;
   learner_id: string;
-  created_at: string;
+  created_at: string | null;
   metadata: Record<string, unknown>;
 }
 
@@ -254,17 +276,6 @@ export interface AdminEvidence {
   created_at: string | null;
 }
 
-export interface AdminStateUpdate {
-  node_id: string;
-  slug: string;
-  previous_mastery: number;
-  new_mastery: number;
-  previous_uncertainty: number;
-  new_uncertainty: number;
-  update_reason: string;
-  created_at: string | null;
-}
-
 export interface AdminLearnerDetail {
   learner_id: string;
   candidate: string;
@@ -272,7 +283,6 @@ export interface AdminLearnerDetail {
   frontier: AdminFrontierEntry[];
   misconceptions: AdminMisconception[];
   evidence: AdminEvidence[];
-  updates: AdminStateUpdate[];
   next_action: {
     action_type: string;
     target_node_id: string;
@@ -285,7 +295,6 @@ export interface AdminLearnerDetail {
 export interface AdminSkillStates {
   source: string;
   session_id?: string;
-  assessment_id?: string;
   skill_states: Record<string, {
     score: number;
     variance: number;
@@ -304,26 +313,23 @@ export interface AdminStats {
 }
 
 export const apiClient = {
-  start: (candidate_name: string, initial_question?: string) =>
-    api<StartResponse>('/start', { candidate_name, initial_question }),
+  start: (initial_question?: string) =>
+    api<StartResponse>('/start', { initial_question }),
 
   submit: (session_id: string, task_id: string, answer: string, hints_used: string[] = []) =>
     api<SubmitResponse>('/submit', { session_id, task_id, answer, hints_used }),
 
-  report: (session_id: string) =>
-    api<Report>('/report', { session_id }),
+  complete: (session_id: string) =>
+    api<CompleteResponse>('/complete', { session_id }),
 
   listSessions: () =>
     api<{ sessions: UnifiedSession[] }>('/sessions'),
 
-  openSession: (id: string, status: 'active' | 'completed') =>
-    api<ResumeResponse>('/session/open', { id, status }),
+  openSession: (id: string) =>
+    api<ResumeResponse>('/session/open', { id }),
 
   deleteActiveSession: (session_id: string) =>
     api<{ ok: boolean }>(`/sessions/active/${session_id}`, undefined, 'DELETE'),
-
-  deleteAssessment: (assessment_id: string) =>
-    api<{ ok: boolean }>(`/assessments/${assessment_id}`, undefined, 'DELETE'),
 
   clearCandidateData: (candidate: string) =>
     api<{ ok: boolean; deleted: number }>(`/sessions/clear/${encodeURIComponent(candidate)}`, undefined, 'DELETE'),
@@ -336,9 +342,6 @@ export const apiClient = {
 
   me: () =>
     api<{ user: AuthUser }>('/auth/me'),
-
-  fetchTasks: () =>
-    api<{ tasks: TaskSummary[] }>('/tasks'),
 
   // Admin endpoints
   adminLearners: () =>

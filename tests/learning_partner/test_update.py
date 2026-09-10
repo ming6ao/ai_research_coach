@@ -6,14 +6,14 @@ import uuid
 
 import pytest
 
-from core.learning_partner.domain.evidence import Evidence, EvidenceType, ObservationStatus
-from core.learning_partner.domain.learner import (
+from core.learner.domain.evidence import Evidence, EvidenceType, ObservationStatus
+from core.learner.domain.learner import (
     Learner,
     LearnerKnowledgeState,
     StateStatus,
 )
-from core.learning_partner.domain.update import UpdateEngine, UpdateConfig
-from core.learning_partner.seed import seed_weighted_sampling
+from core.learner.domain.update import UpdateEngine, UpdateConfig
+from tests.learning_partner.fixtures import seed_weighted_sampling
 
 
 @pytest.fixture()
@@ -324,15 +324,15 @@ class TestStatusTransitions:
 
 
 class TestAuditAndPersistence:
-    def test_service_persists_state_and_audit(self, learner_service, repository, update_repo, seeded_ctx):
+    def test_service_persists_state(self, learner_service, repository, seeded_ctx):
         _, _, learner = seeded_ctx
         node = repository.get_node_by_slug("construct_cdf")
         ev = _evidence(learner, node.id, ObservationStatus.CORRECT,
                        correctness=1.0, confidence=1.0, evidence_type=EvidenceType.CODE)
-        from core.learning_partner.services.update import LearnerUpdateService
+        from core.learner.services.update import LearnerUpdateService
 
         svc = LearnerUpdateService(
-            learner_service._learners, repository, update_repo
+            learner_service._learners, repository
         )
         update = svc.apply_evidence(ev)
         assert update is not None
@@ -340,22 +340,19 @@ class TestAuditAndPersistence:
         assert state.mastery == pytest.approx(update.new_state.mastery)
         assert state.evidence_count == 1
 
-        records = update_repo.list_updates(learner_id=learner.id, node_id=node.id)
-        assert len(records) == 1
-        r = records[0]
-        assert r.evidence_id == ev.id
-        assert r.previous_mastery == 0.5
-        assert r.new_mastery == state.mastery
-
-    def test_ignored_evidence_no_audit(self, learner_service, repository, update_repo, seeded_ctx):
+    def test_ignored_evidence_no_state_change(self, learner_service, repository, seeded_ctx):
         _, _, learner = seeded_ctx
         node = repository.get_node_by_slug("construct_cdf")
-        svc = learner_service
-        from core.learning_partner.services.update import LearnerUpdateService
+        from core.learner.services.update import LearnerUpdateService
 
-        usvc = LearnerUpdateService(svc._learners, repository, update_repo)
+        usvc = LearnerUpdateService(learner_service._learners, repository)
         result = usvc.apply_evidence(
             _evidence(learner, node.id, ObservationStatus.NOT_OBSERVED)
         )
         assert result is None
-        assert update_repo.list_updates(learner_id=learner.id) == []
+        state = learner_service.get_state(learner.id, node.id)
+        # The state may be lazily initialized, but the ignored evidence must
+        # not move it: no observations, neutral prior, unknown status.
+        assert state.evidence_count == 0
+        assert state.mastery == pytest.approx(0.5)
+        assert state.status == StateStatus.UNKNOWN

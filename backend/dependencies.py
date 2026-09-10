@@ -6,30 +6,13 @@ Persists active sessions to SQLite so users can resume after page refresh.
 import json
 import sqlite3
 import uuid
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-DB_PATH = DATA_DIR / "coach.db"
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS active_sessions (
-    session_id TEXT PRIMARY KEY,
-    candidate TEXT NOT NULL,
-    session_json TEXT NOT NULL,
-    feedback_json TEXT DEFAULT '[]',
-    updated_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_active_sessions_candidate ON active_sessions (candidate);
-"""
+from core.db import sqlite_conn
 
 
-def _connect():
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.executescript(SCHEMA)
-    return conn
+def _connect() -> sqlite3.Connection:
+    return sqlite_conn()
 
 
 from datetime import datetime, timezone

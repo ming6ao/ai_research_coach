@@ -1,8 +1,8 @@
-"""Authentication + guest/practice enforcement tests.
+"""Authentication + ownership tests.
 
-Covers Google OAuth login, bearer-token identity, and the backend rule that
-scored assessments require a logged-in account while guests are limited to
-practice mode.
+Covers Google OAuth login, bearer-token identity, and the ownership rule that
+sessions are scoped to their candidate (guest or signed-in) with a single
+unified coaching path for both.
 """
 
 from urllib.parse import parse_qs, urlparse
@@ -12,17 +12,14 @@ from fastapi.testclient import TestClient
 
 import backend.auth as auth
 import backend.google_auth as google_auth
-import backend.dependencies as deps
-import core.storage as storage
+import core.db as db
 from evaluators.base import EvaluationResult
 
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    db = tmp_path / "test.db"
-    monkeypatch.setattr(auth, "DB_PATH", db)
-    monkeypatch.setattr(deps, "DB_PATH", db)
-    monkeypatch.setattr(storage, "DB_PATH", db)
+    dbfile = tmp_path / "test.db"
+    monkeypatch.setattr(db, "DB_PATH", dbfile)
     from backend.main import app
     return TestClient(app)
 
@@ -76,7 +73,9 @@ def _token_from_redirect(res) -> str:
     return parse_qs(urlparse(loc).query)["token"][0]
 
 
-def test_google_auth_url_requires_config(client):
+def test_google_auth_url_requires_config(client, monkeypatch):
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
     res = client.get("/api/auth/google/url")
     assert res.status_code == 500
     assert "GOOGLE_CLIENT_ID" in res.json()["detail"]
@@ -165,26 +164,16 @@ def test_me_requires_token(client):
     assert client.get("/api/auth/me").status_code == 401
 
 
-def test_guest_gets_practice_mode(client):
-    res = client.post("/api/start", json={"candidate_name": "anon"})
+def test_guest_start_creates_guest_candidate(client):
+    res = client.post("/api/start", json={})
     assert res.status_code == 200
     data = res.json()
-    assert data["mode"] == "practice"
     assert data["candidate"].startswith("guest-")
     assert data["first_task"] is not None
 
 
-def test_guest_can_start_practice(client):
-    res = client.post("/api/start", json={"candidate_name": "anon"})
-    assert res.status_code == 200
-    data = res.json()
-    assert data["mode"] == "practice"
-    assert data["candidate"].startswith("guest-")
-    assert data["first_task"] is not None
-
-
-def test_guest_practice_submit_is_unscored(client, fake_judge):
-    started = client.post("/api/start", json={"candidate_name": "anon"})
+def test_guest_submit_is_scored(client, fake_judge):
+    started = client.post("/api/start", json={})
     sid = started.json()["session_id"]
     task_id = started.json()["first_task"]["id"]
 
@@ -192,36 +181,30 @@ def test_guest_practice_submit_is_unscored(client, fake_judge):
     assert res.status_code == 200
     data = res.json()
     assert data["feedback"] == "Great job!"
-    assert data["skill_update"] is None
+    assert data["skill_update"] is not None
 
 
 def test_authenticated_start_uses_account(client, google_env):
     user = auth.upsert_google_user("alice@b.co", "Alice")
     token = auth.create_token(user["id"])
 
-    res = client.post(
-        "/api/start",
-        json={"candidate_name": "whatever"},
-        headers=_auth_headers(token),
-    )
+    res = client.post("/api/start", json={}, headers=_auth_headers(token))
     assert res.status_code == 200
     data = res.json()
-    assert data["mode"] == "assessment"
     assert data["candidate"] == "alice@b.co"
 
 
 def test_sessions_are_scoped_to_account(client, google_env):
     user = auth.upsert_google_user("bob@b.co", "Bob")
     token = auth.create_token(user["id"])
-    client.post(
-        "/api/start",
-        json={"candidate_name": "bob"},
-        headers=_auth_headers(token),
-    )
+    client.post("/api/start", json={}, headers=_auth_headers(token))
 
     mine = client.get("/api/sessions", headers=_auth_headers(token))
     assert mine.status_code == 200
-    assert len(mine.json()["sessions"]) == 1
+    sessions = mine.json()["sessions"]
+    assert len(sessions) == 1
+    assert sessions[0]["done"] is False
+    assert "score" not in sessions[0]
 
     guest = client.get("/api/sessions")
     assert guest.status_code == 200
@@ -231,23 +214,18 @@ def test_sessions_are_scoped_to_account(client, google_env):
 def test_guest_cannot_open_named_session(client, google_env):
     user = auth.upsert_google_user("carol@b.co", "Carol")
     token = auth.create_token(user["id"])
-    started = client.post(
-        "/api/start",
-        json={"candidate_name": "carol"},
-        headers=_auth_headers(token),
-    )
+    started = client.post("/api/start", json={}, headers=_auth_headers(token))
     sid = started.json()["session_id"]
 
-    guest_open = client.post("/api/session/open", json={"id": sid, "status": "active"})
+    guest_open = client.post("/api/session/open", json={"id": sid})
     assert guest_open.status_code == 403
-    assert "practice" in guest_open.json()["detail"]
+    assert "own sessions" in guest_open.json()["detail"]
 
 
-def test_guest_can_reopen_own_practice_session(client):
-    started = client.post("/api/start", json={"candidate_name": "anon"})
+def test_guest_can_reopen_own_session(client):
+    started = client.post("/api/start", json={})
     sid = started.json()["session_id"]
 
-    reopen = client.post("/api/session/open", json={"id": sid, "status": "active"})
+    reopen = client.post("/api/session/open", json={"id": sid})
     assert reopen.status_code == 200
-    assert reopen.json()["mode"] == "practice"
     assert reopen.json()["candidate"].startswith("guest-")

@@ -43,8 +43,9 @@ def next_task(session: Session) -> Optional[dict]:
     if not available:
         return None
 
-    # Practice (anonymous) mode browses freely: no question/time/coverage caps.
-    if session.mode != "practice" and _should_terminate(session):
+    # Termination: minimum questions answered AND every important skill's
+    # ability estimate is pinned (variance below tolerance).
+    if _should_terminate(session):
         return None
 
     scored = sorted(

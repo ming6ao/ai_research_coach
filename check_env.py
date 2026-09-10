@@ -32,7 +32,7 @@ def check_model():
     try:
         from google import genai
     except ImportError:
-        print("[FAIL] google-genai is not installed. Run: pip install google-adk")
+        print("[FAIL] google-genai is not installed. Run: pip install -r requirements.txt")
         return False
 
     key = os.getenv("GOOGLE_API_KEY")

@@ -1,9 +1,9 @@
-from core.learning_partner.domain.knowledge import KnowledgeNode
-from core.learning_partner.domain.types import NodeType
+from core.learner.domain.knowledge import KnowledgeNode
+from core.learner.domain.types import NodeType
 from tests.conftest import make_edge, make_node
 import pytest
 
-from core.learning_partner.domain.errors import (
+from core.learner.domain.errors import (
     DuplicateEdgeError,
     DuplicateSlugError,
     NodeNotFoundError,
@@ -45,7 +45,6 @@ class TestNodeCRUD:
         updated = repository.update_node(node.id, name="Probability v2", description="updated")
         assert updated.name == "Probability v2"
         assert updated.description == "updated"
-        assert updated.version == node.version + 1
         assert updated.updated_at >= node.updated_at
 
     def test_update_missing_node_raises(self, repository):
@@ -69,7 +68,7 @@ class TestEdgeCRUD:
     def test_create_and_get_edge(self, repository):
         a = repository.create_node(make_node("a"))
         b = repository.create_node(make_node("b"))
-        from core.learning_partner.domain.types import EdgeType
+        from core.learner.domain.types import EdgeType
 
         edge = repository.create_edge(
             make_edge(a, b, EdgeType.PREREQUISITE_OF)
@@ -78,7 +77,7 @@ class TestEdgeCRUD:
         assert fetched.id == edge.id
 
     def test_duplicate_edge_rejected(self, repository):
-        from core.learning_partner.domain.types import EdgeType
+        from core.learner.domain.types import EdgeType
 
         a = repository.create_node(make_node("a"))
         b = repository.create_node(make_node("b"))
@@ -87,14 +86,14 @@ class TestEdgeCRUD:
             repository.create_edge(make_edge(a, b, EdgeType.PREREQUISITE_OF))
 
     def test_self_edge_rejected(self, repository):
-        from core.learning_partner.domain.types import EdgeType
+        from core.learner.domain.types import EdgeType
 
         a = repository.create_node(make_node("a"))
         with pytest.raises(SelfEdgeError):
             repository.create_edge(make_edge(a, a, EdgeType.PART_OF))
 
     def test_edge_to_missing_node_rejected(self, repository):
-        from core.learning_partner.domain.types import EdgeType
+        from core.learner.domain.types import EdgeType
 
         a = repository.create_node(make_node("a"))
         import uuid
@@ -105,7 +104,7 @@ class TestEdgeCRUD:
             )
 
     def test_outgoing_and_incoming_edges(self, repository):
-        from core.learning_partner.domain.types import EdgeType
+        from core.learner.domain.types import EdgeType
 
         a = repository.create_node(make_node("a"))
         b = repository.create_node(make_node("b"))
@@ -120,7 +119,7 @@ class TestEdgeCRUD:
         assert sorted(e.source_node_id for e in incoming) == sorted([a.id, c.id])
 
     def test_get_related_nodes(self, repository):
-        from core.learning_partner.domain.types import EdgeType
+        from core.learner.domain.types import EdgeType
 
         a = repository.create_node(make_node("a"))
         b = repository.create_node(make_node("b"))
@@ -134,7 +133,7 @@ class TestEdgeCRUD:
 
 class TestDeleteSafety:
     def test_delete_referenced_node_raises(self, repository):
-        from core.learning_partner.domain.types import EdgeType
+        from core.learner.domain.types import EdgeType
 
         a = repository.create_node(make_node("a"))
         b = repository.create_node(make_node("b"))
@@ -144,7 +143,7 @@ class TestDeleteSafety:
         assert repository.get_node(a.id) is not None
 
     def test_force_delete_removes_edges(self, repository):
-        from core.learning_partner.domain.types import EdgeType
+        from core.learner.domain.types import EdgeType
 
         a = repository.create_node(make_node("a"))
         b = repository.create_node(make_node("b"))

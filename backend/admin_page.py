@@ -169,7 +169,6 @@ tr:hover td { background: var(--bg3); }
       <div class="tab" data-tab="frontier">Frontier</div>
       <div class="tab" data-tab="misconceptions">Misconceptions</div>
       <div class="tab" data-tab="evidence">Evidence</div>
-      <div class="tab" data-tab="updates">Updates</div>
       <div class="tab" data-tab="skillstates">SkillState</div>
     </div>
     <div style="flex:1;overflow:auto;">
@@ -177,7 +176,6 @@ tr:hover td { background: var(--bg3); }
       <div id="tab-frontier" class="tab-content"></div>
       <div id="tab-misconceptions" class="tab-content"></div>
       <div id="tab-evidence" class="tab-content"></div>
-      <div id="tab-updates" class="tab-content"></div>
       <div id="tab-skillstates" class="tab-content"></div>
     </div>
   </div>
@@ -411,7 +409,7 @@ async function loadLearner(candidate) {
 }
 
 function renderTabs() {
-  renderStates(); renderFrontier(); renderMisconceptions(); renderEvidence(); renderUpdates(); renderSkillStates();
+  renderStates(); renderFrontier(); renderMisconceptions(); renderEvidence(); renderSkillStates();
 }
 
 function bar(val, cls) {
@@ -474,17 +472,6 @@ function renderEvidence() {
   el.innerHTML = html;
 }
 
-function renderUpdates() {
-  const el = document.getElementById('tab-updates');
-  if (!learnerData || !learnerData.updates.length) { el.innerHTML = '<div class="empty"><p>No state updates yet</p></div>'; return; }
-  let html = '<table><thead><tr><th>Time</th><th>Node</th><th>Mastery</th><th>Uncertainty</th><th>Reason</th></tr></thead><tbody>';
-  learnerData.updates.forEach(u => {
-    html += '<tr><td style="white-space:nowrap">'+(u.created_at||'').replace('T',' ').slice(0,19)+'</td><td>'+u.slug+'</td><td>'+(u.previous_mastery*100).toFixed(0)+'% → '+(u.new_mastery*100).toFixed(0)+'%</td><td>'+(u.previous_uncertainty*100).toFixed(0)+'% → '+(u.new_uncertainty*100).toFixed(0)+'%</td><td>'+u.update_reason+'</td></tr>';
-  });
-  html += '</tbody></table>';
-  el.innerHTML = html;
-}
-
 async function renderSkillStates() {
   const el = document.getElementById('tab-skillstates');
   const candidate = document.getElementById('candidate-select').value;
@@ -504,26 +491,6 @@ async function renderSkillStates() {
       html += '<tr><td><b>'+skill+'</b></td><td>'+scorePct+'%</td><td>'+s.variance.toFixed(4)+'</td><td>'+confPct+'%</td><td>'+s.questions_answered+'</td><td><span class="bar-wrap" style="width:120px"><span class="bar-fill bar-mastery" style="width:'+scorePct+'%"></span></span></td></tr>';
     }
     html += '</tbody></table>';
-
-    // Comparison with MVP aggregate mastery
-    if (learnerData && learnerData.states.length) {
-      html += '<div style="margin-top:16px;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase">MVP Aggregate Mastery by Skill</div>';
-      html += '<table style="margin-top:8px"><thead><tr><th>Skill</th><th>Avg Mastery</th><th>Avg Uncertainty</th><th>Nodes</th></tr></thead><tbody>';
-      const bySkill = {};
-      learnerData.states.forEach(s => {
-        const sk = s.node_type === 'skill' ? s.node_name : (s.node_type);
-        if (!bySkill[sk]) bySkill[sk] = { mastery: 0, uncertainty: 0, count: 0 };
-        bySkill[sk].mastery += s.mastery;
-        bySkill[sk].uncertainty += s.uncertainty;
-        bySkill[sk].count++;
-      });
-      for (const [sk, v] of Object.entries(bySkill)) {
-        const avg = v.mastery / v.count;
-        const avgU = v.uncertainty / v.count;
-        html += '<tr><td>'+sk+'</td><td>'+bar(avg,'bar-mastery')+'</td><td>'+bar(avgU,'bar-uncertainty')+'</td><td>'+v.count+'</td></tr>';
-      }
-      html += '</tbody></table>';
-    }
     html += '</div>';
     el.innerHTML = html;
   } catch { el.innerHTML = '<div class="error-msg">Failed to load SkillState</div>'; }

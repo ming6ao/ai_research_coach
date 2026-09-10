@@ -5,14 +5,14 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from core.learning_partner.domain.errors import (
+from core.learner.domain.errors import (
     DuplicateEdgeError,
     DuplicateSlugError,
     NodeNotFoundError,
     SelfEdgeError,
 )
-from core.learning_partner.domain.knowledge import KnowledgeEdge, KnowledgeNode
-from core.learning_partner.domain.types import EdgeType, NodeType
+from core.learner.domain.knowledge import KnowledgeEdge, KnowledgeNode
+from core.learner.domain.types import EdgeType, NodeType
 from tests.conftest import make_edge, make_node
 
 

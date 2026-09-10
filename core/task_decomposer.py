@@ -1,6 +1,6 @@
 """Decompose a coding task or interview question into a fine-grained knowledge graph.
 
-This is the parent-app side of the integration: the MVP (`learning_partner`)
+This is the parent-app side of the integration: the learner model (`core.learner`)
 stores what it is given but never calls an LLM itself. Here we use the same
 Gemini client/retry config as the judge to turn a task prompt into concrete
 knowledge nodes + edges + a primary target node.
@@ -21,7 +21,7 @@ from google import genai
 from google.genai import types
 
 from core.config import MODEL, http_retry_options
-from core.learning_partner.domain.types import EdgeType, NodeType
+from core.learner.domain.types import EdgeType, NodeType
 
 # Valid edge types in the MVP knowledge graph.
 _EDGE_TYPES = {e.value for e in EdgeType}

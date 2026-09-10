@@ -3,7 +3,6 @@ from pathlib import Path
 
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 MODEL = os.getenv("EVAL_MODEL", "gemini-3.5-flash-lite")
-CONV_MODEL = os.getenv("EVAL_CONV_MODEL", "gemini-3.5-flash-lite")
 
 RETRYABLE_STATUS = (408, 429, 500, 502, 503, 504)
 RETRY_ATTEMPTS = int(os.getenv("EVAL_RETRY_ATTEMPTS", "5"))

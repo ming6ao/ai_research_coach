@@ -10,40 +10,17 @@ import sqlite3
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Optional
 
 from fastapi import Request
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-DB_PATH = DATA_DIR / "coach.db"
+from core.db import sqlite_conn
 
 TOKEN_TTL_DAYS = 30
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    display_name TEXT,
-    created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS auth_tokens (
-    token TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id),
-    created_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_auth_tokens_user ON auth_tokens (user_id);
-"""
 
-
-def _connect():
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.executescript(SCHEMA)
-    return conn
+def _connect() -> sqlite3.Connection:
+    return sqlite_conn()
 
 
 def _utcnow() -> datetime:

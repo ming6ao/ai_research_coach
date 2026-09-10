@@ -7,18 +7,18 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from core.learning_partner.domain.errors import (
+from core.learner.domain.errors import (
     MisconceptionNotFoundError,
     NotMisconceptionNodeError,
 )
-from core.learning_partner.domain.knowledge import KnowledgeNode
-from core.learning_partner.domain.misconception import (
+from core.learner.domain.knowledge import KnowledgeNode
+from core.learner.domain.misconception import (
     EvidenceRelationship,
     LearnerMisconception,
     MisconceptionStatus,
 )
-from core.learning_partner.domain.types import NodeType
-from core.learning_partner.seed import seed_misconceptions, seed_weighted_sampling
+from core.learner.domain.types import NodeType
+from tests.learning_partner.fixtures import seed_misconceptions, seed_weighted_sampling
 
 
 @pytest.fixture()
@@ -29,8 +29,8 @@ def ctx(seeded_repository, learner_service, misconception_service, evidence_serv
     mc_node = seeded_repository.get_node_by_slug("cdf_is_normalized_weights")
 
     def make_evidence(status="incorrect"):
-        from core.learning_partner.domain.evidence import Evidence, EvidenceType, ObservationStatus
-        from core.learning_partner.domain.learner import Learner
+        from core.learner.domain.evidence import Evidence, EvidenceType, ObservationStatus
+        from core.learner.domain.learner import Learner
 
         e_learner = learner_service.create_learner()
         ev = Evidence(

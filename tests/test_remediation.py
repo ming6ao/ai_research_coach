@@ -44,6 +44,46 @@ def _session(**kwargs):
     return s
 
 
+class TestPickNextTask:
+    """Centralized hybrid picker (core.learner.engine.pick_next_task)."""
+
+    def test_pending_generated_task_surfaces_first(self):
+        from core.learner.engine import pick_next_task
+
+        session = _session(tasks=[_base_task()])
+        generated = {
+            "id": "remed_pending",
+            "skill": "ml_systems",
+            "type": "code",
+            "difficulty": 2,
+            "prompt": "Simpler warm-up.",
+            "max_score": 5,
+            "hints": [],
+            "generated": True,
+            "mvp_target_slug": "cache-eviction",
+        }
+        session.add_generated_task(generated)
+        picked = pick_next_task(session.candidate, session)
+        assert picked is not None
+        assert picked["id"] == "remed_pending"
+        assert picked["remediation"]["node_slug"] == "cache-eviction"
+
+    def test_bank_picker_fallback(self):
+        from core.learner.engine import pick_next_task
+
+        session = _session(tasks=[_base_task()])
+        picked = pick_next_task(session.candidate, session)
+        assert picked is not None
+        assert picked["id"] == "mi_sys_cache"
+
+    def test_done_when_bank_exhausted(self):
+        from core.learner.engine import pick_next_task
+
+        session = _session(tasks=[_base_task()])
+        session.asked_task_ids.add("mi_sys_cache")
+        assert pick_next_task(session.candidate, session) is None
+
+
 def _base_task(skill="ml_systems", difficulty=3):
     return {
         "id": "mi_sys_cache",

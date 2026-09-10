@@ -9,20 +9,20 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
-from core.learning_partner.domain.errors import (
+from core.learner.domain.errors import (
     DuplicateEvidenceError,
     LearnerNotFoundError,
     NodeNotFoundError,
 )
-from core.learning_partner.domain.evidence import (
+from core.learner.domain.evidence import (
     Evidence,
     EvidenceFilter,
     EvidenceType,
     ObservationStatus,
 )
-from core.learning_partner.domain.knowledge import utcnow
-from core.learning_partner.domain.learner import Learner
-from core.learning_partner.seed import seed_weighted_sampling
+from core.learner.domain.knowledge import utcnow
+from core.learner.domain.learner import Learner
+from tests.learning_partner.fixtures import seed_weighted_sampling
 
 
 @pytest.fixture()
@@ -115,17 +115,6 @@ class TestCRUD:
         rows = service.list_evidence_for_node(cdf.id)
         assert len(rows) == 1
         assert rows[0].node_id == cdf.id
-
-    def test_list_for_interaction(self, seeded_ctx):
-        service, learner, problem = seeded_ctx
-        interaction = uuid.uuid4()
-        service.add_evidence(
-            make_evidence(learner.id, problem.id, interaction_id=interaction)
-        )
-        service.add_evidence(make_evidence(learner.id, problem.id))
-        rows = service.list_evidence_for_interaction(interaction)
-        assert len(rows) == 1
-        assert rows[0].interaction_id == interaction
 
     def test_count_and_latest(self, seeded_ctx):
         service, learner, problem = seeded_ctx
@@ -330,8 +319,6 @@ class TestSampleEvidence:
         service, learner, problem = seeded_ctx
         record = Evidence(
             learner_id=learner.id,
-            session_id=uuid.uuid4(),
-            interaction_id=uuid.uuid4(),
             assessment_task_id=uuid.uuid4(),
             node_id=problem.id,
             evidence_type=EvidenceType.CODE,

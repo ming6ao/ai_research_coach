@@ -6,45 +6,13 @@ interface Props {
 }
 
 export function Header({ onOpenAuth }: Props) {
-  const { taskIndex, totalTasks, report, endPractice } = useAssessmentStore();
+  const { taskIndex, totalTasks, reset } = useAssessmentStore();
   const { user, logout } = useAuthStore();
 
   const handleLogout = () => {
     logout();
-    endPractice();
+    reset();
   };
-
-  if (report) {
-    return (
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-accent)] text-xs font-bold text-white">
-            RC
-          </div>
-          <span className="text-sm font-semibold text-[var(--color-text-primary)]">AI Research Coach</span>
-          <span className="rounded-full bg-[var(--color-success)]/15 px-2 py-0.5 text-[10px] font-semibold text-[var(--color-success)]">
-            COMPLETE
-          </span>
-        </div>
-        <div className="flex items-center gap-4">
-          <a
-            href="/admin"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
-          >
-            Debug
-          </a>
-          <span className="text-sm text-[var(--color-text-secondary)]">
-            {(report.overall_score * 100).toFixed(0)}%
-          </span>
-          <div className="flex h-7 w-7 items-center justify-center rounded-full border border-[var(--color-border-default)] text-xs text-[var(--color-text-muted)]">
-            {(user?.display_name || user?.email || 'U').charAt(0).toUpperCase()}
-          </div>
-        </div>
-      </header>
-    );
-  }
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-4">

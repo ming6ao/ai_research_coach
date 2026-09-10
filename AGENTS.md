@@ -10,11 +10,7 @@ pip install -r requirements.txt
 # Check env & model connectivity
 python check_env.py
 
-# ADK web UI (run from project root)
-adk web --port 8000
-# Open http://localhost:8000 → select "ai_research_coach"
-
-# Or run custom FastAPI + Vite frontend
+# Run the custom FastAPI + Vite frontend
 ./run.sh
 # Backend:  http://localhost:8001
 # Frontend: http://localhost:5173
@@ -31,27 +27,28 @@ adk web --port 8000
 | Test frontend | `cd frontend && npm test` |
 | Build frontend | `cd frontend && npm run build` |
 | Run custom UI | `./run.sh` |
-| ADK CLI | `adk run app` (from project root) |
 | Env check | `python check_env.py` |
 
 ## Architecture Essentials
 
-- **Entry point**: `app/agent.py` defines `root_agent` (ADK Agent with 5 tools)
+- **Entry point**: FastAPI app in `backend/main.py` (`backend/routes.py` + admin routes). No ADK agent.
 - **Config-driven**: Skills/tasks in `config/skills.yaml` and `config/tasks.yaml` — no code changes to extend
-- **Adaptive picker**: `core/picker.py` selects the next question to maximize expected information gain (Bayesian posterior variance reduction) per unit of expected time, weighted by skill importance and coverage
-- **Bayesian scoring**: `core/score.py` keeps a Gaussian belief `N(mean, variance)` per skill; the judge's raw score is discounted by viewed hints before the conjugate update
+- **Bayesian probing**: `core/score.py` + `core/picker.py` keep a Gaussian belief `N(mean, variance)` per skill; `pick_next_task` (in `core/learner/engine.py`) selects questions to maximize expected information gain (EIG) per unit of expected time, weighted by skill importance and coverage
+- **Hybrid question selection**: `core/learner/engine.py:pick_next_task` — (1) pending generated remediation task, (2) frontier-driven remediation (`core/remediation.py` + knowledge-graph learner model), (3) EIG bank picker, (4) `None` when done
+- **Learner model**: the merged `core/learner` package (was `core/learning_partner` + `core/learner_bridge.py`) keeps per-node mastery/uncertainty beliefs that drive the frontier/policy/remediation math
 - **Hints**: `core/hints.py` — tasks declare ordered hints; weak candidates get them pre-revealed, others request them on demand; viewed hints reduce effective mastery
 - **Code eval**: `evaluators/judge.py` evaluates candidate code via a single structured LLM call (score + rationale + coaching response)
 - **Coaching**: The judge's coaching response (in `evaluators/base.py` as `CoachContent`) identifies the candidate's misconception/gap and walks them step-by-step to the correct solution with code examples — no separate feedback step
-- **Teaching pause**: After a submit the UI/agent does **not** auto-advance. The coaching response is shown and the candidate advances manually (`Next question`); the picked task is held in `pendingTask` on the frontend until then
-- **Persistence**: SQLite at `data/coach.db` (gitignored)
-- **Models**: `EVAL_CONV_MODEL` (agent) and `EVAL_MODEL` (judge/feedback) default to `gemini-3.5-flash-lite`
+- **Teaching pause**: After a submit the UI does **not** auto-advance. The coaching response is shown and the candidate advances manually (`Next question`); the picked task is held until then
+- **No summative product**: there is no `assessments` table, report, verdict, or raw-score UI. The app probes and teaches; the progress view shows per-skill confidence + per-node status/misconceptions/next actions
+- **Persistence**: single SQLite file `data/coach.db` (gitignored) with 12 tables (`users`, `auth_tokens`, `active_sessions`, `knowledge_nodes`, `knowledge_edges`, `learners`, `learner_knowledge_states`, `evidence`, `assessment_tasks`, `assessment_targets`, `learner_misconceptions`, `learner_frontier`). `core/db.py` is the single connection module
+- **Models**: `EVAL_MODEL` (judge/coach + decomposer) defaults to `gemini-3.5-flash-lite`
 
 ## Extending Without Code Changes
 
 - **Add question**: Append to `config/tasks.yaml` with unique `id`, `skill`, and `prompt` (+ optional `hints` and `expected_time_min`)
 - **Add skill**: Add a block in `config/skills.yaml` (id, name, description, importance), then tag tasks with that `skill`
-- **Change model**: Set `EVAL_CONV_MODEL` or `EVAL_MODEL` in `.env`
+- **Change model**: Set `EVAL_MODEL` in `.env`
 
 ## Task Types & Required Fields
 
@@ -66,43 +63,42 @@ Optional per task: `hints` (ordered list with `id`, `text`, `weight` 0..1, and `
 
 - Skill ability is a Gaussian belief (`N(mean, variance)`). The mean is the reported skill score; `1 - σ/σ_max` is the reported confidence.
 - Effective score = `raw_fraction − Σ weight(viewed hints)`, clamped to [0, 1] — solving correctly with many hints yields lower mastery.
-- `next_task` maximizes `EIG · importance · coverage / expected_time`, so it drills into informative, important, uncovered skills with cheap questions. It stops once all important skills are pinned (`variance < 0.01`) after the minimum question count, or when the task bank is exhausted.
-- After a submit, the picked task is returned as `next_task` but held back by the UI (in `pendingTask`) until the candidate reviews the coaching and clicks **Next question** — the system never auto-advances. A `next_task: null` after the last question means the candidate is done; the frontend then shows the report button.
+- The bank picker maximizes `EIG · importance · coverage / expected_time`, so it drills into informative, important, uncovered skills with cheap questions. It stops once all important skills are pinned (`variance < 0.01`) after the minimum question count, or when the task bank is exhausted.
+- After a submit, the picked task is returned as `next_task` but held back by the UI until the candidate reviews the coaching and clicks **Next question** — the system never auto-advances. A `next_task: null` after the last question means the candidate is done; the frontend then shows the progress view (via `/api/complete`).
 
-## Learning-Partner MVP Integration
+## Learner Model (merged `core/learner`)
 
-- The `learning_partner` MVP lives in-repo as the `core.learning_partner` package (no editable install; `requirements.txt` just pins its deps `SQLAlchemy`/`alembic`/`pydantic`).
-- `core/learner_bridge.py` (`LearnerBridge`) is the single facade: `ensure_learner(candidate)`, `bootstrap_task(task)`, `record_submission(candidate, task, result, coach, viewed)`, `learner_snapshot(candidate)`.
+- The learner package lives in-repo at `core/learner` (domain/services/storage, SQLAlchemy). No install step needed.
+- `core/learner/engine.py` (`LearnerEngine`) is the single facade: `ensure_learner(candidate)`, `bootstrap_task(task)`, `bootstrap_generated_task(task)`, `record_submission(candidate, task, result, coach, viewed)`, `learner_snapshot(candidate)`, plus the hybrid `pick_next_task` and `clear_learner_data(candidate)`.
+- Candidate identity lives on the `learners.candidate` column (UNIQUE) — no separate binding table.
 - `core/task_decomposer.py` decomposes a task/interview question into knowledge nodes+edges+primary via an LLM; falls back to a deterministic skill+problem graph when no `GOOGLE_API_KEY` (keeps tests and startup hermetic).
-- Hooks: `/start` and ADK `start_assessment` call `ensure_learner` + `bootstrap_task`; `/submit` and ADK `submit_answer` call `record_submission`; `/report` attaches a `learner` block via `learner_snapshot`.
-- The MVP and the parent share one SQLite DB (`data/coach.db`): the parent's `assessments`/`learner_bindings`/auth tables (raw `sqlite3`) coexist with the MVP's 13 SQLAlchemy tables in the same file. Override the MVP file with `LEARNING_PARTNER_DB_URL` if needed. The DB is gitignored.
-- The MVP is LLM-free; all LLM work stays in the parent app. The parent's Bayesian `SkillState` scoring is untouched; the MVP runs in parallel.
-- `core.learning_partner` is importable from the repo root (it is a sub-package of `core`), so no install step is needed.
-- CLI inspector: `python -m core.learner_bridge --demo` (canned learner, no API key) or `python -m core.learner_bridge <candidate>` to print states/frontier/misconceptions/next action. The integration is backend-only (no UI surface).
+- Hooks: `/api/start` and `/api/session/open` call `ensure_learner` + `bootstrap_task`; `/api/submit` calls `record_submission`; `/api/complete` and `/api/session/open` attach a `learner` block via `learner_snapshot`.
+- The learner model is LLM-free; all LLM work lives in `evaluators/judge.py` and `core/task_decomposer.py`. The parent's Bayesian `SkillState` scoring runs in parallel.
+- CLI inspector: `python -m core.learner.engine --demo` (canned learner, no API key) or `python -m core.learner.engine <candidate>` to print states/frontier/misconceptions/next action. Backend-only (no UI surface).
 
 ## Environment Variables
 
 ```bash
 GOOGLE_API_KEY=...              # Required
-EVAL_MODEL=gemini-3.5-flash-lite   # Feedback model
-EVAL_CONV_MODEL=gemini-3.5-flash-lite  # Conversation model
+EVAL_MODEL=gemini-3.5-flash-lite   # Judge/coach + decomposition model
 EVAL_RETRY_ATTEMPTS=5           # Retry attempts (all layers)
 EVAL_RETRY_INITIAL_DELAY=1.0    # Initial backoff (seconds)
 EVAL_RETRY_MAX_DELAY=30.0       # Max backoff (seconds)
-LEARNING_PARTNER_DB_URL=sqlite:///data/coach.db  # MVP tables (optional; defaults to coach.db)
+LEARNING_PARTNER_DB_URL=sqlite:///data/coach.db  # learner tables (optional; defaults to coach.db)
 ```
 
 ## Retry / Resilience
 
 - All model calls use exponential backoff (5 attempts, 1s→30s, jitter) on 408/429/5xx
-- Tools are idempotent: `submit_answer` returns stored result (+ stored coaching) if already scored; `start_assessment` resumes in-progress session
+- `/api/submit` is idempotent: it returns the stored result (+ stored coaching) if the task was already scored; `/api/start` and `/api/session/open` resume in-progress sessions
 
 ## Frontend Notes
 
 - React 19 + TypeScript + Vite + Tailwind v4
-- Chat-style UI: `ChatView`/`WelcomeView` in `frontend/src/components/Chat/` render the assessment as coach/user bubbles; the active task embeds Monaco via `CodeEditor`; submitted results render the judge's coaching (`CoachingBubble`: misconception + numbered steps with code examples)
-- Guest mode = no account → practice (unscored; `/api/practice/submit` returns judge feedback without recording). Logged-in users (bearer token in `localStorage`) get scored assessments + per-account history
-- Auth backend: `backend/auth.py` (bearer tokens, `get_current_user` FastAPI dependency) + `backend/google_auth.py` (Google OAuth authorization-code flow, stdlib only). Login is Google-only — `/auth/google/url` + `/auth/google/callback` exchange a code for a local user (keyed by email) and redirect to `FRONTEND_URL/?token=...`. Requires `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` in `.env`. Enforcement lives in `backend/routes.py` (`/start` returns 401 for anonymous `assessment` mode)
+- Chat-style UI: `ChatView`/`WelcomeView` in `frontend/src/components/Chat/` render the session as coach/user bubbles; the active task embeds Monaco via `CodeEditor`; submitted results render the judge's coaching (`CoachingBubble`: verdict chip + misconception + numbered steps with code examples)
+- Single unified behavior for guests and signed-in users (no practice/assessment split). Guests keep their in-progress session in `localStorage`; signed-in users (bearer token in `localStorage`) get per-account history
+- Progress view: `frontend/src/components/Progress/LearnerProgressView.tsx` shows per-skill confidence and per-node status + misconceptions + next actions after `/api/complete` or on resume of a done session
+- Auth backend: `backend/auth.py` (bearer tokens, `get_current_user` FastAPI dependency) + `backend/google_auth.py` (Google OAuth authorization-code flow, stdlib only). Login is Google-only — `/auth/google/url` + `/auth/google/callback` exchange a code for a local user (keyed by email) and redirect to `FRONTEND_URL/?token=...`. Requires `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` in `.env`
 - Linting: `oxlint` (config in `frontend/.oxlintrc.json`)
 - Typecheck: `tsc -b` (project references: `tsconfig.app.json`, `tsconfig.node.json`)
 - Tests: Node's built-in `node:test` runner via type stripping (`npm test` in `frontend/`), zero extra deps; `tests/resolver.mjs` is a tiny loader that resolves the app's extensionless imports
@@ -119,5 +115,5 @@ LEARNING_PARTNER_DB_URL=sqlite:///data/coach.db  # MVP tables (optional; default
 ## Gotchas
 
 - `.venv` is the virtualenv; `run.sh` uses `.venv/bin/uvicorn` directly
-- `data/` directory is gitignored; SQLite DB created on first assessment
+- `data/` directory is gitignored; the SQLite DB is created on first run
 - The `.env` file contains a real API key — do not commit changes to it
