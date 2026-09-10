@@ -2,26 +2,33 @@
 # Run the custom UI (FastAPI backend + Vite frontend dev server)
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$DIR"
+cd "$(dirname "${BASH_SOURCE[0]}")"
 
-VENV="$DIR/.venv"
-UVICORN="$VENV/bin/uvicorn"
+BACKEND_PID=""
+FRONTEND_PID=""
+
+cleanup() {
+  [ -n "$BACKEND_PID" ] && kill "$BACKEND_PID" 2>/dev/null || true
+  [ -n "$FRONTEND_PID" ] && kill "$FRONTEND_PID" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+free_port() {
+  if lsof -i ":$1" >/dev/null 2>&1; then
+    echo "Freeing port $1..."
+    kill -9 "$(lsof -ti ":$1")" 2>/dev/null || true
+  fi
+}
+free_port 8001
+free_port 5173
 
 echo "Starting FastAPI backend on port 8001..."
-"$UVICORN" backend.main:app --reload --port 8001 &
+.venv/bin/uvicorn backend.main:app --reload --port 8001 &
 BACKEND_PID=$!
 
 echo "Starting Vite dev server on port 5173..."
-cd "$DIR/frontend"
-npx vite --host &
+(cd frontend && npx vite --host) &
 FRONTEND_PID=$!
-
-cleanup() {
-  kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
-  wait $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
-}
-trap cleanup EXIT
 
 echo ""
 echo "  Backend:  http://localhost:8001"
