@@ -71,14 +71,13 @@ def test_expected_time_model():
 
 
 def test_unified_bank_includes_all_former_roles():
-    # A fresh session loads every task (no role filter), so tasks from both
-    # former role trees are eligible for any candidate.
-    session = Session("candidate")
+    # Explicit bank covering both skills; the picker serves any skill.
+    session = make_session(
+        [make_task(0, "ml_modeling"), make_task(1, "ml_systems")]
+    )
     skills = {t["skill"] for t in session.tasks}
-    assert len(session.tasks) == 30
     assert "ml_modeling" in skills
     assert "ml_systems" in skills
-    # The picker can choose from any former role in one pass.
     first = next_task(session)
     assert first is not None
     assert first["skill"] in skills

@@ -316,6 +316,15 @@ export const apiClient = {
   start: (initial_question?: string) =>
     api<StartResponse>('/start', { initial_question }),
 
+  createTask: (prompt: string, skill = 'general', opts: { scaffold?: string; difficulty?: number; is_public?: boolean } = {}) =>
+    api<{ task: Task }>('/tasks', { prompt, skill, ...opts }),
+
+  listTasks: (skill?: string) =>
+    api<{ tasks: Task[] }>(`/tasks${skill ? `?skill=${encodeURIComponent(skill)}` : ''}`, undefined, 'GET'),
+
+  getTask: (taskId: string) =>
+    api<{ task: Task }>(`/tasks/${encodeURIComponent(taskId)}`, undefined, 'GET'),
+
   submit: (session_id: string, task_id: string, answer: string, hints_used: string[] = []) =>
     api<SubmitResponse>('/submit', { session_id, task_id, answer, hints_used }),
 

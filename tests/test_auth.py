@@ -20,6 +20,19 @@ from coach.judge import EvaluationResult
 def client(tmp_path, monkeypatch):
     dbfile = tmp_path / "test.db"
     monkeypatch.setattr(db, "DB_PATH", dbfile)
+    from coach.tasks import create_task as _seed_task
+
+    _seed_task(
+        prompt="Seed task for auth tests. Signature: def f():",
+        skill="general",
+        owner="system",
+        difficulty=2,
+        max_score=5,
+        hints=[],
+        source="seed",
+        is_public=True,
+        task_id="seed_auth_01",
+    )
     from backend.main import app
     return TestClient(app)
 

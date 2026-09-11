@@ -36,6 +36,33 @@ def client(tmp_path, monkeypatch):
     import coach.judge as judge_mod
 
     monkeypatch.setattr(judge_mod, "LLMJudge", FakeJudge)
+    from coach.tasks import create_task as _seed_task
+
+    _seed_task(
+        prompt="Implement overfitting detection from loss curves. Signature: def detect_overfitting(train_losses, val_losses):",
+        skill="ml_modeling",
+        owner="system",
+        difficulty=2,
+        max_score=5,
+        hints=[
+            {"id": "h1", "text": "Training loss falls while validation rises.", "weight": 0.05, "reveal_threshold": 0.75},
+            {"id": "h2", "text": "Find the first local minimum of val loss.", "weight": 0.08, "reveal_threshold": 0.65},
+        ],
+        source="seed",
+        is_public=True,
+        task_id="seed_ml_01",
+    )
+    _seed_task(
+        prompt="Implement top-k gradient compression. Signature: def topk_compress(grads, k):",
+        skill="ml_systems",
+        owner="system",
+        difficulty=2,
+        max_score=5,
+        hints=[{"id": "h1", "text": "Keep largest magnitudes.", "weight": 0.05, "reveal_threshold": 0.75}],
+        source="seed",
+        is_public=True,
+        task_id="seed_sys_01",
+    )
     from backend.main import app
 
     return TestClient(app)
@@ -122,7 +149,7 @@ def test_complete_returns_progress_snapshot(client):
 def test_custom_question_injected_as_first_task(client):
     started = _start(client, initial_question="Explain what a cache eviction policy is.")
     assert started["first_task"] is not None
-    assert started["first_task"]["id"].startswith("custom_")
+    assert started["first_task"]["prompt"] == "Explain what a cache eviction policy is."
     assert started["total_tasks"] > 1
 
 

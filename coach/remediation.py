@@ -262,6 +262,123 @@ def plan_remediation(
 
         bridge.bootstrap_generated_task(generated)
         session.add_generated_task(generated)
+        _persist_generated_task(session, generated, task)
+        return generated
+    except Exception:
+        return None
+
+
+def _persist_generated_task(session, generated: dict, parent_task: dict | None) -> None:
+    """Best-effort persistence of generated tasks to the task bank."""
+    try:
+        from coach.tasks import create_task
+
+        candidate = getattr(session, "candidate", "system")
+        create_task(
+            prompt=generated.get("prompt", ""),
+            skill=generated.get("skill", "general"),
+            owner=candidate,
+            difficulty=generated.get("difficulty", 2),
+            max_score=generated.get("max_score", 5),
+            hints=generated.get("hints", []),
+            source="generated",
+            parent_task_id=(parent_task or {}).get("id"),
+            target_node_slug=generated.get("mvp_target_slug"),
+            is_public=False,
+            task_id=generated.get("id"),
+        )
+    except Exception:
+        pass
+
+
+def plan_consolidation(
+    session,
+    task: dict,
+    result,
+    learner_update: dict,
+    learner_snapshot: dict,
+    bridge=None,
+) -> Optional[dict]:
+    """Generate a similar, high-solvability follow-up after a strong answer.
+
+    Adaptive ladder: only fires when the candidate solved the task
+    (fraction >= 0.8) but the target node belief is not yet confident, so
+    one more near-transfer repetition consolidates mastery at ~80% P(solve).
+    Shares the remediation budget caps. Returns the generated task or None.
+    """
+    try:
+        from coach.solvability import TARGET_P_SOLVE, p_solve, tune_difficulty_for_target
+
+        fraction = (learner_update or {}).get("fraction")
+        if fraction is None and result is not None:
+            max_score = getattr(result, "max_score", 5) or 5
+            fraction = getattr(result, "score", 0) / max_score
+        if fraction is None or float(fraction) < 0.8:
+            return None
+
+        if RemediationPlanner._session_generated_count(session) >= MAX_PER_SESSION:
+            return None
+        skill_id = task.get("skill", "general")
+        if RemediationPlanner._skill_generated_count(session, skill_id) >= MAX_PER_SKILL:
+            return None
+
+        states = (learner_snapshot or {}).get("states") or {}
+        action = (learner_update or {}).get("next_action") or {}
+        slug = action.get("slug")
+        target = None
+        if slug:
+            target = {
+                "node_id": action.get("target_node_id"),
+                "slug": slug,
+                "name": action.get("name"),
+                "description": action.get("description"),
+            }
+        else:
+            frontier = (learner_update or {}).get("frontier") or []
+            if frontier:
+                target = {
+                    "node_id": frontier[0].get("node_id"),
+                    "slug": frontier[0].get("slug"),
+                    "name": frontier[0].get("name"),
+                    "description": frontier[0].get("description"),
+                }
+        if not target or not target.get("slug"):
+            return None
+
+        state = states.get(target["slug"]) or {}
+        uncertainty = state.get("uncertainty")
+        mastery = state.get("mastery")
+        # Confident already -> no consolidation needed.
+        if uncertainty is not None and float(uncertainty) < UNCERTAINTY_STOP_AT:
+            return None
+        # Nothing to consolidate when there is no uncertainty signal at all.
+        if uncertainty is None and not (learner_snapshot or {}).get("misconceptions"):
+            # Still allow one consolidation when frontier exists but state missing.
+            uncertainty = 0.5
+
+        skill_mean = 0.5
+        try:
+            skill_mean = session.get_skill_state(skill_id).score
+        except Exception:
+            pass
+        base = max(1, min(5, int(task.get("difficulty", 2))))
+        difficulty = tune_difficulty_for_target(
+            skill_mean, mastery, uncertainty, base, TARGET_P_SOLVE
+        )
+        # Never harder than the solved task; ensure P(solve) in band.
+        if p_solve(skill_mean, mastery, uncertainty, difficulty) < 0.7:
+            difficulty = max(1, difficulty - 1)
+
+        if bridge is None:
+            from learner.engine import LearnerEngine
+
+            bridge = LearnerEngine()
+        node = RemediationPlanner._node_dict(target, states)
+        generated = bridge.decomposer.generate_variant_task(node, task, difficulty)
+        generated["skill"] = skill_id
+        bridge.bootstrap_generated_task(generated)
+        session.add_generated_task(generated)
+        _persist_generated_task(session, generated, task)
         return generated
     except Exception:
         return None

@@ -345,3 +345,66 @@ class TaskDecomposer:
             f"use of {node_name}. Keep it focused and minimal; this is a warm-up "
             f"for: {original_task.get('prompt', '')}"
         ).strip()
+
+    # -- consolidation variant generation -----------------------------------
+
+    def generate_variant_task(
+        self,
+        node: dict,
+        original_task: dict,
+        difficulty: int,
+    ) -> dict:
+        """Generate a similar, high-solvability variant drilling the same node.
+
+        Same shape as remediation tasks (``generated`` + ``mvp_target_slug``)
+        but framed as consolidation, not repair: new surface story, same
+        concept, difficulty pre-tuned by ``coach.solvability`` so P(solve)
+        lands near 0.8. Falls back deterministically without an API key.
+        """
+        task_id = f"consol_{uuid.uuid4().hex[:10]}"
+        skill = original_task.get("skill", "general")
+        difficulty = max(1, min(5, int(difficulty)))
+
+        if not __import__("os").getenv("GOOGLE_API_KEY"):
+            prompt = self._fallback_variant_prompt(node, original_task)
+            return self._build_remediation(task_id, skill, difficulty, prompt, node)
+
+        try:
+            resp = self._client().models.generate_content(
+                model=self._model,
+                contents=(
+                    f"Original task:\n{original_task.get('prompt', '')}\n\n"
+                    f"Target node slug: {node.get('slug')}\n"
+                    f"Target node name: {node.get('name')}\n"
+                    f"Target node description: {node.get('description') or ''}\n"
+                    f"Desired difficulty (1-5): {difficulty}\n\n"
+                    "Create ONE similar coding task on the same concept with a "
+                    "fresh surface story at the desired difficulty. Keep it "
+                    "self-contained with a clear function signature. Do not "
+                    "reveal the answer."
+                ),
+                config={
+                    "system_instruction": _REMEDIATION_PROMPT,
+                    "response_mime_type": "application/json",
+                    "response_schema": _REMEDIATION_SCHEMA,
+                },
+            )
+            payload = json.loads(resp.text)
+            prompt = str(payload.get("prompt") or "").strip()
+            if not prompt:
+                raise ValueError("empty variant prompt")
+            return self._build_remediation(task_id, skill, difficulty, prompt, node)
+        except Exception:
+            prompt = self._fallback_variant_prompt(node, original_task)
+            return self._build_remediation(task_id, skill, difficulty, prompt, node)
+
+    @staticmethod
+    def _fallback_variant_prompt(node: dict, original_task: dict) -> str:
+        node_name = node.get("name") or node.get("slug") or "this topic"
+        return (
+            f"Follow-up practice on: {node_name}.\n"
+            f"{node.get('description') or ''}\n"
+            f"Write a small self-contained function similar to, but different from, "
+            f"the previous exercise on {node_name}. Original for reference: "
+            f"{original_task.get('prompt', '')}"
+        ).strip()

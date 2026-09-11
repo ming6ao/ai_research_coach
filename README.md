@@ -7,8 +7,9 @@ There is **no summative score, report, or verdict** — the app keeps a live
 per-skill belief and a per-knowledge-node learner model, and shows the
 candidate's progress as confidence + misconceptions + next actions.
 
-It is a single FastAPI + Vite app (no ADK agent). Adding questions is
-done by editing `config/tasks.yaml` — not code.
+It is a single FastAPI + Vite app (no ADK agent). Questions live in the
+`tasks` DB table (not a YAML file) — users enter their own via
+`POST /api/tasks` or the `initial_question` field on `/api/start`.
 
 ## Architecture
 
@@ -23,8 +24,10 @@ FastAPI (backend/main.py, backend/routes.py)
         │   ├── picker.py       EIG bank-task selection
         │   ├── hints.py        requestable hints + score penalty
         │   ├── session.py      tasks/results/skill_states (no mode)
-        │   ├── remediation.py  frontier-driven remediation tasks
-        │   ├── task_decomposer.py  LLM: task → KG nodes; remediation tasks
+        │   ├── remediation.py  frontier remediation + consolidation successors
+        │   ├── solvability.py  P(solve) estimate + adaptive difficulty ladder
+        │   ├── tasks.py        DB task bank + attempts + skill beliefs
+        │   ├── task_decomposer.py  LLM: task → KG nodes; remediation/variant tasks
         │   ├── judge.py        LLM judge (score + rationale + coaching)
         │   └── db.py           single SQLite connection + schema
         │
@@ -53,8 +56,10 @@ ai_research_coach/
 ├── coach/
 │   ├── score.py / picker.py / hints.py   # Bayesian probing engine
 │   ├── session.py         # candidate session state
-│   ├── remediation.py     # remediation planner
-│   ├── task_decomposer.py # LLM decomposition + remediation generation
+│   ├── remediation.py     # remediation + consolidation planner
+│   ├── solvability.py     # P(solve) + difficulty ladder
+│   ├── tasks.py           # DB task bank (tasks/task_attempts/user_skill_beliefs)
+│   ├── task_decomposer.py # LLM decomposition + remediation/variant generation
 │   ├── judge.py           # LLM judge (score + rationale + coaching response)
 │   └── db.py              # single connection module (data/coach.db)
 ├── learner/               # learner model, one module per topic
@@ -68,9 +73,7 @@ ai_research_coach/
 │   ├── policy.py          # next-action selection
 │   ├── orchestrator.py    # evidence assessors + assess→update loop
 │   └── traversal.py / types.py / interfaces.py / container.py
-├── config/
-│   └── tasks.yaml          # question/task bank (code only, with optional hints)
-└── frontend/              # React 19 + TypeScript + Vite + Tailwind v4
+├── frontend/              # React 19 + TypeScript + Vite + Tailwind v4
 ```
 
 ## Setup
@@ -102,11 +105,13 @@ python check_env.py          # verify env + model connectivity
 3. **Teaching pause** — the UI never auto-advances. The coaching response is
    shown; the candidate clicks **Next question** to continue. The next task is
    chosen by the hybrid `pick_next_task`:
-   1. a pending generated remediation task surfaces first,
-   2. otherwise the learner model's frontier drives remediation (a *simpler*
-      generated task drills the highest-information-gain node),
-   3. otherwise the EIG bank picker selects the informative task,
-   4. `None` when the bank is exhausted and no remediation remains.
+1. a pending generated task surfaces first,
+2. otherwise the learner model's frontier drives remediation (a *simpler*
+   generated task drills the highest-information-gain node),
+3. otherwise a consolidation successor fires after a strong answer with
+   residual uncertainty (a *similar* task tuned to ~80% P(solve)),
+4. otherwise the EIG bank picker selects the informative task,
+5. `None` when the bank is exhausted and no remediation remains.
 4. **Progress** — when `next_task` is `null`, the candidate is done.
    `POST /api/complete` returns the progress snapshot (per-skill confidence +
    per-node states, misconceptions, next action). Sessions stay in
@@ -126,7 +131,10 @@ python check_env.py          # verify env + model connectivity
 
 | Endpoint | Purpose |
 |----------|---------|
-| `POST /api/start` `{initial_question?}` | New session → `{session_id, candidate, message, first_task, learner}` |
+| `POST /api/start` `{initial_question?, task_ids?, skill?}` | New session → `{session_id, candidate, message, first_task, learner}` |
+| `POST /api/tasks` `{prompt, skill?, scaffold?, difficulty?, hints?, is_public?}` | Create a user question → `{task}` |
+| `GET /api/tasks?skill=` | List visible tasks |
+| `GET /api/tasks/{id}` | Task detail |
 | `POST /api/submit` `{session_id, task_id, answer, hints_used}` | Score + coach + `next_task` + `skill_update` + `learner_update` |
 | `POST /api/complete` `{session_id}` | Progress snapshot `{done, skill_states, learner}` |
 | `POST /api/session/open` `{id}` | Resume a session → `{current_task, results, skill_states, learner}` |
@@ -138,14 +146,16 @@ python check_env.py          # verify env + model connectivity
 
 ## Persistence
 
-Single SQLite file `data/coach.db` (gitignored, created on first run) with 10
+Single SQLite file `data/coach.db` (gitignored, created on first run) with 13
 tables: `users`, `auth_tokens`, `active_sessions`, `knowledge_nodes`,
 `knowledge_edges`, `learners`, `learner_knowledge_states`, `evidence`,
 `learner_misconceptions`,
-`learner_frontier`. `coach/db.py` is the single connection module. The learner
+`learner_frontier`, plus `tasks`, `task_attempts`, `user_skill_beliefs`.
+`coach/db.py` is the single connection module. The learner
 state is **derived** from the append-only `evidence` table, so history is always
-recomputable. Task→node mapping is ephemeral (derived from the decomposer at
-submit time); no task/target tables are persisted.
+recomputable. Per-task progress lives in `task_attempts`; per-skill mastery
+persists across sessions in `user_skill_beliefs`. Task→node mapping is ephemeral (derived from the decomposer at
+submit time).
 
 ## Learner model (flat `learner/`)
 
@@ -166,9 +176,11 @@ python -m learner.engine alice@example.com
 
 ## How to extend (no code changes)
 
-- **Add a question**: append an entry to `config/tasks.yaml` with a unique `id`,
-  `skill`, and `prompt` (+ optional `hints` and `expected_time_min`). The
-  `skill` tag is a free-form id — a new tag starts a fresh per-skill belief.
+- **Add a question**: `POST /api/tasks` with `prompt`, `skill`, and optional
+  `scaffold`/`difficulty`/`hints`. Or pass `initial_question` to
+  `/api/start`. The `skill` tag is a free-form id — a new tag starts a fresh
+  per-skill belief. User rows are private by default (guests create public
+  rows); generated follow-ups link via `parent_task_id`/`target_node_slug`.
 - **Change the model**: set `EVAL_MODEL` in `.env` (e.g. `gemini-3.5-flash-lite`).
 
 ## Environment variables

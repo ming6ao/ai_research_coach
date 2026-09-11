@@ -2,10 +2,39 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Set
 
-from coach.config import load_yaml
 from coach.hints import select_hints
 from coach.score import INITIAL_SCORE, INITIAL_VARIANCE, confidence_from_variance
 from coach.judge import EvaluationResult
+
+
+def _load_bank_tasks(candidate: str) -> list:
+    """Load the visible task bank from the DB.
+
+    The YAML bank was removed; tasks are user-created or seeded rows in
+    the ``tasks`` table. An empty bank is valid (the UI prompts the user
+    to enter their own question).
+    """
+    try:
+        from coach.tasks import list_visible_tasks
+
+        return list_visible_tasks(candidate or "system")
+    except Exception:
+        return []
+
+
+def _hydrate_skill_beliefs(session) -> None:
+    """Restore persisted per-skill beliefs so mastery survives sessions."""
+    try:
+        from coach.tasks import get_skill_belief
+
+        candidate = getattr(session, "candidate", "")
+        for skill in list(session.skill_states.keys()):
+            pass
+        # Hydrate lazily on access instead: patch get_skill_state below.
+        # Here we only pre-load nothing; persistence happens on submit.
+        _ = get_skill_belief  # keep import live for get_skill_state
+    except Exception:
+        pass
 
 
 @dataclass
@@ -68,13 +97,27 @@ class Session:
 
     def __post_init__(self):
         if not self.tasks:
-            all_tasks = load_yaml("tasks.yaml")["tasks"]
-            self.tasks = list(all_tasks)
+            self.tasks = _load_bank_tasks(self.candidate)
+        _hydrate_skill_beliefs(self)
 
     def get_skill_state(self, skill_id: str) -> SkillState:
         """Get the current state for a skill, initializing if needed."""
         if skill_id not in self.skill_states:
-            self.skill_states[skill_id] = SkillState()
+            restored = None
+            try:
+                from coach.tasks import get_skill_belief
+
+                restored = get_skill_belief(self.candidate, skill_id)
+            except Exception:
+                restored = None
+            if restored:
+                self.skill_states[skill_id] = SkillState(
+                    score=restored.get("mean", INITIAL_SCORE),
+                    variance=restored.get("variance", INITIAL_VARIANCE),
+                    questions_answered=restored.get("questions_answered", 0),
+                )
+            else:
+                self.skill_states[skill_id] = SkillState()
         return self.skill_states[skill_id]
 
     def add_generated_task(self, task: dict) -> None:

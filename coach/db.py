@@ -124,6 +124,7 @@ def create_schema():
         misconception,
         states,
     )
+    from coach import tasks as _tasks  # noqa: F401  (register task tables)
 
     engine = learner_engine()
     Base.metadata.create_all(engine)

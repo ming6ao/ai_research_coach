@@ -45,6 +45,19 @@ def client(tmp_path, monkeypatch):
 
     monkeypatch.setattr(judge_mod, "LLMJudge", FakeJudge)
 
+    from coach.tasks import create_task as _seed_task
+
+    _seed_task(
+        prompt="Integration seed task. Signature: def f():",
+        skill="general",
+        owner="system",
+        difficulty=2,
+        max_score=5,
+        hints=[],
+        source="seed",
+        is_public=True,
+        task_id="seed_int_01",
+    )
     from backend.main import app
     client = TestClient(app)
 

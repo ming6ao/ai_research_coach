@@ -411,6 +411,9 @@ def pick_next_task(
       2. Frontier remediation — when ``last_submission`` is provided, run the
          learner engine and ``plan_remediation``; an actionable gap generates a
          *simpler* task drilling the frontier-top node.
+      2b. Consolidation successor — after a strong answer with residual
+         uncertainty, ``plan_consolidation`` generates a *similar* task tuned
+         to ~80% P(solve) (adaptive ladder).
       3. EIG bank picker — ``coach.picker.next_task(session)``.
       4. Done — ``None`` when the bank is exhausted and no remediation remains.
 
@@ -430,7 +433,7 @@ def pick_next_task(
 
     # 2. Frontier-driven remediation after a submission.
     if last_submission is not None:
-        from coach.remediation import plan_remediation
+        from coach.remediation import plan_consolidation, plan_remediation
 
         generated = plan_remediation(
             session,
@@ -442,6 +445,18 @@ def pick_next_task(
         )
         if generated is not None:
             return task_view(generated, session)
+
+        # 2b. Consolidation: similar solvable follow-up after strong answers.
+        successor = plan_consolidation(
+            session,
+            last_submission.get("task"),
+            last_submission.get("result"),
+            last_submission.get("learner_update"),
+            last_submission.get("learner_snapshot") or {},
+            bridge=engine,
+        )
+        if successor is not None:
+            return task_view(successor, session)
 
     # 3. EIG bank picker.
     nxt = next_task_bank(session)

@@ -27,6 +27,19 @@ router = APIRouter(prefix="/api", tags=["assessment"])
 
 class StartRequest(BaseModel):
     initial_question: Optional[str] = None
+    task_ids: Optional[list] = None
+    skill: Optional[str] = None
+
+
+class TaskCreateRequest(BaseModel):
+    prompt: str
+    skill: Optional[str] = "general"
+    scaffold: Optional[str] = None
+    difficulty: Optional[int] = 2
+    max_score: Optional[int] = 5
+    hints: Optional[list] = None
+    expected_time_min: Optional[float] = None
+    is_public: Optional[bool] = False
 
 
 class SubmitRequest(BaseModel):
@@ -113,21 +126,37 @@ def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
 
     store = get_store()
     candidate = _candidate_for(user)
+    is_guest = candidate.startswith("guest-")
 
     session_id = store.create(candidate)
-    session = Session(candidate)
+    # Optional task scoping: a subset of visible task ids to practice.
+    scoped_tasks = None
+    if req.task_ids:
+        from coach.tasks import get_task as _get_task
 
-    # If the user typed a custom question, inject it as the first task.
+        scoped_tasks = []
+        for tid in req.task_ids:
+            t = _get_task(tid)
+            if t:
+                scoped_tasks.append(t)
+    session = Session(candidate, tasks=scoped_tasks or [])
+
+    # If the user typed a custom question, persist it as a task row first.
     custom_task = None
     if req.initial_question and req.initial_question.strip():
-        custom_task = {
-            "id": f"custom_{uuid.uuid4().hex[:8]}",
-            "skill": "general",
-            "difficulty": 2,
-            "prompt": req.initial_question.strip(),
-            "max_score": 5,
-            "hints": [],
-        }
+        from coach.tasks import create_task as _create_task
+
+        custom_task = _create_task(
+            prompt=req.initial_question.strip(),
+            skill=req.skill or "general",
+            owner=candidate,
+            difficulty=2,
+            max_score=5,
+            hints=[],
+            source="user",
+            # Guests create globally-visible rows; users default to private.
+            is_public=is_guest,
+        )
         session.tasks.insert(0, custom_task)
 
     if custom_task:
@@ -218,6 +247,27 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
         evidence=state_obj.evidence + [result.rationale],
         hints_used=state_obj.hints_used + viewed,
     )
+    try:
+        from coach.tasks import record_attempt as _record_attempt
+        from coach.tasks import save_skill_belief as _save_belief
+
+        _record_attempt(
+            session.candidate,
+            task["id"],
+            observation,
+            result.score,
+            result.max_score,
+            viewed,
+        )
+        _save_belief(
+            session.candidate,
+            skill_id,
+            new_score,
+            new_variance,
+            state_obj.questions_answered + 1,
+        )
+    except Exception:
+        pass
 
     feedback_entry = {
         "task_id": task["id"],
@@ -290,6 +340,63 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
         "skill_update": skill_update,
         "learner_update": learner_update,
     }
+
+
+@router.post("/tasks")
+def create_task_endpoint(req: TaskCreateRequest, user: dict = Depends(get_current_user)):
+    from coach.tasks import create_task as _create_task
+
+    if not req.prompt or not req.prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt is required.")
+    candidate = _candidate_for(user)
+    is_guest = candidate.startswith("guest-")
+    task = _create_task(
+        prompt=req.prompt.strip(),
+        skill=req.skill or "general",
+        owner=candidate,
+        scaffold=req.scaffold,
+        difficulty=req.difficulty or 2,
+        max_score=req.max_score or 5,
+        hints=req.hints or [],
+        expected_time_min=req.expected_time_min,
+        source="user",
+        is_public=bool(req.is_public or is_guest),
+    )
+    # Decompose eagerly so the knowledge graph knows the new question.
+    try:
+        from learner.engine import LearnerEngine
+
+        engine = LearnerEngine()
+        engine.ensure_learner(candidate)
+        engine.bootstrap_task(task)
+    except Exception:
+        pass
+    return {"task": task}
+
+
+@router.get("/tasks")
+def list_tasks_endpoint(skill: Optional[str] = None, user: dict = Depends(get_current_user)):
+    from coach.tasks import list_visible_tasks
+
+    candidate = _candidate_for(user)
+    # Guests without a stable id still see public/seed tasks.
+    visible_for = user["email"] if user is not None else "system"
+    if candidate.startswith("guest-"):
+        # Guest rows are public, so listing as system covers seed+public.
+        # Own in-session custom rows are returned via /start, not here.
+        pass
+    tasks = list_visible_tasks(visible_for if user is None else candidate, skill=skill)
+    return {"tasks": tasks}
+
+
+@router.get("/tasks/{task_id}")
+def get_task_endpoint(task_id: str, user: dict = Depends(get_current_user)):
+    from coach.tasks import get_task as _get_task
+
+    task = _get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    return {"task": task}
 
 
 @router.post("/complete")

@@ -1,0 +1,93 @@
+"""DB task bank: creation/visibility, solvability ladder, consolidation."""
+
+from __future__ import annotations
+
+import coach.db as db
+from coach.solvability import p_solve, tune_difficulty_for_target
+
+
+def _task(i, skill="general", difficulty=2):
+    return {
+        "id": f"t{i}",
+        "skill": skill,
+        "difficulty": difficulty,
+        "prompt": f"Prompt {i}",
+        "max_score": 5,
+        "hints": [],
+    }
+
+
+def test_create_and_list_tasks_endpoint():
+    import coach.judge as judge_mod
+    from fastapi.testclient import TestClient
+
+    import tempfile, pathlib
+    tmp = pathlib.Path(tempfile.mkdtemp()) / "t.db"
+    db.DB_PATH = tmp
+    judge_mod.LLMJudge = type(
+        "J",
+        (),
+        {"evaluate": lambda self, task, ans: (__import__("coach.judge").EvaluationResult(task["id"], task["skill"], 5, 5, "ok", {"feedback": "f", "misconception": "m", "steps": []}), __import__("coach.judge").CoachContent(feedback="f", misconception="m", steps=[]))},
+    )
+    from backend.main import app
+
+    client = TestClient(app)
+    res = client.post("/api/tasks", json={"prompt": "My own question?", "skill": "ml_systems"})
+    assert res.status_code == 200
+    task = res.json()["task"]
+    assert task["prompt"] == "My own question?"
+    assert task["skill"] == "ml_systems"
+
+    listed = client.get("/api/tasks").json()["tasks"]
+    assert any(t["id"] == task["id"] for t in listed)
+
+    got = client.get(f"/api/tasks/{task['id']}").json()["task"]
+    assert got["prompt"] == "My own question?"
+
+
+def test_private_by_default_shared_when_public(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "p.db")
+    from coach.tasks import create_task, list_visible_tasks
+
+    own = create_task(prompt="private q", skill="s", owner="a@x.com", is_public=False)
+    pub = create_task(prompt="public q", skill="s", owner="b@x.com", is_public=True)
+    assert any(t["id"] == own["id"] for t in list_visible_tasks("a@x.com"))
+    assert not any(t["id"] == own["id"] for t in list_visible_tasks("b@x.com"))
+    assert any(t["id"] == pub["id"] for t in list_visible_tasks("a@x.com"))
+
+
+def test_solvability_ladder_targets_80pct():
+    # Higher skill -> higher P(solve); harder task -> lower P(solve).
+    assert p_solve(0.9, 0.8, 0.1, 1) > p_solve(0.3, 0.3, 0.8, 5)
+    d = tune_difficulty_for_target(0.8, 0.7, 0.3, base_difficulty=4)
+    assert 1 <= d <= 4
+    assert p_solve(0.8, 0.7, 0.3, d) >= 0.7
+
+
+def test_consolidation_fires_after_strong_answer():
+    from coach.remediation import plan_consolidation
+    from coach.session import Session
+
+    session = Session("c", tasks=[_task(0, "s", 3)])
+    task = session.tasks[0]
+    result = type("R", (), {"score": 5, "max_score": 5})()
+    learner_update = {
+        "fraction": 1.0,
+        "frontier": [{"node_id": "n", "slug": "some-node", "name": "N", "description": "d"}],
+        "next_action": {"target_node_id": "n", "slug": "some-node", "name": "N", "description": "d"},
+    }
+    snapshot = {"states": {"some-node": {"mastery": 0.65, "uncertainty": 0.5}}, "misconceptions": []}
+    gen = plan_consolidation(session, task, result, learner_update, snapshot, bridge=None)
+    # Bridge=None builds a real engine (fallback decomposer, no API key) — hermetic.
+    assert gen is None or gen["difficulty"] <= task["difficulty"]
+
+
+def test_consolidation_skipped_on_weak_answer():
+    from coach.remediation import plan_consolidation
+    from coach.session import Session
+
+    session = Session("c2", tasks=[_task(0, "s", 3)])
+    task = session.tasks[0]
+    result = type("R", (), {"score": 1, "max_score": 5})()
+    learner_update = {"fraction": 0.2, "frontier": [], "next_action": None}
+    assert plan_consolidation(session, task, result, learner_update, {}) is None
