@@ -32,8 +32,8 @@ python check_env.py
 ## Architecture Essentials
 
 - **Entry point**: FastAPI app in `backend/main.py` (`backend/routes.py` + admin routes). No ADK agent.
-- **Config-driven**: Skills/tasks in `config/skills.yaml` and `config/tasks.yaml` — no code changes to extend
-- **Bayesian probing**: `core/score.py` + `core/picker.py` keep a Gaussian belief `N(mean, variance)` per skill; `pick_next_task` (in `core/learner/engine.py`) selects questions to maximize expected information gain (EIG) per unit of expected time, weighted by skill importance and coverage
+- **Config-driven**: Questions in `config/tasks.yaml` — no code changes to extend; each task's `skill` tag is a free-form id that keys a per-skill belief
+- **Bayesian probing**: `core/score.py` + `core/picker.py` keep a Gaussian belief `N(mean, variance)` per skill; `pick_next_task` (in `core/learner/engine.py`) selects questions to maximize expected information gain (EIG) per unit of expected time, weighted by skill coverage
 - **Hybrid question selection**: `core/learner/engine.py:pick_next_task` — (1) pending generated remediation task, (2) frontier-driven remediation (`core/remediation.py` + knowledge-graph learner model), (3) EIG bank picker, (4) `None` when done
 - **Learner model**: the merged `core/learner` package (was `core/learning_partner` + `core/learner_bridge.py`) keeps per-node mastery/uncertainty beliefs that drive the frontier/policy/remediation math
 - **Hints**: `core/hints.py` — tasks declare ordered hints; weak candidates get them pre-revealed, others request them on demand; viewed hints reduce effective mastery
@@ -47,7 +47,6 @@ python check_env.py
 ## Extending Without Code Changes
 
 - **Add question**: Append to `config/tasks.yaml` with unique `id`, `skill`, and `prompt` (+ optional `hints` and `expected_time_min`)
-- **Add skill**: Add a block in `config/skills.yaml` (id, name, description, importance), then tag tasks with that `skill`
 - **Change model**: Set `EVAL_MODEL` in `.env`
 
 ## Task Types & Required Fields
@@ -63,7 +62,7 @@ Optional per task: `hints` (ordered list with `id`, `text`, `weight` 0..1, and `
 
 - Skill ability is a Gaussian belief (`N(mean, variance)`). The mean is the reported skill score; `1 - σ/σ_max` is the reported confidence.
 - Effective score = `raw_fraction − Σ weight(viewed hints)`, clamped to [0, 1] — solving correctly with many hints yields lower mastery.
-- The bank picker maximizes `EIG · importance · coverage / expected_time`, so it drills into informative, important, uncovered skills with cheap questions. It stops once all important skills are pinned (`variance < 0.01`) after the minimum question count, or when the task bank is exhausted.
+- The bank picker maximizes `EIG · coverage / expected_time`, so it drills into informative, uncovered skills with cheap questions. The session ends when the task bank is exhausted.
 - After a submit, the picked task is returned as `next_task` but held back by the UI until the candidate reviews the coaching and clicks **Next question** — the system never auto-advances. A `next_task: null` after the last question means the candidate is done; the frontend then shows the progress view (via `/api/complete`).
 
 ## Learner Model (merged `core/learner`)

@@ -2,7 +2,7 @@
 
 import pytest
 
-from core.picker import _should_terminate, expected_time, next_task
+from core.picker import expected_time, next_task
 from core.session import Session
 
 SKILLS = [
@@ -60,32 +60,6 @@ def test_probes_all_skills_before_revisiting():
         state.questions_answered += 1
         session.asked_task_ids.add(task["id"])
     assert len(set(seen_skills)) == len(SKILLS)
-
-
-def test_termination_applies_to_all_candidates():
-    # Guests and signed-in candidates are coached the same way: the picker
-    # terminates once every important skill is pinned.
-    session = Session("guest-abc12345", tasks=[make_task(0, "ml_fundamentals"), make_task(1, "deep_learning")])
-    session.index = 20
-    for skill in SKILLS:
-        session.get_skill_state(skill).variance = 0.0001
-    assert next_task(session) is None
-
-
-def test_early_termination_when_important_skills_pinned():
-    session = make_session([make_task(0, "ml_fundamentals"), make_task(1, "deep_learning")])
-    session.index = 15
-    for skill in SKILLS:
-        session.get_skill_state(skill).variance = 0.0001
-    assert _should_terminate(session) is True
-
-
-def test_no_early_termination_below_min_questions():
-    session = make_session([make_task(0, "ml_fundamentals")])
-    session.index = 5
-    for skill in SKILLS:
-        session.get_skill_state(skill).variance = 0.0001
-    assert _should_terminate(session) is False
 
 
 def test_expected_time_model():

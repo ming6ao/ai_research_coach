@@ -7,8 +7,8 @@ There is **no summative score, report, or verdict** — the app keeps a live
 per-skill belief and a per-knowledge-node learner model, and shows the
 candidate's progress as confidence + misconceptions + next actions.
 
-It is a single FastAPI + Vite app (no ADK agent). Adding questions or skills is
-done by editing config files — not code.
+It is a single FastAPI + Vite app (no ADK agent). Adding questions is
+done by editing `config/tasks.yaml` — not code.
 
 ## Architecture
 
@@ -55,8 +55,7 @@ ai_research_coach/
 │   ├── db.py              # single connection module (data/coach.db)
 │   └── learner/           # merged learner model (domain/services/storage)
 ├── config/
-│   ├── skills.yaml        # unified skill tree (importance)
-│   └── tasks.yaml         # question/task bank (code only, with optional hints)
+│   └── tasks.yaml          # question/task bank (code only, with optional hints)
 ├── evaluators/
 │   ├── base.py            # EvaluationResult + CoachContent (misconception + steps)
 │   └── judge.py           # LLM judge (score + rationale + coaching response)
@@ -106,9 +105,8 @@ python check_env.py          # verify env + model connectivity
 
 - **Bayesian probing** (`core/score.py` + `core/picker.py`): a Gaussian belief
   `N(mean, variance)` per skill, updated by the judge score minus the hint
-  penalty. The bank picker maximizes `EIG · importance · coverage / expected_time`
-  and stops when all important skills are pinned (`variance < 0.01`) after the
-  minimum question count, or when the task bank is exhausted.
+  penalty. The bank picker maximizes `EIG · coverage / expected_time`
+  and the session ends when the task bank is exhausted.
 - **Remediation** (`core/remediation.py` + `core/learner`): per-node
   mastery/uncertainty drives the frontier/policy; incorrect/partial answers,
   active misconceptions, and high-uncertainty nodes generate a simpler drill task.
@@ -156,9 +154,8 @@ python -m core.learner.engine alice@example.com
 ## How to extend (no code changes)
 
 - **Add a question**: append an entry to `config/tasks.yaml` with a unique `id`,
-  `skill`, and `prompt` (+ optional `hints` and `expected_time_min`).
-- **Add a skill**: add a block in `config/skills.yaml`
-  (id, name, description, importance); then tag tasks with that `skill`.
+  `skill`, and `prompt` (+ optional `hints` and `expected_time_min`). The
+  `skill` tag is a free-form id — a new tag starts a fresh per-skill belief.
 - **Change the model**: set `EVAL_MODEL` in `.env` (e.g. `gemini-3.5-flash-lite`).
 
 ## Environment variables

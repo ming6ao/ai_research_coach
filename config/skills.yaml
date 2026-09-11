@@ -1,9 +1,0 @@
-skills:
-- id: ml_modeling
-  name: Machine Learning & Modeling
-  description: Core ML concepts, deep learning architectures, math & statistics, experimentation, and hands-on implementation
-  importance: 5
-- id: ml_systems
-  name: ML Systems & Infrastructure
-  description: Distributed systems, MLOps, model deployment, cloud/containers, and data engineering
-  importance: 5

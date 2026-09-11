@@ -2,10 +2,9 @@
 
 Selects the next question to maximize expected information gain (posterior
 variance reduction of the per-skill ability belief) per unit of expected
-assessment time, weighted by skill importance and skill coverage.
+assessment time, weighted by skill coverage.
 
-The assessment stops once every important skill's ability estimate is pinned
-down (variance below tolerance) after the minimum question count.
+The assessment ends when the question bank is exhausted.
 """
 
 from typing import Optional
@@ -14,11 +13,6 @@ from core.session import Session
 from core.score import expected_variance_reduction, measurement_variance
 
 
-# Termination configuration
-MIN_QUESTIONS = 15
-IMPORTANT_SKILL_THRESHOLD = 4
-VARIANCE_TOLERANCE = 0.01  # sigma ~ 0.1 => ability estimate is effectively pinned
-
 # Static expected-time model (minutes) used as the cost of a question.
 TIME_BASE_MIN = 4.0
 TIME_PER_DIFFICULTY = 1.2
@@ -26,7 +20,7 @@ TIME_PER_100_WORDS = 1.0
 TIME_NO_SCAFFOLD_EXTRA = 0.5
 
 # Coverage boost applied to skills that have never been probed, so every
-# important skill is measured instead of only the cheapest/earliest ones.
+# skill in the bank is measured instead of only the cheapest/earliest ones.
 COVERAGE_BONUS = 3.0
 
 
@@ -43,11 +37,6 @@ def next_task(session: Session) -> Optional[dict]:
     if not available:
         return None
 
-    # Termination: minimum questions answered AND every important skill's
-    # ability estimate is pinned (variance below tolerance).
-    if _should_terminate(session):
-        return None
-
     scored = sorted(
         ((_utility(t, session), t) for t in available),
         key=lambda x: x[0],
@@ -57,10 +46,9 @@ def next_task(session: Session) -> Optional[dict]:
 
 
 def _utility(task: dict, session: Session) -> float:
-    """Utility = (expected variance reduction * importance * coverage) / cost."""
+    """Utility = (expected variance reduction * coverage) / cost."""
     skill_id = task["skill"]
     state = session.get_skill_state(skill_id)
-    importance = _get_skill_importance(skill_id, session)
 
     obs_variance = measurement_variance(task.get("difficulty", 1), state.score)
     information = expected_variance_reduction(state.variance, obs_variance)
@@ -68,7 +56,7 @@ def _utility(task: dict, session: Session) -> float:
     coverage = COVERAGE_BONUS if state.questions_answered == 0 else 1.0
     cost = expected_time(task)
 
-    return (information * importance * coverage) / cost
+    return (information * coverage) / cost
 
 
 def expected_time(task: dict) -> float:
@@ -89,30 +77,3 @@ def expected_time(task: dict) -> float:
     if not task.get("scaffold"):
         minutes += TIME_NO_SCAFFOLD_EXTRA
     return minutes
-
-
-def _get_skill_importance(skill_id: str, session: Session) -> int:
-    """Get importance value for a skill from the unified skill tree."""
-    return session.get_skill_cfg(skill_id).get("importance", 3)
-
-
-def _should_terminate(session: Session) -> bool:
-    """Check whether the assessment should stop.
-
-    Termination condition: minimum questions answered AND every important
-    skill's ability estimate is pinned (variance below tolerance).
-    """
-    if session.index < MIN_QUESTIONS:
-        return False
-
-    important_skills = [
-        s for s in session.skills_cfg
-        if s.get("importance", 3) >= IMPORTANT_SKILL_THRESHOLD
-    ]
-    if not important_skills:
-        return False
-
-    return all(
-        session.get_skill_state(s["id"]).variance < VARIANCE_TOLERANCE
-        for s in important_skills
-    )

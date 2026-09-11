@@ -67,29 +67,15 @@ class Session:
     generated_task_ids: Set[str] = field(default_factory=set)
 
     def __post_init__(self):
-        cfg = load_yaml("skills.yaml")
-        self.skills_cfg = cfg.get("skills", [])
         if not self.tasks:
             all_tasks = load_yaml("tasks.yaml")["tasks"]
             self.tasks = list(all_tasks)
-
-        # Initialize skill states for all skills in the tree
-        for skill in self.skills_cfg:
-            if skill["id"] not in self.skill_states:
-                self.skill_states[skill["id"]] = SkillState()
 
     def get_skill_state(self, skill_id: str) -> SkillState:
         """Get the current state for a skill, initializing if needed."""
         if skill_id not in self.skill_states:
             self.skill_states[skill_id] = SkillState()
         return self.skill_states[skill_id]
-
-    def get_skill_cfg(self, skill_id: str) -> dict:
-        """Get the config block for a skill, or an importance-3 default."""
-        for skill in self.skills_cfg:
-            if skill["id"] == skill_id:
-                return skill
-        return {"id": skill_id, "name": skill_id, "importance": 3}
 
     def add_generated_task(self, task: dict) -> None:
         """Persist a generated remediation task in the session and track it."""
