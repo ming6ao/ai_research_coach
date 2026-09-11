@@ -9,8 +9,6 @@ from typing import Optional, Any
 from pydantic import BaseModel, ConfigDict, Field
 from learner.graph import utcnow, KnowledgeNode
 from learner.interfaces import (
-    AssessmentTargetRepository,
-    AssessmentTaskRepository,
     FrontierRepository,
     KnowledgeGraphRepository,
     LearnerModelRepository,
@@ -66,7 +64,7 @@ class FrontierConfig(BaseModel):
 DEFAULT_FRONTIER_CONFIG = FrontierConfig()
 
 # Reasons that override the mastered/low-uncertainty filter.
-_FILTER_EXEMPT_REASONS = {"task_required", "explicit_request"}
+_FILTER_EXEMPT_REASONS = {"explicit_request"}
 
 
 class LearnerFrontier(BaseModel):
@@ -92,15 +90,11 @@ class FrontierService:
         frontier_repository: FrontierRepository,
         learner_repository: LearnerModelRepository,
         knowledge_repository: KnowledgeGraphRepository,
-        task_repository: Optional[AssessmentTaskRepository] = None,
-        target_repository: Optional[AssessmentTargetRepository] = None,
         config: Optional[FrontierConfig] = None,
     ) -> None:
         self._frontier = frontier_repository
         self._learners = learner_repository
         self._knowledge = knowledge_repository
-        self._tasks = task_repository
-        self._targets = target_repository
         self.config = config or DEFAULT_FRONTIER_CONFIG
 
     # -- generation ------------------------------------------------------------
@@ -132,9 +126,6 @@ class FrontierService:
                 self._add(candidates, nid, self.config.relevance_uncertainty, "uncertain", None, states)
             if state.is_low_mastery():
                 self._add(candidates, nid, self.config.relevance_low_mastery, "low_mastery", None, states)
-
-        for nid in self._task_target_ids():
-            self._add(candidates, nid, self.config.relevance_task_required, "task_required", topic.id if topic else None, states)
 
         if explicit_request:
             for nid in explicit_request:
@@ -199,13 +190,13 @@ class FrontierService:
         priority = min(1.0, relevance * uncertainty * importance * prerequisite_factor)
 
         # Filtering (Section 4): mastered + low-uncertainty nodes are skipped
-        # unless required for a task or explicitly requested.
+        # unless explicitly requested.
         if (
             self.config.skip_mastered
             and state is not None
             and state.status in (StateStatus.PROFICIENT, StateStatus.MASTERED)
             and state.uncertainty <= self.config.mastered_uncertainty_max
-            and reason not in ("task_required", "explicit_request")
+            and reason not in ("explicit_request")
         ):
             priority = 0.0
 
@@ -254,14 +245,6 @@ class FrontierService:
         if source_id is None:
             return False
         return node_id in {n.id for n in self._direct_prerequisites(source_id)}
-
-    def _task_target_ids(self) -> set[uuid.UUID]:
-        if self._tasks is None or self._targets is None:
-            return set()
-        ids: set[uuid.UUID] = set()
-        for task in self._tasks.list_tasks():
-            ids.update(t.node_id for t in self._targets.list_targets_for_task(task.id))
-        return ids
 
     def _adjacent_ids(self, prereq_ids: set[uuid.UUID], states: dict) -> set[uuid.UUID]:
         adjacent: set[uuid.UUID] = set()

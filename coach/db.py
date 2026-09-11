@@ -118,7 +118,6 @@ def create_schema():
     # Imported lazily: the table models live in the learner topic modules,
     # which import Base/converters from this module at load time.
     from learner import (  # noqa: F401  (register tables)
-        assessment,
         evidence,
         frontier,
         graph,
@@ -128,6 +127,10 @@ def create_schema():
 
     engine = learner_engine()
     Base.metadata.create_all(engine)
+    # Cleanup legacy tables from before assessment_* persistence removal.
+    with engine.begin() as conn:
+        conn.exec_driver_sql("DROP TABLE IF EXISTS assessment_targets")
+        conn.exec_driver_sql("DROP TABLE IF EXISTS assessment_tasks")
     return engine
 
 

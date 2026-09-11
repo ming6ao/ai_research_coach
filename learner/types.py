@@ -125,23 +125,6 @@ class DuplicateEvidenceError(KnowledgeGraphError):
         self.evidence_id = evidence_id
 
 
-class TaskNotFoundError(KnowledgeGraphError):
-    """No assessment task exists with the given id."""
-
-    def __init__(self, task_id: uuid.UUID) -> None:
-        super().__init__(f"no assessment task with id {task_id}")
-        self.task_id = task_id
-
-
-class DuplicateTargetError(KnowledgeGraphError):
-    """The task already targets this node."""
-
-    def __init__(self, task_id: uuid.UUID, node_id: uuid.UUID) -> None:
-        super().__init__(f"task {task_id} already targets node {node_id}")
-        self.task_id = task_id
-        self.node_id = node_id
-
-
 class MisconceptionNotFoundError(KnowledgeGraphError):
     """No learner misconception exists with the given id."""
 

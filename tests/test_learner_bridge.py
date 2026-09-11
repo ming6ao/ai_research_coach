@@ -84,31 +84,24 @@ class TestLearnerIdentity:
 
 
 class TestBootstrap:
-    def test_bootstrap_creates_nodes_and_task(self, bridge):
+    def test_bootstrap_creates_nodes(self, bridge):
         boot = bridge.bootstrap_task(_task())
-        assert boot["mvp_task_id"]
         assert boot["primary_node_slug"] == "ml-systems"
+        assert boot["primary_node_id"]
 
         session = bridge._session()
         try:
             c = bridge._container(session)
             assert c.knowledge_repository.get_node_by_slug("ml-systems") is not None
             assert c.knowledge_repository.get_node_by_slug("ml-systems-basics") is not None
-            tasks = [t for t in c.task_repository.list_tasks() if t.metadata.get("coach_task_id") == "mi_sys_cache"]
-            assert len(tasks) == 1
         finally:
             session.close()
 
     def test_bootstrap_is_idempotent(self, bridge):
         b1 = bridge.bootstrap_task(_task())
         b2 = bridge.bootstrap_task(_task())
-        assert b1["mvp_task_id"] == b2["mvp_task_id"]
-        session = bridge._session()
-        try:
-            c = bridge._container(session)
-            assert len([t for t in c.task_repository.list_tasks() if t.metadata.get("coach_task_id") == "mi_sys_cache"]) == 1
-        finally:
-            session.close()
+        assert b1["primary_node_id"] == b2["primary_node_id"]
+        assert b1["primary_node_slug"] == b2["primary_node_slug"]
 
     def test_custom_question_bootstraps_via_general(self, bridge):
         task = _task(task_id="custom_abc", skill="general", score=5)
@@ -266,7 +259,7 @@ class TestGeneratedTask:
         }
         boot = bridge.bootstrap_generated_task(generated)
         assert boot["target_slug"] == "ml-systems"
-        assert boot["mvp_task_id"]
+        assert boot["target_node_id"]
 
         # Scoring the generated task updates the primary node.
         from coach.judge import CoachContent, EvaluationResult

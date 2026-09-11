@@ -63,7 +63,6 @@ class Evidence(BaseModel):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
     learner_id: uuid.UUID
-    assessment_task_id: Optional[uuid.UUID] = None
     node_id: uuid.UUID
     evidence_type: EvidenceType
     observation_status: ObservationStatus
@@ -255,7 +254,6 @@ class SQLEvidenceRepository:
         model = EvidenceModel(
             id=uid(evidence.id),
             learner_id=uid(evidence.learner_id),
-            assessment_task_id=uid(evidence.assessment_task_id) if evidence.assessment_task_id else None,
             node_id=uid(evidence.node_id),
             evidence_type=evidence.evidence_type.value,
             observation_status=evidence.observation_status.value,
@@ -346,7 +344,6 @@ class SQLEvidenceRepository:
         return Evidence(
             id=uuid.UUID(model.id),
             learner_id=uuid.UUID(model.learner_id),
-            assessment_task_id=uuid.UUID(model.assessment_task_id) if model.assessment_task_id else None,
             node_id=uuid.UUID(model.node_id),
             evidence_type=EvidenceType(model.evidence_type),
             observation_status=ObservationStatus(model.observation_status),
@@ -374,7 +371,6 @@ class EvidenceModel(Base):
     learner_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("learners.id"), nullable=False
     )
-    assessment_task_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     node_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("knowledge_nodes.id"), nullable=False
     )

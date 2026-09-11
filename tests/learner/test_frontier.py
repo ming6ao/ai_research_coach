@@ -6,7 +6,7 @@ import pytest
 
 from learner.frontier import FrontierStatus
 from learner.states import LearnerKnowledgeState, StateStatus
-from tests.learner.fixtures import seed_weighted_sampling, seed_weighted_sampling_task
+from tests.learner.fixtures import seed_weighted_sampling
 from learner.frontier import FrontierService
 
 
@@ -38,24 +38,6 @@ def ctx(seeded_repository, learner_service, frontier_repo, repository):
     }
 
 
-@pytest.fixture()
-def task_ctx(
-    seeded_repository,
-    learner_service,
-    frontier_service,
-    task_repository,
-    target_repository,
-):
-    seed_weighted_sampling_task(task_repository, target_repository, seeded_repository)
-    learner = learner_service.create_learner()
-    return {
-        "repo": seeded_repository,
-        "learner_service": learner_service,
-        "frontier_service": frontier_service,
-        "learner": learner,
-    }
-
-
 class TestGeneration:
     def test_given_scenario_prioritizes_gaps(self, ctx):
         """normalize/construct mastered; binary unknown; complexity uncertain; boundary low."""
@@ -75,15 +57,6 @@ class TestGeneration:
         # Mastered skills are not prioritized.
         assert normalize.id not in by_id
         assert cdf.id not in by_id
-
-    def test_task_required_pulls_mastered_node_in(self, task_ctx):
-        """A mastered node required by the seeded task appears (filter exemption)."""
-        _, cdf = _set_state(task_ctx, "construct_cdf", 0.9, 0.05, 8, StateStatus.MASTERED)
-        problem = task_ctx["repo"].get_node_by_slug("weighted_sampling_from_scratch")
-        frontier = task_ctx["frontier_service"].generate(task_ctx["learner"].id, problem.id)
-        entry = next((f for f in frontier if f.node_id == cdf.id), None)
-        assert entry is not None
-        assert entry.reason == "task_required"
 
     def test_reasons_are_recorded(self, ctx):
         _, binary = _set_state(ctx, "binary_search_cdf", 0.5, 1.0, 0, StateStatus.UNKNOWN)

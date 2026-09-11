@@ -319,7 +319,6 @@ class TestSampleEvidence:
         service, learner, problem = seeded_ctx
         record = Evidence(
             learner_id=learner.id,
-            assessment_task_id=uuid.uuid4(),
             node_id=problem.id,
             evidence_type=EvidenceType.CODE,
             observation_status=ObservationStatus.PARTIALLY_CORRECT,

@@ -30,7 +30,7 @@ FastAPI (backend/main.py, backend/routes.py)
         │
         └── learner/            learner model (one module per topic)
             ├── engine.py       LearnerEngine facade + hybrid pick_next_task
-            ├── graph/states/evidence/assessment/update
+            ├── graph/states/evidence/update
             ├── misconception/frontier/policy/orchestrator
             └── traversal/types/interfaces/container  (numeric, deterministic)
 ```
@@ -62,7 +62,6 @@ ai_research_coach/
 │   ├── graph.py           # knowledge nodes/edges + traversal + SQL tables
 │   ├── states.py          # learners + mastery states + SQL tables
 │   ├── evidence.py        # immutable observation records + SQL table
-│   ├── assessment.py      # tasks/targets + SQL tables
 │   ├── update.py          # Bayesian mastery/uncertainty engine
 │   ├── misconception.py   # detection/tracking + SQL table
 │   ├── frontier.py        # readiness computation + SQL table
@@ -139,13 +138,14 @@ python check_env.py          # verify env + model connectivity
 
 ## Persistence
 
-Single SQLite file `data/coach.db` (gitignored, created on first run) with 12
+Single SQLite file `data/coach.db` (gitignored, created on first run) with 10
 tables: `users`, `auth_tokens`, `active_sessions`, `knowledge_nodes`,
 `knowledge_edges`, `learners`, `learner_knowledge_states`, `evidence`,
-`assessment_tasks`, `assessment_targets`, `learner_misconceptions`,
+`learner_misconceptions`,
 `learner_frontier`. `coach/db.py` is the single connection module. The learner
 state is **derived** from the append-only `evidence` table, so history is always
-recomputable.
+recomputable. Task→node mapping is ephemeral (derived from the decomposer at
+submit time); no task/target tables are persisted.
 
 ## Learner model (flat `learner/`)
 

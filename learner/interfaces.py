@@ -13,7 +13,6 @@ from typing import Any, Optional, Protocol, TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from learner.assessment import AssessmentTarget, AssessmentTask, TargetRole, TaskType
     from learner.evidence import Evidence, EvidenceFilter
     from learner.frontier import LearnerFrontier
     from learner.graph import KnowledgeEdge, KnowledgeNode
@@ -86,33 +85,6 @@ class EvidenceRepository(Protocol):
     def get_latest_evidence(
         self, filters: Optional[EvidenceFilter] = None
     ) -> Evidence | None: ...
-
-
-class AssessmentTaskRepository(Protocol):
-    """Persistence boundary for assessment tasks."""
-
-    def create_task(self, task: AssessmentTask) -> AssessmentTask: ...
-    def get_task(self, task_id: uuid.UUID) -> AssessmentTask | None: ...
-    def update_task(self, task_id: uuid.UUID, **changes: Any) -> AssessmentTask: ...
-    def list_tasks(
-        self, task_type: Optional[TaskType] = None
-    ) -> list[AssessmentTask]: ...
-    def find_tasks_for_node(
-        self, node_id: uuid.UUID, role: Optional[TargetRole] = None
-    ) -> list[AssessmentTask]: ...
-
-
-class AssessmentTargetRepository(Protocol):
-    """Persistence boundary for task->node targets."""
-
-    def add_target(self, target: AssessmentTarget) -> AssessmentTarget: ...
-    def remove_target(self, task_id: uuid.UUID, node_id: uuid.UUID) -> bool: ...
-    def list_targets_for_task(
-        self, task_id: uuid.UUID, role: Optional[TargetRole] = None
-    ) -> list[AssessmentTarget]: ...
-    def list_tasks_targeting_node(
-        self, node_id: uuid.UUID, role: Optional[TargetRole] = None
-    ) -> list[AssessmentTask]: ...
 
 
 class MisconceptionRepository(Protocol):

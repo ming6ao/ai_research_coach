@@ -8,8 +8,6 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 from learner.frontier import LearnerFrontier
 from learner.interfaces import (
-    AssessmentTargetRepository,
-    AssessmentTaskRepository,
     KnowledgeGraphRepository,
     LearnerModelRepository,
     MisconceptionRepository,
@@ -71,15 +69,11 @@ class PolicyEngine:
         learner_repository: LearnerModelRepository,
         knowledge_repository: KnowledgeGraphRepository,
         misconception_repository: MisconceptionRepository,
-        task_repository: Optional[AssessmentTaskRepository] = None,
-        target_repository: Optional[AssessmentTargetRepository] = None,
         config: Optional[PolicyConfig] = None,
     ) -> None:
         self._learners = learner_repository
         self._knowledge = knowledge_repository
         self._misconceptions = misconception_repository
-        self._tasks = task_repository
-        self._targets = target_repository
         self.config = config or DEFAULT_POLICY_CONFIG
 
     def generate(
@@ -178,19 +172,8 @@ class PolicyEngine:
     def _difficulty_fit(
         self, node_id: uuid.UUID, mastery: float
     ) -> tuple[float, Optional[uuid.UUID]]:
-        """Pick the task targeting this node with difficulty closest to mastery."""
-        if self._tasks is None or self._targets is None:
-            return 0.6, None
-        best_task, best_fit = None, -1.0
-        for task in self._tasks.list_tasks():
-            targets = self._targets.list_targets_for_task(task.id)
-            if any(t.node_id == node_id for t in targets):
-                fit = 1.0 - abs(task.difficulty - mastery)
-                if fit > best_fit:
-                    best_task, best_fit = task.id, fit
-        if best_task is None:
-            return 0.6, None
-        return max(0.0, min(1.0, best_fit)), best_task
+        """Difficulty fit without a persisted task catalog (neutral default)."""
+        return 0.6, None
 
     def _misconception_action(
         self, learner_id: uuid.UUID, node_id: uuid.UUID, mc: LearnerMisconception

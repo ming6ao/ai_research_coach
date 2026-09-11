@@ -12,7 +12,6 @@ from learner.frontier import LearnerFrontier
 from learner.graph import KnowledgeNode, utcnow
 from learner.states import LearnerKnowledgeState
 from learner.misconception import LearnerMisconception
-from learner.assessment import AssessmentTask, AssessmentTarget
 from learner.container import Container
 
 
@@ -26,7 +25,6 @@ class LearnerInteraction(BaseModel):
     session_id: Optional[uuid.UUID] = None
     interaction_id: Optional[uuid.UUID] = None
     topic_node_id: uuid.UUID
-    assessment_task_id: Optional[uuid.UUID] = None
     message: str
     created_at: datetime = Field(default_factory=utcnow)
 
@@ -66,29 +64,24 @@ class LearningOrchestrator:
         topic = c.knowledge_repository.get_node(interaction.topic_node_id)
         relevant = self._relevant_nodes(interaction.topic_node_id)
 
-        # 4. Resolve current assessment task + its targets.
-        task, targets = self._resolve_task(interaction.assessment_task_id)
-
         # 5. Obtain structured evidence.
         context = {
             "learner_id": interaction.learner_id,
             "session_id": interaction.session_id,
             "interaction_id": interaction.interaction_id or interaction.id,
-            "assessment_task_id": interaction.assessment_task_id,
             "interaction_index": len(self._transcript[session_key]) - 1,
         }
-        raw_evidence = self.assessor.assess(interaction.message, relevant, task, context)
+        raw_evidence = self.assessor.assess(interaction.message, relevant, context)
 
         # 6. Persist immutable evidence.
         persisted: list[Evidence] = []
         for ev in raw_evidence:
             persisted.append(c.evidence_service.add_evidence(ev))
 
-        # 7. Update learner state per evidence, weighted by target signal.
+        # 7. Update learner state per evidence (neutral signal: no task catalog).
         updated_states = []
         for ev in persisted:
-            signal = self._signal_strength(ev, targets)
-            update = c.update_service.apply_evidence(ev, signal)
+            update = c.update_service.apply_evidence(ev, 1.0)
             if update is not None:
                 updated_states.append(update.new_state)
 
@@ -140,26 +133,6 @@ class LearningOrchestrator:
                 unique.append(n)
         return unique
 
-    def _resolve_task(
-        self, task_id: Optional[uuid.UUID]
-    ) -> tuple[Optional[AssessmentTask], list[AssessmentTarget]]:
-        c = self.container
-        if task_id is None:
-            return None, []
-        task = c.task_repository.get_task(task_id)
-        if task is None:
-            return None, []
-        targets = c.target_repository.list_targets_for_task(task.id)
-        return task, targets
-
-    def _signal_strength(
-        self, evidence: Evidence, targets: list[AssessmentTarget]
-    ) -> float:
-        for t in targets:
-            if t.node_id == evidence.node_id:
-                return t.expected_signal_strength
-        return 1.0
-
     def _handle_misconceptions(self, evidence: list[Evidence]) -> None:
         c = self.container
         for ev in evidence:
@@ -205,7 +178,6 @@ class EvidenceAssessor(Protocol):
         self,
         learner_message: str,
         relevant_nodes: list[KnowledgeNode],
-        assessment_task: Optional[AssessmentTask],
         conversation_context: dict,
     ) -> list[Evidence]:
         """Return structured evidence for the learner's message."""
@@ -232,7 +204,6 @@ class RuleBasedEvidenceAssessor:
         self,
         learner_message: str,
         relevant_nodes: list[KnowledgeNode],
-        assessment_task: Optional[AssessmentTask],
         conversation_context: dict,
     ) -> list[Evidence]:
         lowered = learner_message.lower()
@@ -250,7 +221,6 @@ class RuleBasedEvidenceAssessor:
     def _build(rule: dict, node_id: uuid.UUID, context: dict) -> Evidence:
         return Evidence(
             learner_id=context.get("learner_id") or uuid.UUID(rule.get("learner_id", str(uuid.uuid4()))),
-            assessment_task_id=context.get("assessment_task_id"),
             node_id=node_id,
             evidence_type=EvidenceType(rule.get("evidence_type", "answer")),
             observation_status=ObservationStatus(rule.get("observation_status", "correct")),
@@ -276,7 +246,6 @@ class ScriptedEvidenceAssessor:
         self,
         learner_message: str,
         relevant_nodes: list[KnowledgeNode],
-        assessment_task: Optional[AssessmentTask],
         conversation_context: dict,
     ) -> list[Evidence]:
         if self._index >= len(self._script):

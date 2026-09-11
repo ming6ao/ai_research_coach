@@ -14,7 +14,6 @@ from learner.orchestrator import LearnerInteraction
 from tests.learner.fixtures import (
     seed_misconceptions,
     seed_weighted_sampling,
-    seed_weighted_sampling_task,
 )
 from learner.orchestrator import RuleBasedEvidenceAssessor
 from learner.orchestrator import LearningOrchestrator
@@ -33,10 +32,9 @@ def session():
 
 @pytest.fixture()
 def world(session):
-    """Fully seeded world (graph + task + misconceptions) + orchestrator."""
+    """Fully seeded world (graph + misconceptions) + orchestrator."""
     c = build_container(session)
     seed_weighted_sampling(c.knowledge_repository)
-    seed_weighted_sampling_task(c.task_repository, c.target_repository, c.knowledge_repository)
     seed_misconceptions(c.knowledge_repository)
 
     learner = c.learner_service.create_learner()
@@ -127,13 +125,11 @@ RULES = [
 
 
 def _interaction(world, message, index):
-    c = world["c"]
     return LearnerInteraction(
         learner_id=world["learner"].id,
         session_id=uuid.uuid4(),
         interaction_id=uuid.uuid4(),
         topic_node_id=world["problem"].id,
-        assessment_task_id=c.task_repository.list_tasks()[0].id,
         message=message,
     )
 
@@ -195,15 +191,17 @@ class TestEndToEndLoop:
         cdf = c.knowledge_repository.get_node_by_slug("construct_cdf").id
         boundary = c.knowledge_repository.get_node_by_slug("handle_boundaries").id
         complexity = c.knowledge_repository.get_node_by_slug("analyze_sampling_complexity").id
-        binary = c.knowledge_repository.get_node_by_slug("binary_search_cdf").id
 
-        # Remaining gaps are on the frontier with nonzero priority.
+        # Remaining evidenced gaps are on the frontier with nonzero priority.
+        # (Without a persisted task catalog, never-evidenced nodes like
+        # binary_search_cdf are not pulled in via task_required.)
         assert by_node.get(boundary, 0) > 0
         assert by_node.get(complexity, 0) > 0
-        assert by_node.get(binary, 0) > 0
-        # Strong skills are not prioritized above the gaps (low uncertainty).
-        assert by_node.get(normalize, 1) <= by_node.get(boundary, 0)
-        assert by_node.get(cdf, 1) <= by_node.get(complexity, 0)
+        # Strong skills are filtered once confident; stale prerequisite entries
+        # must rank below the top evidenced gap.
+        top_gap = max(by_node.get(boundary, 0), by_node.get(complexity, 0))
+        assert by_node.get(normalize, 0) <= top_gap
+        assert by_node.get(cdf, 0) <= top_gap
 
     def test_selected_action_targets_gap(self, world):
         orch = world["orchestrator"]

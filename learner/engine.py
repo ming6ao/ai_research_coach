@@ -5,7 +5,7 @@ The parent app drives; the learner package stores. This module:
 - owns the learner session factory + container (one short-lived session per call),
 - persists the candidate -> learner_id identity on the ``learners`` row
   (``learners.candidate``, UNIQUE),
-- bootstraps the knowledge graph + assessment task from a picked task
+- bootstraps the knowledge graph from a picked task
   (via ``TaskDecomposer``),
 - turns a judge result into immutable evidence and runs
   evidence -> state update -> misconception -> frontier -> policy,
@@ -28,7 +28,6 @@ from sqlalchemy.orm import Session
 from coach.db import learner_db_url
 from coach.task_decomposer import TaskDecomposer
 from learner.container import build_container
-from learner.assessment import AssessmentTarget, AssessmentTask, TargetRole, TaskType
 from learner.evidence import Evidence, EvidenceType, ObservationStatus
 from learner.graph import KnowledgeEdge, KnowledgeNode
 from learner.states import Learner
@@ -100,58 +99,20 @@ class LearnerEngine:
     def bootstrap_task(self, task: dict) -> dict:
         """Decompose a picked task and register it in the knowledge graph.
 
-        Idempotent: nodes/edges/task/targets are looked up before inserting.
-        Returns {"mvp_task_id", "primary_node_id", "primary_node_slug"}.
+        Idempotent: nodes/edges are looked up before inserting.
+        Task->node mapping is ephemeral (derived from ``TaskKnowledge`` at
+        submit time); nothing task-like is persisted.
+        Returns {"primary_node_id", "primary_node_slug"}.
         """
         knowledge = self.decomposer.decompose(task)
         session = self._session()
         try:
             container = self._container(session)
-            kg = container.knowledge_service
-            node_ids: dict[str, uuid.UUID] = {}
-            skill = task.get("skill", "general")
-
-            for node in knowledge.nodes:
-                existing = kg.get_node_by_slug(node.slug)
-                if existing is not None:
-                    node_ids[node.slug] = existing.id
-                    continue
-                created = kg.create_node(
-                    KnowledgeNode(
-                        type=node.type,
-                        slug=node.slug,
-                        name=node.name,
-                        description=node.description,
-                        metadata={"importance": node.importance, "skill": skill},
-                    )
-                )
-                node_ids[node.slug] = created.id
-
-            for edge in knowledge.edges:
-                src = node_ids[edge.source_slug]
-                tgt = node_ids[edge.target_slug]
-                if kg.get_edge(src, tgt, edge.edge_type) is None:
-                    kg.create_edge(
-                        KnowledgeEdge(source_node_id=src, target_node_id=tgt, edge_type=edge.edge_type)
-                    )
-
-            mvp_task = self._find_mvp_task(container, task["id"])
-            if mvp_task is None:
-                mvp_task = container.assessment_service.create_task(
-                    AssessmentTask(
-                        task_type=TaskType.CODING if task.get("type", "code") == "code" else TaskType.EXPLANATION,
-                        title=task.get("prompt", "")[:80] or task["id"],
-                        prompt=task.get("prompt", ""),
-                        difficulty=max(0.0, min(1.0, (int(task.get("difficulty", 2)) - 1) / 4)),
-                        metadata={"coach_task_id": task["id"], "skill": task.get("skill", "general")},
-                    )
-                )
-
-            self._ensure_targets(container, mvp_task, knowledge, node_ids)
-
+            node_ids = self._ensure_graph(
+                container, knowledge, task.get("skill", "general")
+            )
             primary_id = node_ids[knowledge.primary_node_slug]
             return {
-                "mvp_task_id": str(mvp_task.id),
                 "primary_node_id": str(primary_id),
                 "primary_node_slug": knowledge.primary_node_slug,
             }
@@ -159,24 +120,59 @@ class LearnerEngine:
             session.close()
 
     @staticmethod
-    def _find_mvp_task(container, coach_task_id: str):
-        for task in container.task_repository.list_tasks():
-            if task.metadata.get("coach_task_id") == coach_task_id:
-                return task
-        return None
+    def _ensure_graph(container, knowledge, skill: str) -> dict[str, uuid.UUID]:
+        """Upsert decomposed nodes/edges; return slug -> node id."""
+        kg = container.knowledge_service
+        node_ids: dict[str, uuid.UUID] = {}
+        for node in knowledge.nodes:
+            existing = kg.get_node_by_slug(node.slug)
+            if existing is not None:
+                node_ids[node.slug] = existing.id
+                continue
+            created = kg.create_node(
+                KnowledgeNode(
+                    type=node.type,
+                    slug=node.slug,
+                    name=node.name,
+                    description=node.description,
+                    metadata={"importance": node.importance, "skill": skill},
+                )
+            )
+            node_ids[node.slug] = created.id
+
+        for edge in knowledge.edges:
+            src = node_ids[edge.source_slug]
+            tgt = node_ids[edge.target_slug]
+            if kg.get_edge(src, tgt, edge.edge_type) is None:
+                kg.create_edge(
+                    KnowledgeEdge(source_node_id=src, target_node_id=tgt, edge_type=edge.edge_type)
+                )
+        return node_ids
+
+    @staticmethod
+    def _ephemeral_targets(knowledge, node_ids) -> list[tuple[uuid.UUID, float]]:
+        """Derive (node_id, signal) pairs without persisting tasks/targets.
+
+        Primary node -> 1.0; PROBLEM nodes skipped (not a measured
+        competency); others -> max(0.3, importance).
+        """
+        targets: list[tuple[uuid.UUID, float]] = []
+        for node in knowledge.nodes:
+            if node.slug == knowledge.primary_node_slug:
+                targets.append((node_ids[node.slug], 1.0))
+            elif node.type == NodeType.PROBLEM:
+                continue
+            else:
+                targets.append((node_ids[node.slug], max(0.3, node.importance)))
+        return targets
 
     def bootstrap_generated_task(self, task: dict) -> dict:
-        """Register a generated remediation task targeting an existing KG node.
-
-        Unlike ``bootstrap_task``, no decomposition is needed: the target node
-        already exists (created from the parent task's decomposition). We attach
-        a new MVP task whose PRIMARY target is that existing node, so a later
-        ``record_submission`` updates exactly the node the remediation drills.
+        """Ensure the remediation target node exists (no task persistence).
 
         Args:
             task: a generated task dict carrying ``mvp_target_slug``.
 
-        Returns {"mvp_task_id", "target_slug", "target_node_id"}.
+        Returns {"target_slug", "target_node_id"}.
         """
         target_slug = task.get("mvp_target_slug")
         if not target_slug:
@@ -194,34 +190,7 @@ class LearnerEngine:
             if node is None:
                 raise ValueError(f"target node not found for slug {target_slug!r}")
 
-            mvp_task = self._find_mvp_task(container, task["id"])
-            if mvp_task is None:
-                mvp_task = container.assessment_service.create_task(
-                    AssessmentTask(
-                        task_type=TaskType.CODING if task.get("type", "code") == "code" else TaskType.EXPLANATION,
-                        title=(task.get("prompt", "")[:80] or task["id"]),
-                        prompt=task.get("prompt", ""),
-                        difficulty=max(0.0, min(1.0, (int(task.get("difficulty", 2)) - 1) / 4)),
-                        metadata={
-                            "coach_task_id": task["id"],
-                            "skill": task.get("skill", "general"),
-                            "generated": True,
-                        },
-                    )
-                )
-
-            existing = container.target_repository.list_targets_for_task(mvp_task.id)
-            if not existing:
-                container.assessment_service.add_target(
-                    mvp_task.id,
-                    node.id,
-                    TargetRole.PRIMARY,
-                    1.0,
-                    metadata={"slug": node.slug, "generated": True},
-                )
-
             return {
-                "mvp_task_id": str(mvp_task.id),
                 "target_slug": node.slug,
                 "target_node_id": str(node.id),
             }
@@ -235,24 +204,6 @@ class LearnerEngine:
         slug = re.sub(r"[^a-z0-9]+", "-", text.strip().lower()).strip("-")
         return slug[:60] or "general"
 
-    @staticmethod
-    def _ensure_targets(container, mvp_task, knowledge, node_ids) -> None:
-        primary = knowledge.primary_node_slug
-        existing = {t.node_id for t in container.target_repository.list_targets_for_task(mvp_task.id)}
-        for node in knowledge.nodes:
-            if node.slug == primary:
-                role, signal = TargetRole.PRIMARY, 1.0
-            elif node.type == NodeType.PROBLEM:
-                continue  # the problem node is not itself a measured competency
-            else:
-                role, signal = TargetRole.SECONDARY, max(0.3, node.importance)
-            nid = node_ids[node.slug]
-            if nid not in existing:
-                container.assessment_service.add_target(
-                    mvp_task.id, nid, role, signal,
-                    metadata={"slug": node.slug},
-                )
-
     # -- submission ------------------------------------------------------------------
 
     def record_submission(
@@ -265,24 +216,23 @@ class LearnerEngine:
     ) -> dict:
         """Convert a judge result into evidence and run the learning loop."""
         learner_id = self.ensure_learner(candidate)
+        knowledge = self.decomposer.decompose(task)
         session = self._session()
         try:
             container = self._container(session)
-            mvp_task = self._find_mvp_task(container, task["id"])
-            if mvp_task is None:
-                self.bootstrap_task(task)  # re-entrant: opens its own session
-                return self.record_submission(candidate, task, result, coach, viewed_hints)
+            node_ids = self._ensure_graph(
+                container, knowledge, task.get("skill", "general")
+            )
+            targets = self._ephemeral_targets(knowledge, node_ids)
 
             fraction = max(0.0, min(1.0, result.score / result.max_score)) if result.max_score else 0.0
             status = self._observation_status(fraction)
-            targets = container.target_repository.list_targets_for_task(mvp_task.id)
 
             evidence_ids: list[str] = []
-            for target in targets:
+            for node_id, signal in targets:
                 ev = Evidence(
                     learner_id=learner_id,
-                    assessment_task_id=mvp_task.id,
-                    node_id=target.node_id,
+                    node_id=node_id,
                     evidence_type=EvidenceType.CODE,
                     observation_status=status,
                     correctness=fraction,
@@ -297,13 +247,13 @@ class LearnerEngine:
                     },
                 )
                 container.evidence_service.add_evidence(ev)
-                container.update_service.apply_evidence(ev, target.expected_signal_strength)
+                container.update_service.apply_evidence(ev, signal)
                 evidence_ids.append(str(ev.id))
 
             # Misconception: only when the coach names one and the score is low.
             # Linked to the primary (skill) node so remediation drills the skill,
             # not the misconception node itself.
-            primary_node = self._primary_node_id(container, mvp_task)
+            primary_node = node_ids.get(knowledge.primary_node_slug)
             misconception = self._maybe_misconception(
                 container, candidate, learner_id, task, coach, fraction, evidence_ids,
                 skill_node_id=primary_node,
@@ -371,11 +321,6 @@ class LearnerEngine:
         head = slug[:48]
         cut = head.rfind("-")
         return head[:cut] if cut > 0 else head
-
-    @staticmethod
-    def _primary_node_id(container, mvp_task) -> Optional[uuid.UUID]:
-        targets = container.target_repository.list_targets_for_task(mvp_task.id, role=TargetRole.PRIMARY)
-        return targets[0].node_id if targets else None
 
     @staticmethod
     def _frontier_dict(container, entry) -> dict:
@@ -507,7 +452,7 @@ def clear_learner_data(candidate: str, db_url: Optional[str] = None) -> int:
     """Delete all per-learner data for a candidate.
 
     Returns the total number of rows deleted across all tables. Knowledge
-    graph nodes/edges and assessment tasks are global and left intact.
+    graph nodes/edges are global and left intact.
     """
     from coach.db import create_session_factory
     from learner.evidence import EvidenceModel

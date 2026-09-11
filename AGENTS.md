@@ -35,13 +35,13 @@ python check_env.py
 - **Config-driven**: Questions in `config/tasks.yaml` — no code changes to extend; each task's `skill` tag is a free-form id that keys a per-skill belief
 - **Bayesian probing**: `coach/score.py` + `coach/picker.py` keep a Gaussian belief `N(mean, variance)` per skill; `pick_next_task` (in `learner/engine.py`) selects questions to maximize expected information gain (EIG) per unit of expected time, weighted by skill coverage
 - **Hybrid question selection**: `learner/engine.py:pick_next_task` — (1) pending generated remediation task, (2) frontier-driven remediation (`coach/remediation.py` + knowledge-graph learner model), (3) EIG bank picker, (4) `None` when done
-- **Learner model**: the flat `learner/` package (one module per topic: `engine`, `graph`, `states`, `evidence`, `assessment`, `update`, `misconception`, `frontier`, `policy`, `orchestrator`, `traversal`) keeps per-node mastery/uncertainty beliefs that drive the frontier/policy/remediation math
+- **Learner model**: the flat `learner/` package (one module per topic: `engine`, `graph`, `states`, `evidence`, `update`, `misconception`, `frontier`, `policy`, `orchestrator`, `traversal`) keeps per-node mastery/uncertainty beliefs that drive the frontier/policy/remediation math
 - **Hints**: `coach/hints.py` — tasks declare ordered hints; weak candidates get them pre-revealed, others request them on demand; viewed hints reduce effective mastery
 - **Code eval**: `coach/judge.py` evaluates candidate code via a single structured LLM call (score + rationale + coaching response)
 - **Coaching**: The judge's coaching response (in `coach/judge.py` as `CoachContent`) identifies the candidate's misconception/gap and walks them step-by-step to the correct solution with code examples — no separate feedback step
 - **Teaching pause**: After a submit the UI does **not** auto-advance. The coaching response is shown and the candidate advances manually (`Next question`); the picked task is held until then
 - **No summative product**: there is no `assessments` table, report, verdict, or raw-score UI. The app probes and teaches; the progress view shows per-skill confidence + per-node status/misconceptions/next actions
-- **Persistence**: single SQLite file `data/coach.db` (gitignored) with 12 tables (`users`, `auth_tokens`, `active_sessions`, `knowledge_nodes`, `knowledge_edges`, `learners`, `learner_knowledge_states`, `evidence`, `assessment_tasks`, `assessment_targets`, `learner_misconceptions`, `learner_frontier`). `coach/db.py` is the single connection module
+- **Persistence**: single SQLite file `data/coach.db` (gitignored) with 10 tables (`users`, `auth_tokens`, `active_sessions`, `knowledge_nodes`, `knowledge_edges`, `learners`, `learner_knowledge_states`, `evidence`, `learner_misconceptions`, `learner_frontier`). Task→node mapping is ephemeral (no task/target tables). `coach/db.py` is the single connection module
 - **Models**: `EVAL_MODEL` (judge/coach + decomposer) defaults to `gemini-3.5-flash-lite`
 
 ## Extending Without Code Changes

@@ -6,12 +6,11 @@ import pytest
 
 from learner.policy import ActionType
 from learner.states import LearnerKnowledgeState, StateStatus
-from tests.learner.fixtures import seed_weighted_sampling, seed_weighted_sampling_task
+from tests.learner.fixtures import seed_weighted_sampling
 
 
 @pytest.fixture()
-def ctx(seeded_repository, learner_service, policy_engine, task_repository, target_repository):
-    seed_weighted_sampling_task(task_repository, target_repository, seeded_repository)
+def ctx(seeded_repository, learner_service, policy_engine):
     learner = learner_service.create_learner()
     return {
         "repo": seeded_repository,

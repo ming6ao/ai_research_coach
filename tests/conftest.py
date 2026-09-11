@@ -16,15 +16,11 @@ from sqlalchemy.orm import sessionmaker
 
 from learner.graph import KnowledgeNode
 from learner.types import NodeType
-from learner.assessment import (
-    SQLAssessmentTargetRepository,
-    SQLAssessmentTaskRepository,
-)
 from coach.db import Base
 from learner.evidence import SQLEvidenceRepository
 from learner.states import SQLLearnerModelRepository
 from learner.graph import SQLKnowledgeGraphRepository
-from learner import assessment, evidence, frontier, graph, misconception, states  # noqa: F401  (register tables)
+from learner import evidence, frontier, graph, misconception, states  # noqa: F401  (register tables)
 from learner.frontier import SQLFrontierRepository
 from learner.misconception import SQLLearnerMisconceptionRepository
 
@@ -63,18 +59,6 @@ def evidence_repository(session):
 
 
 @pytest.fixture()
-def task_repository(session):
-    """In-memory SQLite assessment-task repository, fresh per test."""
-    return SQLAssessmentTaskRepository(session)
-
-
-@pytest.fixture()
-def target_repository(session):
-    """In-memory SQLite assessment-target repository, fresh per test."""
-    return SQLAssessmentTargetRepository(session)
-
-
-@pytest.fixture()
 def misconception_repo(session):
     """In-memory SQLite misconception repository, fresh per test."""
     return SQLLearnerMisconceptionRepository(session)
@@ -96,20 +80,20 @@ def misconception_service(misconception_repo, learner_repository, repository, ev
 
 
 @pytest.fixture()
-def frontier_service(frontier_repo, learner_repository, repository, task_repository, target_repository):
+def frontier_service(frontier_repo, learner_repository, repository):
     from learner.frontier import FrontierService
 
     return FrontierService(
-        frontier_repo, learner_repository, repository, task_repository, target_repository
+        frontier_repo, learner_repository, repository
     )
 
 
 @pytest.fixture()
-def policy_engine(learner_repository, repository, misconception_repo, task_repository, target_repository):
+def policy_engine(learner_repository, repository, misconception_repo):
     from learner.policy import PolicyEngine
 
     return PolicyEngine(
-        learner_repository, repository, misconception_repo, task_repository, target_repository
+        learner_repository, repository, misconception_repo
     )
 
 
@@ -132,13 +116,6 @@ def evidence_service(evidence_repository, learner_repository, repository):
     from learner.evidence import EvidenceService
 
     return EvidenceService(evidence_repository, learner_repository, repository)
-
-
-@pytest.fixture()
-def assessment_service(task_repository, target_repository, repository):
-    from learner.assessment import AssessmentService
-
-    return AssessmentService(task_repository, target_repository, repository)
 
 
 @pytest.fixture()
