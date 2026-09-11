@@ -12,8 +12,8 @@ from fastapi.testclient import TestClient
 
 import backend.auth as auth
 import backend.google_auth as google_auth
-import core.db as db
-from evaluators.base import EvaluationResult
+import coach.db as db
+from coach.judge import EvaluationResult
 
 
 @pytest.fixture
@@ -45,8 +45,8 @@ def fake_google(monkeypatch):
 
 @pytest.fixture
 def fake_judge(monkeypatch):
-    from evaluators import judge as judge_mod
-    from evaluators.base import CoachContent, CoachStep
+    from coach import judge as judge_mod
+    from coach.judge import CoachContent, CoachStep
 
     class FakeJudge:
         def evaluate(self, task, answer):

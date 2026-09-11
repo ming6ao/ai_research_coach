@@ -1,8 +1,8 @@
-"""Unit tests for the Bayesian ability estimation in core.score."""
+"""Unit tests for the Bayesian ability estimation in coach.score."""
 
 import pytest
 
-from core.score import (
+from coach.score import (
     INITIAL_SCORE,
     INITIAL_VARIANCE,
     bayesian_update,

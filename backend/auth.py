@@ -14,7 +14,7 @@ from typing import Optional
 
 from fastapi import Request
 
-from core.db import sqlite_conn
+from coach.db import sqlite_conn
 
 TOKEN_TTL_DAYS = 30
 

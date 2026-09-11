@@ -10,8 +10,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-import core.db as db
-from evaluators.base import EvaluationResult, CoachContent, CoachStep
+import coach.db as db
+from coach.judge import EvaluationResult, CoachContent, CoachStep
 
 
 class FakeJudge:
@@ -33,7 +33,7 @@ class FakeJudge:
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
-    import evaluators.judge as judge_mod
+    import coach.judge as judge_mod
 
     monkeypatch.setattr(judge_mod, "LLMJudge", FakeJudge)
     from backend.main import app

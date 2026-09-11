@@ -18,22 +18,25 @@ FastAPI (backend/main.py, backend/routes.py)
         ├── auth (backend/auth.py + google_auth.py)
         ├── sessions (backend/dependencies.py)
         │
-        └── core/
-            ├── score.py        Bayesian skill beliefs (picker inputs)
-            ├── picker.py       EIG bank-task selection
-            ├── hints.py        requestable hints + score penalty
-            ├── session.py      tasks/results/skill_states (no mode)
-            ├── remediation.py  frontier-driven remediation tasks
-            ├── task_decomposer.py  LLM: task → KG nodes; remediation tasks
-            ├── db.py           single SQLite connection + schema
-            └── learner/        merged learner model
-                ├── engine.py   LearnerEngine facade + hybrid pick_next_task
-                ├── domain/  services/  storage/  (numeric, deterministic)
-                └── storage/models.py  (12 tables, create_all)
+        ├── coach/              parent assessment engine
+        │   ├── score.py        Bayesian skill beliefs (picker inputs)
+        │   ├── picker.py       EIG bank-task selection
+        │   ├── hints.py        requestable hints + score penalty
+        │   ├── session.py      tasks/results/skill_states (no mode)
+        │   ├── remediation.py  frontier-driven remediation tasks
+        │   ├── task_decomposer.py  LLM: task → KG nodes; remediation tasks
+        │   ├── judge.py        LLM judge (score + rationale + coaching)
+        │   └── db.py           single SQLite connection + schema
+        │
+        └── learner/            learner model (one module per topic)
+            ├── engine.py       LearnerEngine facade + hybrid pick_next_task
+            ├── graph/states/evidence/assessment/update
+            ├── misconception/frontier/policy/orchestrator
+            └── traversal/types/interfaces/container  (numeric, deterministic)
 ```
 
-LLM calls live in exactly two places: `evaluators/judge.py` (judge + coach) and
-`core/task_decomposer.py` (decomposition + remediation generation). Everything
+LLM calls live in exactly two places: `coach/judge.py` (judge + coach) and
+`coach/task_decomposer.py` (decomposition + remediation generation). Everything
 in the learner model is deterministic.
 
 ## Project structure
@@ -47,18 +50,27 @@ ai_research_coach/
 │   ├── admin_page.py      # standalone admin/debug HTML page
 │   ├── auth.py            # bearer tokens
 │   └── google_auth.py     # Google OAuth (stdlib only)
-├── core/
+├── coach/
 │   ├── score.py / picker.py / hints.py   # Bayesian probing engine
 │   ├── session.py         # candidate session state
 │   ├── remediation.py     # remediation planner
 │   ├── task_decomposer.py # LLM decomposition + remediation generation
-│   ├── db.py              # single connection module (data/coach.db)
-│   └── learner/           # merged learner model (domain/services/storage)
+│   ├── judge.py           # LLM judge (score + rationale + coaching response)
+│   └── db.py              # single connection module (data/coach.db)
+├── learner/               # learner model, one module per topic
+│   ├── engine.py          # LearnerEngine facade + hybrid pick_next_task
+│   ├── graph.py           # knowledge nodes/edges + traversal + SQL tables
+│   ├── states.py          # learners + mastery states + SQL tables
+│   ├── evidence.py        # immutable observation records + SQL table
+│   ├── assessment.py      # tasks/targets + SQL tables
+│   ├── update.py          # Bayesian mastery/uncertainty engine
+│   ├── misconception.py   # detection/tracking + SQL table
+│   ├── frontier.py        # readiness computation + SQL table
+│   ├── policy.py          # next-action selection
+│   ├── orchestrator.py    # evidence assessors + assess→update loop
+│   └── traversal.py / types.py / interfaces.py / container.py
 ├── config/
 │   └── tasks.yaml          # question/task bank (code only, with optional hints)
-├── evaluators/
-│   ├── base.py            # EvaluationResult + CoachContent (misconception + steps)
-│   └── judge.py           # LLM judge (score + rationale + coaching response)
 └── frontend/              # React 19 + TypeScript + Vite + Tailwind v4
 ```
 
@@ -103,11 +115,11 @@ python check_env.py          # verify env + model connectivity
 
 ## Question selection
 
-- **Bayesian probing** (`core/score.py` + `core/picker.py`): a Gaussian belief
+- **Bayesian probing** (`coach/score.py` + `coach/picker.py`): a Gaussian belief
   `N(mean, variance)` per skill, updated by the judge score minus the hint
   penalty. The bank picker maximizes `EIG · coverage / expected_time`
   and the session ends when the task bank is exhausted.
-- **Remediation** (`core/remediation.py` + `core/learner`): per-node
+- **Remediation** (`coach/remediation.py` + `learner/`): per-node
   mastery/uncertainty drives the frontier/policy; incorrect/partial answers,
   active misconceptions, and high-uncertainty nodes generate a simpler drill task.
 
@@ -131,15 +143,16 @@ Single SQLite file `data/coach.db` (gitignored, created on first run) with 12
 tables: `users`, `auth_tokens`, `active_sessions`, `knowledge_nodes`,
 `knowledge_edges`, `learners`, `learner_knowledge_states`, `evidence`,
 `assessment_tasks`, `assessment_targets`, `learner_misconceptions`,
-`learner_frontier`. `core/db.py` is the single connection module. The learner
+`learner_frontier`. `coach/db.py` is the single connection module. The learner
 state is **derived** from the append-only `evidence` table, so history is always
 recomputable.
 
-## Learner model (merged `core/learner`)
+## Learner model (flat `learner/`)
 
-- The merged learner package (was `core/learning_partner` + `core/learner_bridge.py`)
-  keeps per-node mastery/uncertainty beliefs that drive the frontier/policy/remediation.
-- `core/learner/engine.py` (`LearnerEngine`) is the single facade:
+- The learner package (one module per topic — models, services, and SQL
+  persistence for that topic live together) keeps per-node mastery/uncertainty
+  beliefs that drive the frontier/policy/remediation.
+- `learner/engine.py` (`LearnerEngine`) is the single facade:
   `ensure_learner`, `bootstrap_task`, `bootstrap_generated_task`,
   `record_submission`, `learner_snapshot`, plus the hybrid `pick_next_task` and
   `clear_learner_data(candidate)`.
@@ -147,8 +160,8 @@ recomputable.
 - CLI inspector:
 
 ```bash
-python -m core.learner.engine --demo          # canned learner, no API key
-python -m core.learner.engine alice@example.com
+python -m learner.engine --demo          # canned learner, no API key
+python -m learner.engine alice@example.com
 ```
 
 ## How to extend (no code changes)

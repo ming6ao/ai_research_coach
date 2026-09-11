@@ -7,7 +7,7 @@ load_dotenv(override=True)
 
 REQUIRED = ["GOOGLE_API_KEY"]
 GOOGLE_OAUTH = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]
-from core.config import MODEL
+from coach.config import MODEL
 
 
 def check_env_vars():

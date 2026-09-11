@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import uuid
 
-from core.remediation import (
+from coach.remediation import (
     RemediationPlanner,
     MAX_PER_SKILL,
     MAX_PER_SESSION,
     UNCERTAINTY_REMEDIATE_AT,
     UNCERTAINTY_STOP_AT,
 )
-from core.session import Session
+from coach.session import Session
 
 
 class FakeDecomposer:
@@ -45,10 +45,10 @@ def _session(**kwargs):
 
 
 class TestPickNextTask:
-    """Centralized hybrid picker (core.learner.engine.pick_next_task)."""
+    """Centralized hybrid picker (learner.engine.pick_next_task)."""
 
     def test_pending_generated_task_surfaces_first(self):
-        from core.learner.engine import pick_next_task
+        from learner.engine import pick_next_task
 
         session = _session(tasks=[_base_task()])
         generated = {
@@ -69,7 +69,7 @@ class TestPickNextTask:
         assert picked["remediation"]["node_slug"] == "cache-eviction"
 
     def test_bank_picker_fallback(self):
-        from core.learner.engine import pick_next_task
+        from learner.engine import pick_next_task
 
         session = _session(tasks=[_base_task()])
         picked = pick_next_task(session.candidate, session)
@@ -77,7 +77,7 @@ class TestPickNextTask:
         assert picked["id"] == "mi_sys_cache"
 
     def test_done_when_bank_exhausted(self):
-        from core.learner.engine import pick_next_task
+        from learner.engine import pick_next_task
 
         session = _session(tasks=[_base_task()])
         session.asked_task_ids.add("mi_sys_cache")

@@ -9,9 +9,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-import core.db as db
+import coach.db as db
 import backend.auth as auth
-from evaluators.base import CoachContent, CoachStep, EvaluationResult
+from coach.judge import CoachContent, CoachStep, EvaluationResult
 from tests.test_learner_bridge import FakeDecomposer
 
 
@@ -33,15 +33,15 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "coach.db")
     monkeypatch.setenv("LEARNING_PARTNER_DB_URL", f"sqlite:///{tmp_path}/learner.db")
 
-    import core.learner.engine as engine_mod
-    from core.learner.engine import LearnerEngine
+    import learner.engine as engine_mod
+    from learner.engine import LearnerEngine
 
     def make_engine(*args, **kwargs):
         kwargs.setdefault("decomposer", FakeDecomposer())
         return LearnerEngine(*args, **kwargs)
 
     monkeypatch.setattr(engine_mod, "LearnerEngine", make_engine)
-    import evaluators.judge as judge_mod
+    import coach.judge as judge_mod
 
     monkeypatch.setattr(judge_mod, "LLMJudge", FakeJudge)
 

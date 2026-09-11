@@ -1,17 +1,10 @@
 """Admin/debug API routes for inspecting the knowledge graph and learner model."""
 
-import sys
-from pathlib import Path
-
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-
 from fastapi import APIRouter, HTTPException, Depends
 
 from backend.auth import get_current_user
 from backend.dependencies import get_store
-from core.learner.engine import LearnerEngine
+from learner.engine import LearnerEngine
 
 admin_router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -27,7 +20,7 @@ def list_learners(user: dict = Depends(_require_user)):
     """List all learners (candidate → learner_id on the learners row)."""
     from sqlalchemy import select
 
-    from core.learner.storage.models import LearnerModel
+    from learner.states import LearnerModel
 
     engine = LearnerEngine()
     session = engine._session()
@@ -60,7 +53,7 @@ def get_graph(user: dict = Depends(_require_user)):
         container = engine._container(session)
         nodes_raw = container.knowledge_repository.list_all_nodes() if hasattr(container.knowledge_repository, 'list_all_nodes') else []
         if not nodes_raw:
-            from core.learner.storage.models import KnowledgeNodeModel, KnowledgeEdgeModel
+            from learner.graph import KnowledgeNodeModel, KnowledgeEdgeModel
             from sqlalchemy import select
             node_models = session.scalars(select(KnowledgeNodeModel)).all()
             edge_models = session.scalars(select(KnowledgeEdgeModel)).all()
@@ -294,7 +287,7 @@ def get_learner_detail(candidate: str, user: dict = Depends(_require_user)):
 @admin_router.get("/skill-states/{candidate}")
 def get_skill_states(candidate: str, user: dict = Depends(_require_user)):
     """Return parent app Bayesian SkillState for a candidate's active sessions."""
-    from core.session import Session
+    from coach.session import Session
 
     store = get_store()
     active = store.list_by_candidate(candidate)
@@ -325,10 +318,10 @@ def get_stats(user: dict = Depends(_require_user)):
     engine = LearnerEngine()
     session = engine._session()
     try:
-        from core.learner.storage.models import (
-            KnowledgeNodeModel, KnowledgeEdgeModel, EvidenceModel,
-            LearnerModel, LearnerKnowledgeStateModel, LearnerMisconceptionModel,
-        )
+        from learner.graph import KnowledgeNodeModel, KnowledgeEdgeModel
+        from learner.evidence import EvidenceModel
+        from learner.states import LearnerModel, LearnerKnowledgeStateModel
+        from learner.misconception import LearnerMisconceptionModel
         from sqlalchemy import func, select
 
         node_count = session.scalar(select(func.count(KnowledgeNodeModel.id))) or 0

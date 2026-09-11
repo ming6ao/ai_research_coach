@@ -13,9 +13,9 @@ from pathlib import Path
 import pytest
 
 # Point the MVP at a per-test DB before importing the bridge (module reads env at init).
-from evaluators.base import CoachContent, EvaluationResult
-from core.task_decomposer import DecomposedEdge, DecomposedNode, TaskKnowledge
-from core.learner.domain.types import EdgeType, NodeType
+from coach.judge import CoachContent, EvaluationResult
+from coach.task_decomposer import DecomposedEdge, DecomposedNode, TaskKnowledge
+from learner.types import EdgeType, NodeType
 
 
 class FakeDecomposer:
@@ -41,11 +41,11 @@ class FakeDecomposer:
 @pytest.fixture()
 def bridge(tmp_path, monkeypatch):
     # Isolate both the MVP DB and the parent's coach.db per test.
-    import core.db as storage
+    import coach.db as storage
 
     monkeypatch.setattr(storage, "DB_PATH", tmp_path / "coach.db")
     monkeypatch.setenv("LEARNING_PARTNER_DB_URL", f"sqlite:///{tmp_path}/learner.db")
-    from core.learner.engine import LearnerEngine
+    from learner.engine import LearnerEngine
 
     b = LearnerEngine(db_url=f"sqlite:///{tmp_path}/learner.db", decomposer=FakeDecomposer())
     return b
@@ -269,7 +269,7 @@ class TestGeneratedTask:
         assert boot["mvp_task_id"]
 
         # Scoring the generated task updates the primary node.
-        from evaluators.base import CoachContent, EvaluationResult
+        from coach.judge import CoachContent, EvaluationResult
 
         coach = CoachContent(feedback="ok", misconception="", steps=[])
         result = EvaluationResult(generated["id"], "ml_systems", 5, 5, "r", coach.to_dict())
@@ -302,7 +302,7 @@ class TestNotObserved:
         session = bridge._session()
         try:
             c = bridge._container(session)
-            from core.learner.domain.evidence import Evidence, EvidenceType, ObservationStatus
+            from learner.evidence import Evidence, EvidenceType, ObservationStatus
 
             node = c.knowledge_repository.get_node_by_slug("ml-systems")
             c.evidence_service.add_evidence(
@@ -339,8 +339,8 @@ class TestSnapshot:
 
 class TestCli:
     def test_demo_prints_snapshot(self, tmp_path, monkeypatch, capsys):
-        import core.db as storage
-        from core.learner.engine import main
+        import coach.db as storage
+        from learner.engine import main
 
         monkeypatch.setattr(storage, "DB_PATH", tmp_path / "coach.db")
         url = f"sqlite:///{tmp_path}/learner.db"
@@ -353,8 +353,8 @@ class TestCli:
         assert "next_action:" in out
 
     def test_inspect_existing_candidate(self, bridge, tmp_path, monkeypatch, capsys):
-        import core.db as storage
-        from core.learner.engine import main
+        import coach.db as storage
+        from learner.engine import main
 
         monkeypatch.setattr(storage, "DB_PATH", tmp_path / "coach.db")
         bridge.ensure_learner("cli@example.com")
@@ -366,8 +366,8 @@ class TestCli:
         assert "Learner snapshot for cli@example.com" in out
 
     def test_missing_candidate_prints_help(self, tmp_path, monkeypatch, capsys):
-        import core.db as storage
-        from core.learner.engine import main
+        import coach.db as storage
+        from learner.engine import main
 
         monkeypatch.setattr(storage, "DB_PATH", tmp_path / "coach.db")
         exit_code = main([], )

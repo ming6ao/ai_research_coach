@@ -4,13 +4,6 @@ Served at /admin as a self-contained HTML page with inline SVG graph visualizati
 learner model inspector, and SkillState comparison. Requires authentication.
 """
 
-import sys
-from pathlib import Path
-
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 

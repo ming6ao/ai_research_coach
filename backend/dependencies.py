@@ -8,7 +8,7 @@ import sqlite3
 import uuid
 from typing import Any, Dict, List, Optional
 
-from core.db import sqlite_conn
+from coach.db import sqlite_conn
 
 
 def _connect() -> sqlite3.Connection:

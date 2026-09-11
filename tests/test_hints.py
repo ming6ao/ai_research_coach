@@ -1,8 +1,8 @@
-"""Unit tests for adaptive hint selection in core.hints."""
+"""Unit tests for adaptive hint selection in coach.hints."""
 
 import pytest
 
-from core.hints import hint_penalty, next_hidden_hint, select_hints
+from coach.hints import hint_penalty, next_hidden_hint, select_hints
 
 TASK = {
     "id": "t1",

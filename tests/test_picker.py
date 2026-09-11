@@ -1,9 +1,9 @@
-"""Unit tests for the information-efficient question picker in core.picker."""
+"""Unit tests for the information-efficient question picker in coach.picker."""
 
 import pytest
 
-from core.picker import expected_time, next_task
-from core.session import Session
+from coach.picker import expected_time, next_task
+from coach.session import Session
 
 SKILLS = [
     "ml_modeling",

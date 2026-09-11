@@ -5,14 +5,8 @@ persisted in ``active_sessions``; "done" is derived from the session JSON via
 ``pick_next_task``. Guests and signed-in users behave identically.
 """
 
-import sys
 import uuid
-from pathlib import Path
 from urllib.parse import quote
-
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
 
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import RedirectResponse
@@ -114,8 +108,8 @@ def me(user: dict = Depends(get_current_user)):
 
 @router.post("/start")
 def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
-    from core.session import Session, task_view
-    from core.learner.engine import LearnerEngine, pick_next_task
+    from coach.session import Session, task_view
+    from learner.engine import LearnerEngine, pick_next_task
 
     store = get_store()
     candidate = _candidate_for(user)
@@ -170,11 +164,11 @@ def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
 
 @router.post("/submit")
 def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
-    from core.session import Session, SkillState, task_view
-    from core.score import bayesian_update, effective_score, measurement_variance
-    from core.hints import hint_penalty
-    from evaluators.judge import LLMJudge
-    from core.learner.engine import LearnerEngine, pick_next_task
+    from coach.session import Session, SkillState, task_view
+    from coach.score import bayesian_update, effective_score, measurement_variance
+    from coach.hints import hint_penalty
+    from coach.judge import LLMJudge
+    from learner.engine import LearnerEngine, pick_next_task
 
     store = get_store()
     state = store.get(req.session_id)
@@ -280,7 +274,7 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
             engine=engine,
         )
     except Exception:
-        from core.picker import next_task as next_task_bank
+        from coach.picker import next_task as next_task_bank
         nxt = next_task_bank(session)
         next_task = task_view(nxt, session) if nxt else None
 
@@ -300,8 +294,8 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
 
 @router.post("/complete")
 def complete_session(req: CompleteRequest, user: dict = Depends(get_current_user)):
-    from core.session import Session
-    from core.learner.engine import LearnerEngine
+    from coach.session import Session
+    from learner.engine import LearnerEngine
 
     store = get_store()
     state = store.get(req.session_id)
@@ -329,8 +323,8 @@ def complete_session(req: CompleteRequest, user: dict = Depends(get_current_user
 
 @router.post("/session/open")
 def open_session(req: SessionOpenRequest, user: dict = Depends(get_current_user)):
-    from core.session import Session
-    from core.learner.engine import LearnerEngine, pick_next_task
+    from coach.session import Session
+    from learner.engine import LearnerEngine, pick_next_task
 
     store = get_store()
     state = store.get(req.id)
@@ -370,8 +364,8 @@ def open_session(req: SessionOpenRequest, user: dict = Depends(get_current_user)
 
 @router.get("/sessions")
 def list_sessions(user: dict = Depends(get_current_user)):
-    from core.session import Session
-    from core.learner.engine import pick_next_task
+    from coach.session import Session
+    from learner.engine import pick_next_task
 
     store = get_store()
     if user is None:
@@ -406,7 +400,7 @@ def delete_active_session(session_id: str, user: dict = Depends(get_current_user
     if state is None:
         raise HTTPException(status_code=404, detail="Session not found.")
     if user is not None:
-        from core.session import Session
+        from coach.session import Session
         sess = Session.from_dict(state["session"])
         if sess.candidate != user["email"]:
             raise HTTPException(status_code=403, detail="Not your session.")
@@ -417,7 +411,7 @@ def delete_active_session(session_id: str, user: dict = Depends(get_current_user
 @router.delete("/sessions/clear/{candidate}")
 def clear_candidate_data(candidate: str, user: dict = Depends(get_current_user)):
     store = get_store()
-    from core.learner.engine import clear_learner_data
+    from learner.engine import clear_learner_data
 
     if user is not None:
         candidate = user["email"]

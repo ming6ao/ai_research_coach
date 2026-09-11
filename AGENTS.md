@@ -33,15 +33,15 @@ python check_env.py
 
 - **Entry point**: FastAPI app in `backend/main.py` (`backend/routes.py` + admin routes). No ADK agent.
 - **Config-driven**: Questions in `config/tasks.yaml` — no code changes to extend; each task's `skill` tag is a free-form id that keys a per-skill belief
-- **Bayesian probing**: `core/score.py` + `core/picker.py` keep a Gaussian belief `N(mean, variance)` per skill; `pick_next_task` (in `core/learner/engine.py`) selects questions to maximize expected information gain (EIG) per unit of expected time, weighted by skill coverage
-- **Hybrid question selection**: `core/learner/engine.py:pick_next_task` — (1) pending generated remediation task, (2) frontier-driven remediation (`core/remediation.py` + knowledge-graph learner model), (3) EIG bank picker, (4) `None` when done
-- **Learner model**: the merged `core/learner` package (was `core/learning_partner` + `core/learner_bridge.py`) keeps per-node mastery/uncertainty beliefs that drive the frontier/policy/remediation math
-- **Hints**: `core/hints.py` — tasks declare ordered hints; weak candidates get them pre-revealed, others request them on demand; viewed hints reduce effective mastery
-- **Code eval**: `evaluators/judge.py` evaluates candidate code via a single structured LLM call (score + rationale + coaching response)
-- **Coaching**: The judge's coaching response (in `evaluators/base.py` as `CoachContent`) identifies the candidate's misconception/gap and walks them step-by-step to the correct solution with code examples — no separate feedback step
+- **Bayesian probing**: `coach/score.py` + `coach/picker.py` keep a Gaussian belief `N(mean, variance)` per skill; `pick_next_task` (in `learner/engine.py`) selects questions to maximize expected information gain (EIG) per unit of expected time, weighted by skill coverage
+- **Hybrid question selection**: `learner/engine.py:pick_next_task` — (1) pending generated remediation task, (2) frontier-driven remediation (`coach/remediation.py` + knowledge-graph learner model), (3) EIG bank picker, (4) `None` when done
+- **Learner model**: the flat `learner/` package (one module per topic: `engine`, `graph`, `states`, `evidence`, `assessment`, `update`, `misconception`, `frontier`, `policy`, `orchestrator`, `traversal`) keeps per-node mastery/uncertainty beliefs that drive the frontier/policy/remediation math
+- **Hints**: `coach/hints.py` — tasks declare ordered hints; weak candidates get them pre-revealed, others request them on demand; viewed hints reduce effective mastery
+- **Code eval**: `coach/judge.py` evaluates candidate code via a single structured LLM call (score + rationale + coaching response)
+- **Coaching**: The judge's coaching response (in `coach/judge.py` as `CoachContent`) identifies the candidate's misconception/gap and walks them step-by-step to the correct solution with code examples — no separate feedback step
 - **Teaching pause**: After a submit the UI does **not** auto-advance. The coaching response is shown and the candidate advances manually (`Next question`); the picked task is held until then
 - **No summative product**: there is no `assessments` table, report, verdict, or raw-score UI. The app probes and teaches; the progress view shows per-skill confidence + per-node status/misconceptions/next actions
-- **Persistence**: single SQLite file `data/coach.db` (gitignored) with 12 tables (`users`, `auth_tokens`, `active_sessions`, `knowledge_nodes`, `knowledge_edges`, `learners`, `learner_knowledge_states`, `evidence`, `assessment_tasks`, `assessment_targets`, `learner_misconceptions`, `learner_frontier`). `core/db.py` is the single connection module
+- **Persistence**: single SQLite file `data/coach.db` (gitignored) with 12 tables (`users`, `auth_tokens`, `active_sessions`, `knowledge_nodes`, `knowledge_edges`, `learners`, `learner_knowledge_states`, `evidence`, `assessment_tasks`, `assessment_targets`, `learner_misconceptions`, `learner_frontier`). `coach/db.py` is the single connection module
 - **Models**: `EVAL_MODEL` (judge/coach + decomposer) defaults to `gemini-3.5-flash-lite`
 
 ## Extending Without Code Changes
@@ -65,15 +65,15 @@ Optional per task: `hints` (ordered list with `id`, `text`, `weight` 0..1, and `
 - The bank picker maximizes `EIG · coverage / expected_time`, so it drills into informative, uncovered skills with cheap questions. The session ends when the task bank is exhausted.
 - After a submit, the picked task is returned as `next_task` but held back by the UI until the candidate reviews the coaching and clicks **Next question** — the system never auto-advances. A `next_task: null` after the last question means the candidate is done; the frontend then shows the progress view (via `/api/complete`).
 
-## Learner Model (merged `core/learner`)
+## Learner Model (flat `learner/`)
 
-- The learner package lives in-repo at `core/learner` (domain/services/storage, SQLAlchemy). No install step needed.
-- `core/learner/engine.py` (`LearnerEngine`) is the single facade: `ensure_learner(candidate)`, `bootstrap_task(task)`, `bootstrap_generated_task(task)`, `record_submission(candidate, task, result, coach, viewed)`, `learner_snapshot(candidate)`, plus the hybrid `pick_next_task` and `clear_learner_data(candidate)`.
+- The learner package lives in-repo at `learner/` (one module per topic — models, services, and SQL persistence for that topic live together; SQLAlchemy `Base`/engine/converters live in `coach/db.py`). No install step needed.
+- `learner/engine.py` (`LearnerEngine`) is the single facade: `ensure_learner(candidate)`, `bootstrap_task(task)`, `bootstrap_generated_task(task)`, `record_submission(candidate, task, result, coach, viewed)`, `learner_snapshot(candidate)`, plus the hybrid `pick_next_task` and `clear_learner_data(candidate)`.
 - Candidate identity lives on the `learners.candidate` column (UNIQUE) — no separate binding table.
-- `core/task_decomposer.py` decomposes a task/interview question into knowledge nodes+edges+primary via an LLM; falls back to a deterministic skill+problem graph when no `GOOGLE_API_KEY` (keeps tests and startup hermetic).
+- `coach/task_decomposer.py` decomposes a task/interview question into knowledge nodes+edges+primary via an LLM; falls back to a deterministic skill+problem graph when no `GOOGLE_API_KEY` (keeps tests and startup hermetic).
 - Hooks: `/api/start` and `/api/session/open` call `ensure_learner` + `bootstrap_task`; `/api/submit` calls `record_submission`; `/api/complete` and `/api/session/open` attach a `learner` block via `learner_snapshot`.
-- The learner model is LLM-free; all LLM work lives in `evaluators/judge.py` and `core/task_decomposer.py`. The parent's Bayesian `SkillState` scoring runs in parallel.
-- CLI inspector: `python -m core.learner.engine --demo` (canned learner, no API key) or `python -m core.learner.engine <candidate>` to print states/frontier/misconceptions/next action. Backend-only (no UI surface).
+- The learner model is LLM-free; all LLM work lives in `coach/judge.py` and `coach/task_decomposer.py`. The parent's Bayesian `SkillState` scoring runs in parallel.
+- CLI inspector: `python -m learner.engine --demo` (canned learner, no API key) or `python -m learner.engine <candidate>` to print states/frontier/misconceptions/next action. Backend-only (no UI surface).
 
 ## Environment Variables
 
