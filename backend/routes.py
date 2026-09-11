@@ -517,14 +517,13 @@ def delete_active_session(session_id: str, user: dict = Depends(get_current_user
 
 @router.delete("/sessions/clear/{candidate}")
 def clear_candidate_data(candidate: str, user: dict = Depends(get_current_user)):
-    store = get_store()
-    from learner.engine import clear_learner_data
+    from coach.admin import clear_candidate_everything
 
     if user is not None:
         candidate = user["email"]
-    active_deleted = store.delete_by_candidate(candidate)
-    learner_deleted = clear_learner_data(candidate)
+    result = clear_candidate_everything(candidate)
     return {
         "ok": True,
-        "deleted": active_deleted + learner_deleted,
+        "deleted": result["deleted"]["total"],
+        "deleted_by_table": result["deleted"],
     }

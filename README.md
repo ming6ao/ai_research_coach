@@ -140,9 +140,13 @@ python check_env.py          # verify env + model connectivity
 | `POST /api/session/open` `{id}` | Resume a session → `{current_task, results, skill_states, learner}` |
 | `GET /api/sessions` | Candidate's sessions with a `done` flag |
 | `DELETE /api/sessions/active/{id}` | Delete an active session (ownership-guarded) |
-| `DELETE /api/sessions/clear/{candidate}` | Delete sessions + learner rows |
+| `DELETE /api/sessions/clear/{candidate}` | Delete sessions + learner rows + attempts + beliefs + owned tasks |
 | `/api/auth/*` | Google login / me / logout |
-| `/admin/*` | Debug endpoints (graph, learner detail, stats, SkillState) |
+| `/admin/*` | Debug endpoints (graph, learner detail, stats, SkillState) + Manage endpoints below |
+| `GET /admin/tasks?owner=&skill=&q=` | List questions with attempt counts |
+| `GET /admin/candidate/{candidate}/summary` | Per-table row counts preview (owner or admin) |
+| `DELETE /admin/candidate/{candidate}` | Full candidate wipe (owner or admin) |
+| `DELETE /admin/tasks/{id}` | Delete a question + its attempts (owner or admin; system rows admin-only) |
 
 ## Persistence
 
@@ -194,6 +198,7 @@ EVAL_RETRY_MAX_DELAY=30.0       # Max backoff (seconds)
 LEARNING_PARTNER_DB_URL=sqlite:///data/coach.db  # learner tables (optional; defaults to coach.db)
 GOOGLE_CLIENT_ID=...            # Google login (optional)
 GOOGLE_CLIENT_SECRET=...        # Google login (optional)
+ADMIN_EMAILS=you@example.com    # Admin allowlist for /admin deletes (comma-separated)
 ```
 
 ## Resilience & retry

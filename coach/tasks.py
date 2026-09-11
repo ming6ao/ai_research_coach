@@ -331,3 +331,100 @@ def task_stats(task_id: str) -> dict:
         }
     finally:
         session.close()
+
+
+def task_attempt_count(task_id: str) -> int:
+    """Number of attempt rows referencing a task."""
+    from coach.db import create_schema
+    from sqlalchemy import func
+
+    create_schema()
+    session = learner_session()
+    try:
+        return (
+            session.scalar(
+                select(func.count(TaskAttemptModel.id)).where(
+                    TaskAttemptModel.task_id == task_id
+                )
+            )
+            or 0
+        )
+    finally:
+        session.close()
+
+
+def list_tasks_for_admin(
+    owner: Optional[str] = None,
+    skill: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 200,
+) -> list[dict]:
+    """List tasks for the admin UI, newest last, with per-task attempt counts."""
+    from coach.db import create_schema
+    from sqlalchemy import func
+
+    create_schema()
+    limit = max(1, min(500, int(limit or 200)))
+    session = learner_session()
+    try:
+        stmt = select(TaskModel).order_by(TaskModel.created_at)
+        if owner:
+            stmt = stmt.where(TaskModel.owner == owner)
+        if skill:
+            stmt = stmt.where(TaskModel.skill == skill)
+        if q:
+            stmt = stmt.where(TaskModel.prompt.contains(q))
+        stmt = stmt.limit(limit)
+        rows = session.scalars(stmt).all()
+        if not rows:
+            return []
+        counts = dict(
+            session.execute(
+                select(
+                    TaskAttemptModel.task_id,
+                    func.count(TaskAttemptModel.id),
+                )
+                .where(TaskAttemptModel.task_id.in_([m.id for m in rows]))
+                .group_by(TaskAttemptModel.task_id)
+            ).all()
+        )
+        out = []
+        for m in rows:
+            d = task_to_dict(m)
+            d["attempt_count"] = counts.get(m.id, 0)
+            d["created_at"] = (
+                m.created_at.isoformat() if m.created_at else None
+            )
+            out.append(d)
+        return out
+    finally:
+        session.close()
+
+
+def delete_task(task_id: str) -> dict:
+    """Delete one task row plus its attempts (cascade).
+
+    Returns ``{"deleted_task": 0|1, "deleted_attempts": n}``.
+    """
+    from coach.db import create_schema
+
+    create_schema()
+    session = learner_session()
+    try:
+        attempts = (
+            session.query(TaskAttemptModel)
+            .filter(TaskAttemptModel.task_id == task_id)
+            .delete(synchronize_session=False)
+        )
+        task = session.get(TaskModel, task_id)
+        if task is None:
+            session.rollback()
+            return {"deleted_task": 0, "deleted_attempts": 0}
+        session.delete(task)
+        session.commit()
+        return {"deleted_task": 1, "deleted_attempts": attempts}
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()

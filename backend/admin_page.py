@@ -43,6 +43,10 @@ body { font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace; backgrou
 select, button { font-family: inherit; font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg3); color: var(--text); cursor: pointer; }
 button:hover { border-color: var(--accent); }
 button.primary { background: var(--accent); border-color: var(--accent); color: white; }
+button.danger { background: #ef444420; border-color: var(--error); color: var(--error); }
+button.danger:disabled { opacity: 0.4; cursor: not-allowed; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+input { font-family: inherit; font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg3); color: var(--text); }
 .stats-bar { display: flex; gap: 16px; padding: 8px 20px; border-bottom: 1px solid var(--border); background: var(--bg2); font-size: 11px; color: var(--text-muted); }
 .stats-bar span b { color: var(--text); }
 .main { display: grid; grid-template-columns: 1fr 1fr; height: calc(100vh - 85px); }
@@ -163,6 +167,7 @@ tr:hover td { background: var(--bg3); }
       <div class="tab" data-tab="misconceptions">Misconceptions</div>
       <div class="tab" data-tab="evidence">Evidence</div>
       <div class="tab" data-tab="skillstates">SkillState</div>
+      <div class="tab" data-tab="manage">Manage</div>
     </div>
     <div style="flex:1;overflow:auto;">
       <div id="tab-states" class="tab-content active"></div>
@@ -170,6 +175,22 @@ tr:hover td { background: var(--bg3); }
       <div id="tab-misconceptions" class="tab-content"></div>
       <div id="tab-evidence" class="tab-content"></div>
       <div id="tab-skillstates" class="tab-content"></div>
+      <div id="tab-manage" class="tab-content">
+        <div class="panel-body">
+          <h3 style="font-size:12px;margin-bottom:8px">Candidate data</h3>
+          <div id="manage-summary"><div class="empty"><p>Select a candidate to preview their stored rows</p></div></div>
+          <button id="manage-wipe-btn" class="danger" onclick="wipeCandidate()" style="margin-top:8px" disabled>Wipe candidate data</button>
+          <div class="meta" style="margin-top:4px">Deletes sessions, learner rows, attempts, skill beliefs and owned questions. Back up <span style="font-family:inherit">data/coach.db</span> first — this cannot be undone.</div>
+          <h3 style="font-size:12px;margin:16px 0 8px">Questions</h3>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+            <input id="manage-q" placeholder="search prompt…" style="flex:2;min-width:140px">
+            <input id="manage-owner" placeholder="owner email…" style="flex:1;min-width:120px">
+            <input id="manage-skill" placeholder="skill…" style="flex:1;min-width:80px">
+            <button onclick="loadManageTasks()">Search</button>
+          </div>
+          <div id="manage-tasks"><div class="empty"><p>Loading questions…</p></div></div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -189,6 +210,27 @@ async function api(path) {
   }
   if (!res.ok) throw new Error('API error ' + res.status);
   return res.json();
+}
+
+async function apiDelete(path) {
+  const token = getToken();
+  const headers = {};
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const res = await fetch('/admin' + path, { method: 'DELETE', headers });
+  if (res.status === 401) {
+    document.body.innerHTML = '<div class="empty" style="padding:80px"><h2>Authentication Required</h2><p>Please log in first, then return to this page.</p></div>';
+    throw new Error('Unauthorized');
+  }
+  if (!res.ok) {
+    let detail = 'API error ' + res.status;
+    try { detail = (await res.json()).detail || detail; } catch {}
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 // Tab switching
@@ -489,14 +531,108 @@ async function renderSkillStates() {
   } catch { el.innerHTML = '<div class="error-msg">Failed to load SkillState</div>'; }
 }
 
+// --- Manage (DB wipes + question deletes) ---
+const SUMMARY_LABELS = [
+  ['active_sessions', 'Sessions'],
+  ['learners', 'Learner rows'],
+  ['knowledge_states', 'Knowledge states'],
+  ['evidence', 'Evidence'],
+  ['frontier', 'Frontier'],
+  ['misconceptions', 'Misconceptions'],
+  ['task_attempts', 'Attempts'],
+  ['skill_beliefs', 'Skill beliefs'],
+  ['owned_tasks', 'Owned questions'],
+];
+
+async function loadCandidateSummary() {
+  const candidate = document.getElementById('candidate-select').value;
+  const el = document.getElementById('manage-summary');
+  const btn = document.getElementById('manage-wipe-btn');
+  if (!candidate) {
+    el.innerHTML = '<div class="empty"><p>Select a candidate to preview their stored rows</p></div>';
+    btn.disabled = true;
+    return;
+  }
+  try {
+    const s = await api('/candidate/' + encodeURIComponent(candidate) + '/summary');
+    let html = '<table><thead><tr><th>Table</th><th>Rows</th></tr></thead><tbody>';
+    SUMMARY_LABELS.forEach(([key, label]) => {
+      html += '<tr><td>' + label + '</td><td><b>' + (s[key] || 0) + '</b></td></tr>';
+    });
+    html += '<tr><td><b>Total</b></td><td><b>' + (s.total || 0) + '</b></td></tr></tbody></table>';
+    el.innerHTML = html;
+    btn.disabled = (s.total || 0) === 0;
+  } catch (e) {
+    el.innerHTML = '<div class="error-msg">' + esc(e.message) + '</div>';
+    btn.disabled = true;
+  }
+}
+
+async function wipeCandidate() {
+  const candidate = document.getElementById('candidate-select').value;
+  if (!candidate) return;
+  let total = '?';
+  try {
+    const s = await api('/candidate/' + encodeURIComponent(candidate) + '/summary');
+    total = s.total;
+  } catch {}
+  if (!confirm('Delete ALL ' + total + ' stored rows for ' + candidate + '?\nSessions, learner model, attempts, skill beliefs and owned questions.\nThis cannot be undone.')) return;
+  try {
+    const r = await apiDelete('/candidate/' + encodeURIComponent(candidate));
+    alert('Wiped ' + (r.deleted && r.deleted.total != null ? r.deleted.total : '?') + ' rows for ' + candidate + '.');
+    await refreshAll();
+  } catch (e) {
+    alert('Wipe failed: ' + e.message);
+  }
+}
+
+async function loadManageTasks() {
+  const el = document.getElementById('manage-tasks');
+  const q = document.getElementById('manage-q').value.trim();
+  const owner = document.getElementById('manage-owner').value.trim();
+  const skill = document.getElementById('manage-skill').value.trim();
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (owner) params.set('owner', owner);
+  if (skill) params.set('skill', skill);
+  params.set('limit', '200');
+  try {
+    const data = await api('/tasks?' + params.toString());
+    if (!data.tasks.length) { el.innerHTML = '<div class="empty"><p>No questions match</p></div>'; return; }
+    let html = '<table><thead><tr><th>Prompt</th><th>Skill</th><th>Owner</th><th>Attempts</th><th></th></tr></thead><tbody>';
+    data.tasks.forEach(t => {
+      const excerpt = esc((t.prompt || '').slice(0, 80)) + ((t.prompt || '').length > 80 ? '…' : '');
+      html += '<tr><td title="' + esc(t.prompt || '') + '">' + excerpt + '<br><span style="color:var(--text-muted);font-size:10px">' + esc(t.id) + '</span></td>' +
+        '<td>' + esc(t.skill || '') + '</td><td>' + esc(t.owner || '') + '</td><td>' + (t.attempt_count || 0) + '</td>' +
+        '<td><button class="danger" onclick="deleteTask(\'' + t.id.replace(/'/g, "\\'") + '\',' + (t.attempt_count || 0) + ')">Delete</button></td></tr>';
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = '<div class="error-msg">' + esc(e.message) + '</div>';
+  }
+}
+
+async function deleteTask(taskId, attempts) {
+  if (!confirm('Delete question ' + taskId + ' plus its ' + attempts + ' attempt(s)?\nThis cannot be undone.')) return;
+  try {
+    await apiDelete('/tasks/' + encodeURIComponent(taskId));
+    await loadManageTasks();
+    await loadStats();
+  } catch (e) {
+    alert('Delete failed: ' + e.message);
+  }
+}
+
 // --- Refresh ---
 async function refreshAll() {
   const candidate = document.getElementById('candidate-select').value;
-  await Promise.all([loadStats(), loadGraph(), loadLearner(candidate)]);
+  await Promise.all([loadStats(), loadGraph(), loadLearner(candidate), loadCandidateSummary(), loadManageTasks()]);
 }
 
 document.getElementById('candidate-select').addEventListener('change', (e) => {
   loadLearner(e.target.value);
+  loadCandidateSummary();
 });
 
 // Init
@@ -504,6 +640,7 @@ document.getElementById('candidate-select').addEventListener('change', (e) => {
   await loadStats();
   await loadCandidates();
   await loadGraph();
+  await loadManageTasks();
 })();
 </script>
 </body>

@@ -1,8 +1,10 @@
 """Admin/debug API routes for inspecting the knowledge graph and learner model."""
 
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException, Depends
 
-from backend.auth import get_current_user
+from backend.auth import get_current_user, is_admin
 from backend.dependencies import get_store
 from learner.engine import LearnerEngine
 
@@ -13,6 +15,14 @@ def _require_user(user: dict = Depends(get_current_user)):
     if user is None:
         raise HTTPException(status_code=401, detail="Authentication required.")
     return user
+
+
+def _require_owner_or_admin(candidate: str, user: dict) -> dict:
+    """Owner-only + admin: the candidate themselves or an ADMIN_EMAILS admin."""
+    email = (user.get("email") or "").strip().lower()
+    if email == (candidate or "").strip().lower() or is_admin(user):
+        return user
+    raise HTTPException(status_code=403, detail="Not authorized for this candidate.")
 
 
 @admin_router.get("/learners")
@@ -341,3 +351,55 @@ def get_stats(user: dict = Depends(_require_user)):
         }
     finally:
         session.close()
+
+
+@admin_router.get("/tasks")
+def list_tasks_admin(
+    owner: Optional[str] = None,
+    skill: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 200,
+    user: dict = Depends(_require_user),
+):
+    """List task-bank rows with attempt counts (for the Manage tab)."""
+    from coach.tasks import list_tasks_for_admin
+
+    tasks = list_tasks_for_admin(owner=owner, skill=skill, q=q, limit=limit)
+    return {"tasks": tasks}
+
+
+@admin_router.get("/candidate/{candidate}/summary")
+def candidate_summary_endpoint(candidate: str, user: dict = Depends(_require_user)):
+    """Dry-run preview: per-table row counts for a candidate (owner or admin)."""
+    from coach.admin import candidate_summary
+
+    _require_owner_or_admin(candidate, user)
+    return candidate_summary(candidate)
+
+
+@admin_router.delete("/candidate/{candidate}")
+def delete_candidate_endpoint(candidate: str, user: dict = Depends(_require_user)):
+    """Full candidate wipe: sessions + learner rows + attempts + beliefs + owned tasks."""
+    from coach.admin import clear_candidate_everything
+
+    _require_owner_or_admin(candidate, user)
+    return {"ok": True, **clear_candidate_everything(candidate)}
+
+
+@admin_router.delete("/tasks/{task_id}")
+def delete_task_endpoint(task_id: str, user: dict = Depends(_require_user)):
+    """Delete one question plus its attempts (cascade).
+
+    Allowed for the task owner or an ADMIN_EMAILS admin (system seed rows
+    are admin-only).
+    """
+    from coach.tasks import delete_task, get_task
+
+    task = get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    email = (user.get("email") or "").strip().lower()
+    if (task.get("owner") or "") != email and not is_admin(user):
+        raise HTTPException(status_code=403, detail="Not authorized to delete this task.")
+    result = delete_task(task_id)
+    return {"ok": True, "task_id": task_id, **result}

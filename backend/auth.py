@@ -7,6 +7,7 @@ expiry. Tokens are stored in the same SQLite database as the rest of the app.
 """
 
 import sqlite3
+import os
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -17,6 +18,20 @@ from fastapi import Request
 from coach.db import sqlite_conn
 
 TOKEN_TTL_DAYS = 30
+
+
+def admin_emails() -> set[str]:
+    """Parse ADMIN_EMAILS (comma-separated) into a lowercase email set."""
+    raw = os.environ.get("ADMIN_EMAILS", "")
+    return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+
+def is_admin(user: Optional[dict]) -> bool:
+    """True when the user's email is on the ADMIN_EMAILS allowlist."""
+    if not user:
+        return False
+    email = (user.get("email") or "").strip().lower()
+    return bool(email) and email in admin_emails()
 
 
 def _connect() -> sqlite3.Connection:
