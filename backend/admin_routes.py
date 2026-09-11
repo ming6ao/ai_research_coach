@@ -25,6 +25,13 @@ def _require_owner_or_admin(candidate: str, user: dict) -> dict:
     raise HTTPException(status_code=403, detail="Not authorized for this candidate.")
 
 
+def _require_admin(user: dict = Depends(_require_user)) -> dict:
+    """Admin-only: the knowledge graph is global, so only ADMIN_EMAILS may wipe it."""
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required.")
+    return user
+
+
 @admin_router.get("/learners")
 def list_learners(user: dict = Depends(_require_user)):
     """List all learners (candidate → learner_id on the learners row)."""
@@ -124,6 +131,22 @@ def get_graph(user: dict = Depends(_require_user)):
         return {"nodes": nodes, "edges": edges}
     finally:
         session.close()
+
+
+@admin_router.get("/graph/summary")
+def graph_summary_endpoint(user: dict = Depends(_require_user)):
+    """Dry-run preview: global graph row counts + dependent learner rows."""
+    from coach.admin import graph_summary
+
+    return graph_summary()
+
+
+@admin_router.delete("/graph")
+def delete_graph_endpoint(user: dict = Depends(_require_admin)):
+    """Full reset: delete global graph nodes/edges + dependent learner rows."""
+    from coach.admin import clear_knowledge_graph
+
+    return {"ok": True, **clear_knowledge_graph()}
 
 
 @admin_router.get("/graph/{node_id}")

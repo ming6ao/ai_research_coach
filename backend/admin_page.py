@@ -189,6 +189,10 @@ tr:hover td { background: var(--bg3); }
             <button onclick="loadManageTasks()">Search</button>
           </div>
           <div id="manage-tasks"><div class="empty"><p>Loading questions…</p></div></div>
+          <h3 style="font-size:12px;margin:16px 0 8px">Knowledge graph</h3>
+          <div id="manage-graph-summary"><div class="empty"><p>Loading graph rows…</p></div></div>
+          <button id="manage-graph-wipe-btn" class="danger" onclick="wipeGraph()" style="margin-top:8px" disabled>Clear knowledge graph</button>
+          <div class="meta" style="margin-top:4px">Admin-only. Deletes global nodes + edges and dependent learner rows (states, evidence, frontier, misconceptions) for ALL candidates. Back up <span style="font-family:inherit">data/coach.db</span> first — this cannot be undone.</div>
         </div>
       </div>
     </div>
@@ -544,6 +548,15 @@ const SUMMARY_LABELS = [
   ['owned_tasks', 'Owned questions'],
 ];
 
+const GRAPH_SUMMARY_LABELS = [
+  ['knowledge_nodes', 'Nodes'],
+  ['knowledge_edges', 'Edges'],
+  ['knowledge_states', 'Knowledge states'],
+  ['evidence', 'Evidence'],
+  ['frontier', 'Frontier'],
+  ['misconceptions', 'Misconceptions'],
+];
+
 async function loadCandidateSummary() {
   const candidate = document.getElementById('candidate-select').value;
   const el = document.getElementById('manage-summary');
@@ -580,6 +593,43 @@ async function wipeCandidate() {
   try {
     const r = await apiDelete('/candidate/' + encodeURIComponent(candidate));
     alert('Wiped ' + (r.deleted && r.deleted.total != null ? r.deleted.total : '?') + ' rows for ' + candidate + '.');
+    await refreshAll();
+  } catch (e) {
+    alert('Wipe failed: ' + e.message);
+  }
+}
+
+async function loadGraphSummary() {
+  const el = document.getElementById('manage-graph-summary');
+  const btn = document.getElementById('manage-graph-wipe-btn');
+  if (!el) return;
+  try {
+    const s = await api('/graph/summary');
+    let html = '<table><thead><tr><th>Table</th><th>Rows</th></tr></thead><tbody>';
+    GRAPH_SUMMARY_LABELS.forEach(([key, label]) => {
+      html += '<tr><td>' + label + '</td><td><b>' + (s[key] || 0) + '</b></td></tr>';
+    });
+    html += '<tr><td><b>Total</b></td><td><b>' + (s.total || 0) + '</b></td></tr></tbody></table>';
+    el.innerHTML = html;
+    if (btn) btn.disabled = (s.total || 0) === 0;
+  } catch (e) {
+    el.innerHTML = '<div class="error-msg">' + esc(e.message) + '</div>';
+    if (btn) btn.disabled = true;
+  }
+}
+
+async function wipeGraph() {
+  let total = '?';
+  try {
+    const s = await api('/graph/summary');
+    total = s.total;
+  } catch {}
+  if (!confirm('Delete the GLOBAL knowledge graph plus ALL ' + total + ' dependent rows?\nNodes, edges, knowledge states, evidence, frontier and misconceptions for ALL candidates.\nThis cannot be undone.')) return;
+  try {
+    const r = await apiDelete('/graph');
+    alert('Cleared knowledge graph (' + (r.deleted && r.deleted.total != null ? r.deleted.total : '?') + ' rows).');
+    selectedNodeId = null;
+    cachedPositions = new Map();
     await refreshAll();
   } catch (e) {
     alert('Wipe failed: ' + e.message);
@@ -627,7 +677,7 @@ async function deleteTask(taskId, attempts) {
 // --- Refresh ---
 async function refreshAll() {
   const candidate = document.getElementById('candidate-select').value;
-  await Promise.all([loadStats(), loadGraph(), loadLearner(candidate), loadCandidateSummary(), loadManageTasks()]);
+  await Promise.all([loadStats(), loadGraph(), loadLearner(candidate), loadCandidateSummary(), loadManageTasks(), loadGraphSummary()]);
 }
 
 document.getElementById('candidate-select').addEventListener('change', (e) => {
@@ -641,6 +691,7 @@ document.getElementById('candidate-select').addEventListener('change', (e) => {
   await loadCandidates();
   await loadGraph();
   await loadManageTasks();
+  await loadGraphSummary();
 })();
 </script>
 </body>

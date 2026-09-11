@@ -10,7 +10,9 @@ Candidate-scoped rows live in several places:
 - ``tasks`` (ORM, ``owner`` column)
 
 Knowledge graph nodes/edges, ``users`` and ``auth_tokens`` are global and
-are never touched here.
+are never touched here — except by the explicit graph helpers below
+(``graph_summary`` / ``clear_knowledge_graph``), which exist for the
+admin-only full reset on the debug Manage page.
 """
 
 from __future__ import annotations
@@ -218,3 +220,101 @@ def clear_candidate_everything(candidate: str) -> dict:
 
     deleted["total"] = sum(deleted.values())
     return {"candidate": candidate, "deleted": deleted}
+
+
+def graph_summary() -> dict:
+    """Count global knowledge-graph rows plus dependent learner rows.
+
+    Dependent rows (states/evidence/frontier/misconceptions) all FK to
+    ``knowledge_nodes.id``, so a full reset must delete them together
+    with the graph to avoid orphans.
+    """
+    create_schema()
+    session = learner_session()
+    try:
+        from learner.evidence import EvidenceModel
+        from learner.frontier import LearnerFrontierModel
+        from learner.graph import KnowledgeEdgeModel, KnowledgeNodeModel
+        from learner.misconception import LearnerMisconceptionModel
+        from learner.states import LearnerKnowledgeStateModel
+
+        nodes = session.scalar(select(func.count(KnowledgeNodeModel.id))) or 0
+        edges = session.scalar(select(func.count(KnowledgeEdgeModel.id))) or 0
+        states = session.scalar(select(func.count(LearnerKnowledgeStateModel.id))) or 0
+        evidence = session.scalar(select(func.count(EvidenceModel.id))) or 0
+        frontier = session.scalar(select(func.count(LearnerFrontierModel.id))) or 0
+        misconceptions = (
+            session.scalar(select(func.count(LearnerMisconceptionModel.id))) or 0
+        )
+    finally:
+        session.close()
+
+    total = nodes + edges + states + evidence + frontier + misconceptions
+    return {
+        "knowledge_nodes": nodes,
+        "knowledge_edges": edges,
+        "knowledge_states": states,
+        "evidence": evidence,
+        "frontier": frontier,
+        "misconceptions": misconceptions,
+        "total": total,
+    }
+
+
+def clear_knowledge_graph() -> dict:
+    """Full reset: delete the global graph + all dependent learner rows.
+
+    Delete order (dependents first, then edges, then nodes) avoids FK
+    violations. Per-learner progress is gone afterwards; the graph
+    rebuilds on the next ``bootstrap_task`` / ``record_submission``.
+    Returns per-table deleted counts.
+    """
+    create_schema()
+    deleted: dict[str, int] = {
+        "misconceptions": 0,
+        "frontier": 0,
+        "evidence": 0,
+        "knowledge_states": 0,
+        "knowledge_edges": 0,
+        "knowledge_nodes": 0,
+    }
+
+    session = learner_session()
+    try:
+        from learner.evidence import EvidenceModel
+        from learner.frontier import LearnerFrontierModel
+        from learner.graph import KnowledgeEdgeModel, KnowledgeNodeModel
+        from learner.misconception import LearnerMisconceptionModel
+        from learner.states import LearnerKnowledgeStateModel
+
+        deleted["misconceptions"] = (
+            session.query(LearnerMisconceptionModel).delete(
+                synchronize_session=False
+            )
+        )
+        deleted["frontier"] = (
+            session.query(LearnerFrontierModel).delete(synchronize_session=False)
+        )
+        deleted["evidence"] = (
+            session.query(EvidenceModel).delete(synchronize_session=False)
+        )
+        deleted["knowledge_states"] = (
+            session.query(LearnerKnowledgeStateModel).delete(
+                synchronize_session=False
+            )
+        )
+        deleted["knowledge_edges"] = (
+            session.query(KnowledgeEdgeModel).delete(synchronize_session=False)
+        )
+        deleted["knowledge_nodes"] = (
+            session.query(KnowledgeNodeModel).delete(synchronize_session=False)
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+    deleted["total"] = sum(deleted.values())
+    return {"deleted": deleted}
