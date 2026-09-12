@@ -23,11 +23,14 @@ def pick_next_task(
     candidate: str,
     session,
     last_submission: Optional[dict] = None,
+    sample_top_n: Optional[int] = None,
 ) -> dict | None:
     """Choose the next task to present.
 
     ``last_submission`` carries ``{"task", "result", "coach"}`` from a
-    just-recorded submission.
+    just-recorded submission. ``sample_top_n`` (> 1) samples uniformly from
+    the top-N EIG bank candidates instead of always taking the single best;
+    it applies to the bank-picker branch only.
     """
     from coach.picker import next_task as next_task_bank
 
@@ -53,7 +56,7 @@ def pick_next_task(
             return task_view(generated, session)
 
     # 3. EIG bank picker.
-    nxt = next_task_bank(session)
+    nxt = next_task_bank(session, sample_top_n=sample_top_n)
     if nxt is not None:
         return task_view(nxt, session)
 

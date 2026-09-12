@@ -36,7 +36,7 @@ export function WelcomeView() {
 
   const handleRandomQuestion = async () => {
     if (loading) return;
-    startAssessment();
+    startAssessment(undefined, { randomFirst: true });
   };
 
   const name = user?.display_name || (user ? user.email.split('@')[0] : '');

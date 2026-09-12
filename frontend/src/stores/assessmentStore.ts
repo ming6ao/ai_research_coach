@@ -26,7 +26,7 @@ interface AssessmentState {
   error: string | null;
   initialQuestion: string | null;
 
-  startAssessment: (initialQuestion?: string) => Promise<void>;
+  startAssessment: (initialQuestion?: string, opts?: { randomFirst?: boolean }) => Promise<void>;
   resumeSession: (response: ResumeResponse) => void;
   submitAnswer: (taskId: string, answer: string, hintsUsed?: string[]) => Promise<void>;
   completeSession: () => Promise<void>;
@@ -90,10 +90,10 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
     storage.set(SESSION_KEY, res.id);
   },
 
-  startAssessment: async (initialQuestion) => {
+  startAssessment: async (initialQuestion, opts) => {
     set({ loading: true, error: null });
     try {
-      const res = await apiClient.start(initialQuestion);
+      const res = await apiClient.start(initialQuestion, opts);
       storage.set(SESSION_KEY, res.id);
       set({
         sessionId: res.id,

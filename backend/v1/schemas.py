@@ -18,6 +18,7 @@ class PageMeta(BaseModel):
 class SessionCreateRequest(BaseModel):
     initial_question: Optional[str] = Field(default=None, max_length=8000)
     task_ids: Optional[list[str]] = Field(default=None, max_length=100)
+    random_first: bool = Field(default=False)
 
 
 class AnswerSubmitRequest(BaseModel):

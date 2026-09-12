@@ -20,6 +20,9 @@ from backend.v1.schemas import AnswerSubmitRequest, SessionCreateRequest
 
 router = APIRouter(prefix="/sessions", tags=["v1:sessions"])
 
+# "Random question" samples uniformly from the top-N EIG bank candidates.
+RANDOM_FIRST_TOP_N = 5
+
 
 def _candidate_for(user: Optional[dict]) -> str:
     if user is not None:
@@ -108,6 +111,8 @@ def create_session(req: SessionCreateRequest, user: Optional[dict] = Depends(get
 
     if custom_task:
         first_task = task_view(custom_task, session)
+    elif req.random_first:
+        first_task = pick_next_task(candidate, session, sample_top_n=RANDOM_FIRST_TOP_N)
     else:
         first_task = pick_next_task(candidate, session)
 

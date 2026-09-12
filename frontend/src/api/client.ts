@@ -256,8 +256,11 @@ export function buildAdminTableQuery(query: AdminTableQuery): string {
 }
 
 export const apiClient = {
-  start: (initial_question?: string) =>
-    v1<StartResponse>('/sessions', { initial_question }),
+  start: (initial_question?: string, opts?: { randomFirst?: boolean }) =>
+    v1<StartResponse>(
+      '/sessions',
+      { initial_question, random_first: opts?.randomFirst ?? undefined },
+    ),
 
   submit: (session_id: string, task_id: string, answer: string, hints_used: string[] = []) =>
     v1<SubmitResponse>(`/sessions/${encodeURIComponent(session_id)}/answers`, { task_id, answer, hints_used }),

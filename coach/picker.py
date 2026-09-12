@@ -11,6 +11,8 @@ explicitly via Finish / View progress).
 
 from typing import Optional
 
+import random
+
 from coach.session import Session
 from coach.score import expected_variance_reduction, measurement_variance
 
@@ -22,11 +24,15 @@ TIME_PER_100_WORDS = 1.0
 TIME_NO_SCAFFOLD_EXTRA = 0.5
 
 
-def next_task(session: Session) -> Optional[dict]:
+def next_task(session: Session, sample_top_n: Optional[int] = None) -> Optional[dict]:
     """Select next task maximizing expected information gain per unit time.
 
     Generated remediation tasks are excluded: they are injected directly by the
     remediation loop, never picked from the bank.
+
+    When ``sample_top_n`` is set (> 1), uniformly sample from the top-N
+    highest-utility tasks instead of always returning the single best. This
+    keeps the "Random question" entry point varied while staying adaptive.
     """
     available = [
         t for t in session.tasks
@@ -40,6 +46,9 @@ def next_task(session: Session) -> Optional[dict]:
         key=lambda x: x[0],
         reverse=True,
     )
+    if sample_top_n is not None and sample_top_n > 1:
+        top_n = scored[: max(1, min(sample_top_n, len(scored)))]
+        return random.choice([t for _, t in top_n])
     return scored[0][1]
 
 
