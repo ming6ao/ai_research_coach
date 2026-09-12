@@ -60,42 +60,40 @@ function UserCodeBubble({ answer }: { answer: string }) {
   );
 }
 
+function shortGapText(coach: ResultWithFeedback['coach']): string {
+  const raw = (coach?.feedback || coach?.misconception || '').trim();
+  if (!raw) return '';
+  const first = raw.match(/^.*?[.!?](\s|$)/)?.[0]?.trim() ?? raw;
+  const singleLine = first.replace(/\s+/g, ' ');
+  return singleLine.length > 120 ? `${singleLine.slice(0, 117).trimEnd()}…` : singleLine;
+}
+
 function CoachingBubble({ r }: { r: ResultWithFeedback }) {
   const coach = r.coach;
   const verdict = verdictFor(r);
+  const gap = shortGapText(coach);
   return (
     <CoachBubble wide>
       <div className="space-y-3">
         <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
           {verdict && (
-            <span className={`rounded-full px-2 py-0.5 text-[10px] ${verdict.cls}`}>{verdict.label}</span>
+            <span className={`rounded-full px-2 py-0.5 text-[10px] ${verdict.cls}`}>
+              {verdict.label}{gap ? ` — ${gap}` : ''}
+            </span>
           )}
         </p>
-        {coach && (coach.misconception || coach.steps.length > 0) ? (
-          <>
-            {coach.feedback && <Markdown text={coach.feedback} />}
-            {coach.misconception && (
-              <div className="rounded-lg border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/5 p-3">
-                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-warning)]">
-                  Where the gap is
+        {coach && coach.steps.length > 0 ? (
+          <ol className="space-y-3">
+            {coach.steps.map((step, i) => (
+              <li key={i} className="space-y-1.5">
+                <p className="text-sm font-semibold text-[var(--color-text-primary)]">
+                  {i + 1}. {step.title}
                 </p>
-                <Markdown text={coach.misconception} />
-              </div>
-            )}
-            {coach.steps.length > 0 && (
-              <ol className="space-y-3">
-                {coach.steps.map((step, i) => (
-                  <li key={i} className="space-y-1.5">
-                    <p className="text-sm font-semibold text-[var(--color-text-primary)]">
-                      {i + 1}. {step.title}
-                    </p>
-                    {step.explanation && <Markdown text={step.explanation} />}
-                    {step.code && <CodeBlock code={step.code} />}
-                  </li>
-                ))}
-              </ol>
-            )}
-          </>
+                {step.explanation && <Markdown text={step.explanation} />}
+                {step.code && <CodeBlock code={step.code} />}
+              </li>
+            ))}
+          </ol>
         ) : (
           <Markdown text={r.feedback} />
         )}
@@ -105,17 +103,18 @@ function CoachingBubble({ r }: { r: ResultWithFeedback }) {
 }
 
 function TaskPromptBubble({ prompt, remediation }: { prompt: string; remediation?: Task['remediation'] }) {
+  const isFollowUp = Boolean(remediation);
   return (
     <CoachBubble>
       <div className="space-y-1">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+        <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
           Question
+          {isFollowUp && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-2.5 py-0.5 text-[11px] font-semibold normal-case tracking-normal text-[var(--color-accent)]">
+              Follow-up
+            </span>
+          )}
         </p>
-        {remediation && (
-          <p className="inline-flex items-center gap-1 rounded-full border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-2.5 py-0.5 text-[11px] font-semibold text-[var(--color-accent)]">
-            Warm-up{remediation.focus ? ` · focus: ${remediation.focus.slice(0, 80)}` : ''}
-          </p>
-        )}
         <Markdown text={prompt} />
       </div>
     </CoachBubble>

@@ -166,6 +166,7 @@ def _persist_generated_task(session, generated: dict, parent_task: dict | None) 
         create_task(
             prompt=generated.get("prompt", ""),
             owner=candidate,
+            scaffold=generated.get("scaffold"),
             difficulty=generated.get("difficulty", 2),
             max_score=generated.get("max_score", 5),
             hints=generated.get("hints", []),

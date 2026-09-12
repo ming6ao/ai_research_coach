@@ -36,10 +36,13 @@ incorrectly or revealed a gap described below. Create ONE simpler coding task \
 that drills directly into that gap so the candidate can rebuild the missing \
 skill with a small, focused exercise.
 
-Return JSON with exactly two keys:
+Return JSON with exactly three keys:
   "prompt": the new, simpler coding task prompt (2-6 sentences, self-contained,
     with a clear function signature or spec). Reduce scope versus the original;
     isolate only the gap. Do not reveal the answer.
+  "scaffold": a Python code stub for the candidate to fill in (the exact
+    function signature from the prompt, with a TODO comment and a `pass`
+    body — never the solution).
   "difficulty": an integer in [1, 5] strictly at or below the original task's
     difficulty, reflecting the reduced scope."""
 
@@ -47,10 +50,34 @@ _FOLLOWUP_SCHEMA = types.Schema(
     type=types.Type.OBJECT,
     properties={
         "prompt": types.Schema(type=types.Type.STRING),
+        "scaffold": types.Schema(type=types.Type.STRING),
         "difficulty": types.Schema(type=types.Type.INTEGER),
     },
     required=["prompt", "difficulty"],
 )
+
+
+def _scaffold_for(prompt: str, original_task: dict | None) -> str | None:
+    """Derive a fill-in stub when the model omits ``scaffold``.
+
+    Mirrors ``coach.session.build_code_stub``: prefer a ``def`` signature
+    found in the new prompt, else reuse the original task's scaffold/stub
+    so the editor is never blank for a function-style drill.
+    """
+    import re
+
+    m = re.search(r"def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)", prompt or "")
+    if m:
+        name, params = m.group(1), m.group(2)
+        return f"def {name}({params}):\n    # TODO: implement {name}\n    pass\n"
+    orig = original_task or {}
+    if orig.get("scaffold"):
+        return str(orig["scaffold"])
+    m2 = re.search(r"def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)", str(orig.get("prompt", "")))
+    if m2:
+        name, params = m2.group(1), m2.group(2)
+        return f"def {name}({params}):\n    # TODO: implement {name}\n    pass\n"
+    return None
 
 
 class TaskDecomposer:
@@ -117,7 +144,7 @@ class TaskDecomposer:
             original_task: the task the candidate just answered.
             difficulty: pre-tuned difficulty (already <= original).
 
-        Returns a task dict with keys id/type/difficulty/prompt/
+        Returns a task dict with keys id/type/difficulty/prompt/scaffold/
         max_score plus bookkeeping keys ``generated`` and ``target_text``.
 
         Raises:
@@ -149,7 +176,9 @@ class TaskDecomposer:
                     f"Gap to drill: {gap}\n"
                     f"Desired difficulty (1-5): {difficulty}\n\n"
                     "Create ONE simpler coding task drilling only that gap, "
-                    "self-contained with a clear function signature. Do not "
+                    "self-contained with a clear function signature. Also "
+                    "provide a 'scaffold' Python stub with that signature, "
+                    "a TODO comment and a `pass` body (no solution). Do not "
                     "reveal the answer."
                 ),
                 config={
@@ -165,7 +194,8 @@ class TaskDecomposer:
                 raise ValueError(f"empty follow-up prompt in model response: {raw[:2000]!r}")
             llm_difficulty = int(payload.get("difficulty", difficulty))
             difficulty = max(1, min(int(original_task.get("difficulty", difficulty)), llm_difficulty))
-            return self._build(task_id, difficulty, prompt, gap)
+            scaffold = str(payload.get("scaffold") or "").strip() or _scaffold_for(prompt, original_task)
+            return self._build(task_id, difficulty, prompt, gap, scaffold)
         except Exception as exc:
             logger.exception(
                 "[followup] LLM generation failed (%s: %s) for gap=%r",
@@ -178,8 +208,8 @@ class TaskDecomposer:
             ) from exc
 
     @staticmethod
-    def _build(task_id: str, difficulty: int, prompt: str, target_text: str) -> dict:
-        return {
+    def _build(task_id: str, difficulty: int, prompt: str, target_text: str, scaffold: str | None = None) -> dict:
+        task: dict = {
             "id": task_id,
             "type": "code",
             "difficulty": difficulty,
@@ -190,3 +220,6 @@ class TaskDecomposer:
             "target_text": target_text,
             "context_notes": "",
         }
+        if scaffold:
+            task["scaffold"] = scaffold
+        return task
