@@ -1,42 +1,42 @@
-import { useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface Props {
   placeholder?: string;
   onSubmit: (text: string) => void;
   disabled?: boolean;
-  initialValue?: string;
   allowEmpty?: boolean;
 }
 
-export function Composer({ placeholder = 'Ask anything about AI, ML, or coding…', onSubmit, disabled, initialValue, allowEmpty }: Props) {
+export function Composer({ placeholder = 'Ask anything about AI, ML, or coding…', onSubmit, disabled, allowEmpty }: Props) {
+  const [value, setValue] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (!disabled) ref.current?.focus();
-  }, [disabled]);
+    ref.current?.focus();
+  }, []);
 
-  useEffect(() => {
-    if (initialValue !== undefined && ref.current) {
-      ref.current.value = initialValue;
-      ref.current.style.height = 'auto';
-      ref.current.style.height = `${Math.min(ref.current.scrollHeight, 160)}px`;
+  const submit = (raw: string) => {
+    const val = raw.trim();
+    if (val || allowEmpty) {
+      onSubmit(val);
+      setValue('');
+      requestAnimationFrame(() => {
+        if (ref.current) {
+          ref.current.style.height = 'auto';
+        }
+      });
     }
-  }, [initialValue]);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      const val = ref.current?.value.trim() ?? '';
-      if (val || allowEmpty) onSubmit(val);
+      submit(value);
     }
   };
 
   const handleSend = () => {
-    const val = ref.current?.value.trim() ?? '';
-    if (val || allowEmpty) {
-      onSubmit(val);
-      if (ref.current) ref.current.value = '';
-    }
+    submit(value);
   };
 
   const handleInput = () => {
@@ -53,6 +53,8 @@ export function Composer({ placeholder = 'Ask anything about AI, ML, or coding�
         rows={1}
         placeholder={placeholder}
         disabled={disabled}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
         onInput={handleInput}
         className="max-h-40 min-h-[24px] w-full resize-none bg-transparent text-sm leading-6 text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -69,12 +70,26 @@ _DROPPED_TABLES = (
 _DROPPED_TASK_COLUMNS = ("graph_json", "target_node_id", "target_node_slug", "expected_time_min")
 
 
+# Process-local guard so per-request create_schema()/sqlite_conn() calls only
+# run DDL/migrations once per DB file. Keyed by path/URL so tests that
+# monkeypatch DB_PATH to a temp file still get fresh DDL. Call sites are
+# unchanged — repeat calls become cheap no-ops.
+_schema_done: set[str] = set()
+_schema_lock = threading.Lock()
+
+
 def sqlite_conn() -> sqlite3.Connection:
     """Open the shared raw-sqlite connection (WAL, idempotent DDL)."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL;")
-    conn.executescript(_PARENT_SCHEMA)
+    key = f"raw:{DB_PATH}"
+    with _schema_lock:
+        done = key in _schema_done
+    if not done:
+        conn.executescript(_PARENT_SCHEMA)
+        with _schema_lock:
+            _schema_done.add(key)
     return conn
 
 
@@ -135,6 +150,11 @@ def create_schema():
     """Create all tables (idempotent) and drop removed ones. Returns engine."""
     from coach import tasks as _tasks  # noqa: F401  (register task tables)
 
+    url = learner_db_url()
+    key = f"orm:{url}"
+    with _schema_lock:
+        if key in _schema_done:
+            return learner_engine()
     engine = learner_engine()
     Base.metadata.create_all(engine)
     with engine.begin() as conn:
@@ -161,6 +181,8 @@ def create_schema():
                 conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN target_text TEXT")
         except Exception:
             pass
+    with _schema_lock:
+        _schema_done.add(key)
     return engine
 
 

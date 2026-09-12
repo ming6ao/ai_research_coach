@@ -347,14 +347,10 @@ def create_task_endpoint(req: TaskCreateRequest, user: dict = Depends(get_curren
 def list_tasks_endpoint(skill: Optional[str] = None, user: dict = Depends(get_current_user)):
     from coach.tasks import list_visible_tasks
 
-    candidate = _candidate_for(user)
-    # Guests without a stable id still see public/seed tasks.
-    visible_for = user["email"] if user is not None else "system"
-    if candidate.startswith("guest-"):
-        # Guest rows are public, so listing as system covers seed+public.
-        # Own in-session custom rows are returned via /start, not here.
-        pass
-    tasks = list_visible_tasks(visible_for if user is None else candidate, skill=skill)
+    # Guests without a stable id list as system: seed + public tasks.
+    # (Own in-session custom rows are returned via /start, not here.)
+    candidate = user["email"] if user is not None else "system"
+    tasks = list_visible_tasks(candidate, skill=skill)
     return {"tasks": tasks}
 
 

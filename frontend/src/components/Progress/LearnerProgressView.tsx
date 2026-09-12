@@ -6,11 +6,15 @@ const skillLabels: Record<string, string> = {
   general: 'General',
 };
 
-function confidenceBar(value: number, cls: string) {
+function humanizeSkill(id: string): string {
+  return skillLabels[id] ?? id.replace(/_/g, ' ');
+}
+
+function ConfidenceBar({ value, tone }: { value: number; tone: string }) {
   return (
     <div className="mb-1.5 h-2 overflow-hidden rounded-full bg-[var(--color-bg-tertiary)]">
       <div
-        className={`h-full rounded-full transition-all duration-700 ${cls}`}
+        className={`h-full rounded-full transition-all duration-700 ${tone}`}
         style={{ width: `${Math.round(value * 100)}%` }}
       />
     </div>
@@ -54,20 +58,22 @@ export function LearnerProgressView() {
             >
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-sm font-semibold text-[var(--color-text-primary)]">
-                  {skillLabels[id] ?? id}
+                  {humanizeSkill(id)}
                 </span>
                 <span className="text-xs text-[var(--color-text-muted)]">
                   {s.questions_answered} questions · confidence {(s.confidence * 100).toFixed(0)}%
                 </span>
               </div>
-              {confidenceBar(
-                s.confidence,
-                s.confidence >= 0.7
-                  ? 'bg-[var(--color-success)]'
-                  : s.confidence >= 0.4
-                    ? 'bg-[var(--color-warning)]'
-                    : 'bg-[var(--color-error)]'
-              )}
+              <ConfidenceBar
+                value={s.confidence}
+                tone={
+                  s.confidence >= 0.7
+                    ? 'bg-[var(--color-success)]'
+                    : s.confidence >= 0.4
+                      ? 'bg-[var(--color-warning)]'
+                      : 'bg-[var(--color-error)]'
+                }
+              />
             </div>
           ))}
         </div>

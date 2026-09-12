@@ -1,4 +1,4 @@
-import type { AdminTableQuery } from '../../api/client.ts';
+import type { AdminTableColumn, AdminTableQuery } from '../../api/client.ts';
 
 /** Exact-match filter inputs rendered per table (mirrors backend FILTERABLE). */
 export const FILTERS_PER_TABLE: Record<string, string[]> = {
@@ -35,4 +35,25 @@ export function totalPages(total: number, pageSize: number): number {
 export function getFilter(query: AdminTableQuery, key: keyof AdminTableQuery): string {
   const v = query[key];
   return typeof v === 'string' ? v : '';
+}
+
+export const PAGE_SIZES = [10, 25, 50, 100];
+
+/** Serialize a cell value into an edit input string. */
+export function toEditString(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  return String(value);
+}
+
+/** Parse an edit input string back to the column's kind. */
+export function coerceValue(column: AdminTableColumn, raw: string): unknown {
+  if (column.kind === 'bool') {
+    return raw === 'true' || raw === '1';
+  }
+  if (column.kind === 'number') {
+    return raw === '' ? null : Number(raw);
+  }
+  return raw;
 }

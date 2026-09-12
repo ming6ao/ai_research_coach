@@ -228,17 +228,6 @@ def list_visible_tasks(candidate: str, skill: Optional[str] = None) -> list[dict
         session.close()
 
 
-def count_tasks() -> int:
-    from coach.db import create_schema
-
-    create_schema()
-    session = learner_session()
-    try:
-        return session.query(TaskModel).count()
-    finally:
-        session.close()
-
-
 def record_attempt(
     candidate: str,
     task_id: str,
@@ -327,48 +316,6 @@ def save_skill_belief(
             m.questions_answered = questions_answered
             m.updated_at = now
         session.commit()
-    finally:
-        session.close()
-
-
-def task_stats(task_id: str) -> dict:
-    """Aggregate attempt stats for a task (solve-rate calibration)."""
-    from coach.db import create_schema
-
-    create_schema()
-    session = learner_session()
-    try:
-        rows = (
-            session.scalars(
-                select(TaskAttemptModel).where(TaskAttemptModel.task_id == task_id)
-            ).all()
-        )
-        if not rows:
-            return {"attempts": 0, "mean_fraction": 0.5}
-        return {
-            "attempts": len(rows),
-            "mean_fraction": sum(r.fraction for r in rows) / len(rows),
-        }
-    finally:
-        session.close()
-
-
-def task_attempt_count(task_id: str) -> int:
-    """Number of attempt rows referencing a task."""
-    from coach.db import create_schema
-    from sqlalchemy import func
-
-    create_schema()
-    session = learner_session()
-    try:
-        return (
-            session.scalar(
-                select(func.count(TaskAttemptModel.id)).where(
-                    TaskAttemptModel.task_id == task_id
-                )
-            )
-            or 0
-        )
     finally:
         session.close()
 

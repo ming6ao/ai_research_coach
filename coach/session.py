@@ -22,21 +22,6 @@ def _load_bank_tasks(candidate: str) -> list:
         return []
 
 
-def _hydrate_skill_beliefs(session) -> None:
-    """Restore persisted per-skill beliefs so mastery survives sessions."""
-    try:
-        from coach.tasks import get_skill_belief
-
-        candidate = getattr(session, "candidate", "")
-        for skill in list(session.skill_states.keys()):
-            pass
-        # Hydrate lazily on access instead: patch get_skill_state below.
-        # Here we only pre-load nothing; persistence happens on submit.
-        _ = get_skill_belief  # keep import live for get_skill_state
-    except Exception:
-        pass
-
-
 @dataclass
 class SkillState:
     """Gaussian belief over a single skill's mastery plus supporting metadata.
@@ -98,7 +83,6 @@ class Session:
     def __post_init__(self):
         if not self.tasks:
             self.tasks = _load_bank_tasks(self.candidate)
-        _hydrate_skill_beliefs(self)
 
     def get_skill_state(self, skill_id: str) -> SkillState:
         """Get the current state for a skill, initializing if needed."""

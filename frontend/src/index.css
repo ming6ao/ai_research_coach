@@ -17,10 +17,6 @@
   --color-warning: #f59e0b;
 }
 
-* {
-  box-sizing: border-box;
-}
-
 html, body, #root {
   height: 100%;
   margin: 0;
@@ -59,14 +55,14 @@ textarea {
 }
 
 .katex {
-  font-size: 1.3em !important;
+  font-size: 1.3em;
 }
 
 .katex-display {
-  margin: 0.5em 0 !important;
+  margin: 0.5em 0;
 }
 
 .katex .frac,
 .katex .mfrac {
-  font-size: 1.4em !important;
+  font-size: 1.4em;
 }

@@ -27,9 +27,6 @@ KAPPA = 0.35           # extra noise per unit of difficulty mismatch
 # Hints: how much a viewed hint reduces the effective score.
 DEFAULT_HINT_WEIGHT = 0.15
 
-# Backward-compatible alias (deprecated: confidence is now derived from variance).
-INITIAL_CONFIDENCE = 0.0
-
 
 def bayesian_update(
     mean: float,

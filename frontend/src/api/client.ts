@@ -107,26 +107,43 @@ export interface AuthUser {
 
 const TOKEN_KEY = 'ai_coach_token';
 
+/** Private-mode-safe localStorage wrapper (shared by token + session id). */
+export const storage = {
+  get(key: string): string | null {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  set(key: string, value: string): void {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // Private mode — session-only state is fine.
+    }
+  },
+  remove(key: string): void {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // Ignore.
+    }
+  },
+};
+
 function readToken(): string | null {
-  try {
-    return localStorage.getItem(TOKEN_KEY);
-  } catch {
-    return null;
-  }
+  return storage.get(TOKEN_KEY);
 }
 
 let authToken: string | null = readToken();
 
 export function setAuthToken(token: string | null) {
   authToken = token;
-  try {
-    if (token) {
-      localStorage.setItem(TOKEN_KEY, token);
-    } else {
-      localStorage.removeItem(TOKEN_KEY);
-    }
-  } catch {
-    // localStorage unavailable (private mode) — session-only token is fine.
+  if (token) {
+    storage.set(TOKEN_KEY, token);
+  } else {
+    storage.remove(TOKEN_KEY);
   }
 }
 
@@ -134,13 +151,13 @@ export function getAuthToken(): string | null {
   return authToken;
 }
 
-async function api<T>(path: string, body?: unknown, method?: string): Promise<T> {
+async function request<T>(base: string, path: string, body?: unknown, method?: string): Promise<T> {
   const effectiveMethod = method ?? (body !== undefined ? 'POST' : 'GET');
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (authToken) {
     headers['Authorization'] = `Bearer ${authToken}`;
   }
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${base}${path}`, {
     method: effectiveMethod,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -154,6 +171,10 @@ async function api<T>(path: string, body?: unknown, method?: string): Promise<T>
     throw new Error(detail.detail || `API error ${res.status}`);
   }
   return res.json();
+}
+
+async function api<T>(path: string, body?: unknown, method?: string): Promise<T> {
+  return request<T>(BASE, path, body, method);
 }
 
 export interface AdminTableColumn {
@@ -201,25 +222,7 @@ export interface AdminTableQuery {
 const ADMIN_BASE = '/admin';
 
 async function adminApi<T>(path: string, body?: unknown, method?: string): Promise<T> {
-  const effectiveMethod = method ?? (body !== undefined ? 'POST' : 'GET');
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const token = getAuthToken();
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  const res = await fetch(`${ADMIN_BASE}${path}`, {
-    method: effectiveMethod,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) {
-    if (res.status === 401 && token) {
-      setAuthToken(null);
-    }
-    const detail = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(detail.detail || `API error ${res.status}`);
-  }
-  return res.json();
+  return request<T>(ADMIN_BASE, path, body, method);
 }
 
 export function buildAdminTableQuery(query: AdminTableQuery): string {
@@ -236,40 +239,9 @@ export function buildAdminTableQuery(query: AdminTableQuery): string {
   return s ? `?${s}` : '';
 }
 
-export interface AdminCandidate {
-  candidate: string;
-}
-
-export interface AdminSkillStates {
-  source: string;
-  session_id?: string;
-  skill_states: Record<string, {
-    score: number;
-    variance: number;
-    confidence: number;
-    questions_answered: number;
-  }>;
-}
-
-export interface AdminStats {
-  tasks_total: number;
-  task_attempts: number;
-  skill_beliefs: number;
-  active_sessions: number;
-}
-
 export const apiClient = {
   start: (initial_question?: string) =>
     api<StartResponse>('/start', { initial_question }),
-
-  createTask: (prompt: string, skill = 'general', opts: { scaffold?: string; difficulty?: number; is_public?: boolean } = {}) =>
-    api<{ task: Task }>('/tasks', { prompt, skill, ...opts }),
-
-  listTasks: (skill?: string) =>
-    api<{ tasks: Task[] }>(`/tasks${skill ? `?skill=${encodeURIComponent(skill)}` : ''}`, undefined, 'GET'),
-
-  getTask: (taskId: string) =>
-    api<{ task: Task }>(`/tasks/${encodeURIComponent(taskId)}`, undefined, 'GET'),
 
   submit: (session_id: string, task_id: string, answer: string, hints_used: string[] = []) =>
     api<SubmitResponse>('/submit', { session_id, task_id, answer, hints_used }),
@@ -282,9 +254,6 @@ export const apiClient = {
 
   openSession: (id: string) =>
     api<ResumeResponse>('/session/open', { id }),
-
-  deleteActiveSession: (session_id: string) =>
-    api<{ ok: boolean }>(`/sessions/active/${session_id}`, undefined, 'DELETE'),
 
   clearCandidateData: (candidate: string) =>
     api<{ ok: boolean; deleted: number }>(`/sessions/clear/${encodeURIComponent(candidate)}`, undefined, 'DELETE'),
@@ -299,15 +268,6 @@ export const apiClient = {
     api<{ user: AuthUser }>('/auth/me'),
 
   // Admin endpoints (served under /admin, not /api)
-  adminCandidates: () =>
-    adminApi<{ learners: AdminCandidate[] }>('/learners', undefined, 'GET'),
-
-  adminSkillStates: (candidate: string) =>
-    adminApi<AdminSkillStates>(`/skill-states/${encodeURIComponent(candidate)}`, undefined, 'GET'),
-
-  adminStats: () =>
-    adminApi<AdminStats>('/stats', undefined, 'GET'),
-
   adminWhoami: () =>
     adminApi<AdminWhoami>('/whoami', undefined, 'GET'),
 

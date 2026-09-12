@@ -149,14 +149,13 @@ export function ChatView() {
   const [code, setCode] = useState('');
   const [viewed, setViewed] = useState<Set<string>>(new Set());
   const [submittedTaskId, setSubmittedTaskId] = useState<string | null>(null);
-  const lastTaskId = useRef<string | null>(null);
 
-  if (lastTaskId.current !== currentTask?.id) {
-    lastTaskId.current = currentTask?.id ?? null;
+  const taskId = currentTask?.id ?? null;
+  useEffect(() => {
     setCode(currentTask?.scaffold ?? '');
     setViewed(new Set((currentTask?.hints ?? []).filter((h) => h.pre_revealed).map((h) => h.id)));
     setSubmittedTaskId(null);
-  }
+  }, [taskId, currentTask?.scaffold, currentTask?.hints]);
 
   const revealHint = (id: string) => {
     setViewed((prev) => {

@@ -17,7 +17,6 @@ import math
 from coach.score import score_to_difficulty
 
 TARGET_P_SOLVE = 0.80
-P_SOLVE_BAND = (0.70, 0.90)
 
 
 def p_solve(

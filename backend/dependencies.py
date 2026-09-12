@@ -59,31 +59,6 @@ class SessionState:
         with _connect() as conn:
             conn.execute("DELETE FROM active_sessions WHERE session_id = ?", (session_id,))
 
-    def delete_by_candidate(self, candidate: str) -> int:
-        with _connect() as conn:
-            cur = conn.execute(
-                "DELETE FROM active_sessions WHERE candidate = ?", (candidate,)
-            )
-        return cur.rowcount
-
-    def find_last_by_candidate(self, candidate: str) -> Optional[str]:
-        with _connect() as conn:
-            row = conn.execute(
-                "SELECT session_id FROM active_sessions WHERE candidate = ? ORDER BY updated_at DESC LIMIT 1",
-                (candidate,),
-            ).fetchone()
-        return row[0] if row else None
-
-    def list_active(self) -> List[Dict[str, Any]]:
-        with _connect() as conn:
-            rows = conn.execute(
-                "SELECT session_id, candidate, updated_at FROM active_sessions ORDER BY updated_at DESC"
-            ).fetchall()
-        return [
-            {"session_id": r[0], "candidate": r[1], "updated_at": r[2]}
-            for r in rows
-        ]
-
     def list_by_candidate(self, candidate: str) -> List[Dict[str, Any]]:
         with _connect() as conn:
             rows = conn.execute(
@@ -94,10 +69,6 @@ class SessionState:
             {"session_id": r[0], "candidate": r[1], "updated_at": r[2]}
             for r in rows
         ]
-
-    def clear_all(self):
-        with _connect() as conn:
-            conn.execute("DELETE FROM active_sessions")
 
 
 _store = SessionState()

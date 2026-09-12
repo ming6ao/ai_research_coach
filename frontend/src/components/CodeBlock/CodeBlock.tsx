@@ -17,9 +17,8 @@ export function CodeBlock({ code, language = 'python' }: CodeBlockProps) {
   return (
     <div className="overflow-auto rounded-lg border border-[var(--color-border-default)]">
       <pre
-        className="m-0 p-3 text-[14px] leading-[1.5] [tab-size:4]"
+        className="m-0 bg-[var(--color-bg-tertiary)] p-3 text-[14px] leading-[1.5] [tab-size:4]"
         style={{
-          background: '#f6f8fa',
           fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
         }}
       >
