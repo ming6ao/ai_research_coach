@@ -22,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.auth_routes import router as auth_router
 from backend.admin_routes import admin_router
+from backend.csrf import csrf_protect
 from backend.v1 import v1_router
 
 import os
@@ -49,6 +50,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.middleware("http")(csrf_protect)
 
 app.include_router(auth_router)
 app.include_router(v1_router)

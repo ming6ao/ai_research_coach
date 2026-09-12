@@ -81,9 +81,14 @@ def _auth_headers(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-def _token_from_redirect(res) -> str:
-    loc = res.headers["location"]
-    return parse_qs(urlparse(loc).query)["token"][0]
+def _login_via_callback(client) -> None:
+    """Complete a fake Google login; the session cookie lands in the client's jar."""
+    res = client.get("/api/auth/google/url")
+    state = parse_qs(urlparse(res.json()["url"]).query)["state"][0]
+    cb = client.get("/api/auth/google/callback", params={"code": "auth-code", "state": state},
+                    follow_redirects=False)
+    assert cb.status_code == 303
+    return cb
 
 
 def test_google_auth_url_requires_config(client, monkeypatch):
@@ -102,18 +107,23 @@ def test_google_auth_url_returns_url(client, google_env):
     assert "client_id=test-client-id" in url
 
 
-def test_google_callback_issues_token(client, google_env, fake_google):
+def test_google_callback_sets_cookie_and_redirects(client, google_env, fake_google):
     # Get a real state first so the callback can consume it.
     res = client.get("/api/auth/google/url")
     state = parse_qs(urlparse(res.json()["url"]).query)["state"][0]
 
     cb = client.get("/api/auth/google/callback", params={"code": "auth-code", "state": state},
                     follow_redirects=False)
-    assert cb.status_code in (302, 307)
-    assert cb.headers["location"].startswith("http://localhost:5173/?token=")
+    assert cb.status_code == 303
+    # No token in the URL (stays out of logs/history); non-sensitive flag only.
+    assert cb.headers["location"] == "http://localhost:5173/?login=success"
+    assert "token=" not in cb.headers["location"]
+    set_cookie = cb.headers.get("set-cookie", "")
+    assert "ai_coach_token=" in set_cookie
+    assert "httponly" in set_cookie.lower()
 
-    token = _token_from_redirect(cb)
-    me = client.get("/api/auth/me", headers=_auth_headers(token))
+    # The stored cookie authenticates without any Authorization header.
+    me = client.get("/api/auth/me")
     assert me.status_code == 200
     assert me.json()["user"]["email"] == "user@example.com"
     assert me.json()["user"]["display_name"] == "Test User"
@@ -125,11 +135,24 @@ def test_google_callback_state_is_single_use(client, google_env, fake_google):
 
     first = client.get("/api/auth/google/callback", params={"code": "c", "state": state},
                        follow_redirects=False)
-    assert first.status_code in (302, 307)
+    assert first.status_code == 303
 
     second = client.get("/api/auth/google/callback", params={"code": "c", "state": state},
                         follow_redirects=False)
     assert second.status_code == 400
+
+
+def test_oauth_state_expires(client, google_env):
+    import backend.google_auth as google_auth_mod
+
+    res = client.get("/api/auth/google/url")
+    state = parse_qs(urlparse(res.json()["url"]).query)["state"][0]
+    with db.sqlite_conn() as conn:
+        conn.execute(
+            "UPDATE oauth_states SET expires_at = ? WHERE state = ?",
+            ("2000-01-01T00:00:00+00:00", state),
+        )
+    assert google_auth_mod.consume_state(state) is False
 
 
 def test_google_callback_bad_state(client, google_env, fake_google):
@@ -140,12 +163,7 @@ def test_google_callback_bad_state(client, google_env, fake_google):
 
 def test_google_callback_reuses_existing_user(client, google_env, fake_google):
     for _ in range(2):
-        res = client.get("/api/auth/google/url")
-        state = parse_qs(urlparse(res.json()["url"]).query)["state"][0]
-        cb = client.get("/api/auth/google/callback", params={"code": "c", "state": state},
-                        follow_redirects=False)
-        assert cb.status_code in (302, 307)
-        _token_from_redirect(cb)
+        _login_via_callback(client)
 
     with auth._connect() as conn:
         count = conn.execute("SELECT COUNT(*) FROM users WHERE email = 'user@example.com'").fetchone()[0]
@@ -171,6 +189,40 @@ def test_logout_revokes_token(client, google_env):
     assert client.get("/api/auth/me", headers=_auth_headers(token)).status_code == 200
     assert client.post("/api/auth/logout", headers=_auth_headers(token)).status_code == 200
     assert client.get("/api/auth/me", headers=_auth_headers(token)).status_code == 401
+
+
+def test_cookie_logout_clears_session(client, google_env, fake_google):
+    _login_via_callback(client)
+    assert client.get("/api/auth/me").status_code == 200
+
+    # Cookie-authenticated logout (no Bearer header, browser-like Origin).
+    assert client.post("/api/auth/logout", headers={"Origin": "http://localhost:5173"}).status_code == 200
+    assert client.get("/api/auth/me").status_code == 401
+
+
+def test_csrf_blocks_cookie_writes_without_origin(client, google_env, fake_google, fake_judge):
+    _login_via_callback(client)
+
+    # Cookie present, unsafe method, no Origin -> forged request rejected.
+    assert client.post("/api/v1/sessions", json={}).status_code == 403
+
+    # Matching Origin -> allowed.
+    ok = client.post("/api/v1/sessions", json={}, headers={"Origin": "http://localhost:5173"})
+    assert ok.status_code == 201
+
+    # Foreign Origin -> rejected.
+    assert client.post("/api/v1/sessions", json={}, headers={"Origin": "https://evil.example"}).status_code == 403
+
+
+def test_csrf_skips_bearer_and_guests(client, google_env, fake_judge):
+    user = auth.upsert_google_user("csrf@b.co", "Csrf")
+    token = auth.create_token(user["id"])
+
+    # Bearer callers carry no forgeable credential -> no Origin needed.
+    assert client.post("/api/v1/sessions", json={}, headers=_auth_headers(token)).status_code == 201
+
+    # Guests send no session cookie -> nothing to forge.
+    assert client.post("/api/v1/sessions", json={}).status_code == 201
 
 
 def test_me_requires_token(client):

@@ -46,8 +46,9 @@ ai_research_coach/
 │   ├── v1/                # canonical REST API (/api/v1/*): sessions, tasks, users
 │   ├── auth_routes.py     # /api/auth/* endpoints (Google OAuth)
 │   ├── admin_routes.py    # /admin/* endpoints (table browser + candidate wipe)
-│   ├── auth.py            # bearer tokens (+ HttpOnly cookie fallback)
-│   └── google_auth.py     # Google OAuth (stdlib only)
+│   ├── auth.py            # session tokens (Bearer header or HttpOnly cookie)
+│   ├── csrf.py            # Origin check for cookie-authenticated writes
+│   └── google_auth.py     # Google OAuth (stdlib only, DB-backed state)
 ├── coach/
 │   ├── score.py / picker.py / hints.py   # Bayesian probing engine
 │   ├── session.py         # candidate session state

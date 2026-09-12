@@ -51,9 +51,13 @@ export default function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    // Legacy query-token flow (pre-Phase-3 backends); current backends set an
+    // HttpOnly cookie and redirect with ?login=success instead.
     const token = params.get('token');
     if (token) {
       setAuthToken(token);
+    }
+    if (token || params.has('login')) {
       window.history.replaceState({}, '', window.location.pathname);
     }
     restore().finally(() => setRestored(true));

@@ -1,11 +1,10 @@
-"""Authentication routes (Google OAuth + bearer identity).
+"""Authentication routes (Google OAuth + cookie/bearer identity).
 
-Auth stays at ``/api/auth/*`` in Phase 2 (the OAuth redirect URI is
-registered externally); the Phase 3 cookie cutover moves it without
-changing these paths.
+Login is Google-only: ``/api/auth/google/url`` + ``/api/auth/google/callback``
+exchange a code for a local user (keyed by email), set the HttpOnly session
+cookie, and redirect to ``FRONTEND_URL/?login=success``. The ``Authorization:
+Bearer`` header remains supported for API clients.
 """
-
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
@@ -33,11 +32,12 @@ def google_auth_url():
 
 
 @router.get("/auth/google/callback", tags=["auth"], summary="Google OAuth callback")
-def google_auth_callback(code: str, state: str, response: Response):
-    """OAuth callback: verify state, exchange code, upsert user, redirect with token.
+def google_auth_callback(code: str, state: str):
+    """OAuth callback: verify state, exchange code, set session cookie, redirect.
 
-    Sets the ``ai_coach_token`` HttpOnly cookie in addition to the legacy
-    ``?token=`` redirect query param (removed in Phase 3).
+    The token is delivered via the HttpOnly ``ai_coach_token`` cookie only;
+    the redirect carries a non-sensitive ``?login=success`` flag (never the
+    token) so it stays out of logs and browser history.
     """
     if not google_auth.consume_state(state):
         raise HTTPException(status_code=400, detail="Invalid or expired OAuth state.")
@@ -53,7 +53,10 @@ def google_auth_callback(code: str, state: str, response: Response):
         raise HTTPException(status_code=400, detail="Google account has no email.")
     user = upsert_google_user(email, info.get("name") or "")
     token = create_token(user["id"])
-    redirect = RedirectResponse(url=f"{google_auth.frontend_url()}/?token={quote(token)}")
+    redirect = RedirectResponse(
+        url=f"{google_auth.frontend_url()}/?login=success",
+        status_code=303,
+    )
     redirect.set_cookie(
         AUTH_COOKIE_NAME,
         token,

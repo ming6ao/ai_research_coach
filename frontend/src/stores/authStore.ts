@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { apiClient, getAuthToken, setAuthToken, type AuthUser } from '../api/client';
+import { apiClient, setAuthToken, type AuthUser } from '../api/client';
 
 interface AuthState {
   user: AuthUser | null;
@@ -17,10 +17,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   authError: null,
 
   restore: async () => {
-    if (!getAuthToken()) {
-      set({ user: null, authLoading: false });
-      return;
-    }
+    // Always try the session endpoint: cookie-authenticated users have no
+    // localStorage token, so its absence must not short-circuit restore.
     set({ authLoading: true });
     try {
       const res = await apiClient.me();

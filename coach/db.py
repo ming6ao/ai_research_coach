@@ -1,12 +1,12 @@
 """Single database module for the whole app.
 
 One SQLite file (``data/coach.db``) holds the raw-sqlite tables (``users``,
-``auth_tokens``, ``active_sessions``) and the SQLAlchemy tables (``tasks``,
+``auth_tokens``, ``active_sessions``, ``oauth_states``) and the SQLAlchemy tables (``tasks``,
 ``task_attempts``, ``user_skill_beliefs``). ``sqlite_conn()`` owns the
 raw-sqlite DDL and is used by ``backend/auth.py`` and
 ``backend/dependencies.py``; ``Base`` / ``create_session_factory()`` own the
 SQLAlchemy side. ``create_schema()`` drops the removed knowledge-graph /
-learner tables so old databases converge to the fresh 6-table design.
+learner tables so old databases converge to the fresh 7-table design.
 """
 
 from __future__ import annotations
@@ -48,6 +48,11 @@ CREATE TABLE IF NOT EXISTS active_sessions (
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_active_sessions_candidate ON active_sessions (candidate);
+CREATE TABLE IF NOT EXISTS oauth_states (
+    state TEXT PRIMARY KEY,
+    expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_states_expiry ON oauth_states (expires_at);
 """
 
 # Tables from the removed knowledge-graph / learner model. Dropped on

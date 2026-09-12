@@ -160,6 +160,9 @@ async function request<T>(base: string, path: string, body?: unknown, method?: s
   const res = await fetch(`${base}${path}`, {
     method: effectiveMethod,
     headers,
+    // Send the HttpOnly session cookie on every call (required for
+    // cookie-authenticated sessions; harmless when only Bearer is used).
+    credentials: 'include',
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {

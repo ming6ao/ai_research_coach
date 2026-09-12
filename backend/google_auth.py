@@ -5,23 +5,26 @@ Server-side redirect flow:
   /api/auth/google/url       -> returns Google's authorization URL (with state)
   user signs in on Google    -> browser redirects to /api/auth/google/callback
   callback exchanges code    -> fetches userinfo -> issues our bearer token ->
-                                redirects the browser to FRONTEND_URL/?token=...
+                                sets the HttpOnly session cookie and redirects
+                                the browser to FRONTEND_URL/?login=success
 
 Config via environment:
   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET  (required)
   GOOGLE_REDIRECT_URI  (default http://localhost:8001/api/auth/google/callback)
   FRONTEND_URL         (default http://localhost:5173)
+
+OAuth ``state`` values are stored in the shared SQLite database
+(``oauth_states`` table), so the flow works across multiple server workers.
+States are single-use and expire after 10 minutes.
 """
 
 import json
 import os
 import secrets
-import threading
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Optional
+from datetime import datetime, timedelta, timezone
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -29,10 +32,15 @@ GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 SCOPE = "openid email profile"
 STATE_TTL_SECONDS = 600
 
-# Pending OAuth states (state -> expiry timestamp). In-memory is fine for the
-# single-process development server.
-_pending_states: dict[str, float] = {}
-_states_lock = threading.Lock()
+
+def _connect():
+    from coach.db import sqlite_conn
+
+    return sqlite_conn()
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _client_config() -> dict:
@@ -59,8 +67,17 @@ def new_authorization_url() -> tuple[str, str]:
     """Build Google's authorization URL. Returns (url, state)."""
     cfg = _client_config()
     state = secrets.token_urlsafe(24)
-    with _states_lock:
-        _pending_states[state] = time.time() + STATE_TTL_SECONDS
+    expires = (_utcnow() + timedelta(seconds=STATE_TTL_SECONDS)).isoformat()
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO oauth_states (state, expires_at) VALUES (?, ?)",
+            (state, expires),
+        )
+        # Opportunistic cleanup of expired states.
+        conn.execute(
+            "DELETE FROM oauth_states WHERE expires_at <= ?",
+            (_utcnow().isoformat(),),
+        )
     params = {
         "client_id": cfg["client_id"],
         "redirect_uri": redirect_uri(),
@@ -74,11 +91,14 @@ def new_authorization_url() -> tuple[str, str]:
 
 def consume_state(state: str) -> bool:
     """Verify and consume a one-time OAuth state. Returns False if unknown/expired."""
-    with _states_lock:
-        ts = _pending_states.pop(state, None)
-        if ts is None or time.time() > ts:
-            return False
-    return True
+    if not state:
+        return False
+    with _connect() as conn:
+        cur = conn.execute(
+            "DELETE FROM oauth_states WHERE state = ? AND expires_at > ?",
+            (state, _utcnow().isoformat()),
+        )
+        return cur.rowcount > 0
 
 
 def exchange_code(code: str) -> dict:
