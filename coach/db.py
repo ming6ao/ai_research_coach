@@ -132,7 +132,59 @@ def create_schema():
     with engine.begin() as conn:
         conn.exec_driver_sql("DROP TABLE IF EXISTS assessment_targets")
         conn.exec_driver_sql("DROP TABLE IF EXISTS assessment_tasks")
+        _migrate_slug_removal(conn)
     return engine
+
+
+def _migrate_slug_removal(conn) -> None:
+    """Best-effort migration for the slug-removal refactor.
+
+    Old databases have ``knowledge_nodes.slug`` (NOT NULL) and
+    ``tasks.target_node_slug``. New code no longer reads or writes them, but
+    a bare ``create_all`` won't drop NOT NULL columns, which would break new
+    inserts. This drops the obsolete column and adds the replacement column
+    when present; all failures are swallowed so startup never breaks.
+    """
+    try:
+        cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(knowledge_nodes)").fetchall()]
+        if "slug" in cols:
+            # DROP COLUMN fails on this table (legacy UNIQUE index on slug),
+            # so rebuild without the column, preserving existing rows.
+            conn.exec_driver_sql(
+                "CREATE TABLE IF NOT EXISTS knowledge_nodes_new ("
+                "id VARCHAR(36) NOT NULL PRIMARY KEY, "
+                "type VARCHAR(32) NOT NULL, "
+                "name VARCHAR(255) NOT NULL, "
+                "description TEXT, "
+                "metadata JSON NOT NULL DEFAULT '{}', "
+                "status VARCHAR(32) NOT NULL DEFAULT 'active', "
+                "created_at DATETIME NOT NULL, "
+                "updated_at DATETIME NOT NULL)"
+            )
+            conn.exec_driver_sql(
+                "INSERT OR IGNORE INTO knowledge_nodes_new "
+                "(id, type, name, description, metadata, status, created_at, updated_at) "
+                "SELECT id, type, name, description, metadata, status, created_at, updated_at "
+                "FROM knowledge_nodes"
+            )
+            conn.exec_driver_sql("DROP TABLE knowledge_nodes")
+            conn.exec_driver_sql("ALTER TABLE knowledge_nodes_new RENAME TO knowledge_nodes")
+    except Exception:
+        pass
+    try:
+        cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(tasks)").fetchall()]
+        if "target_node_id" not in cols:
+            try:
+                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN target_node_id STRING(36)")
+            except Exception:
+                pass
+        if "target_node_slug" in cols:
+            try:
+                conn.exec_driver_sql("ALTER TABLE tasks DROP COLUMN target_node_slug")
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 def learner_session() -> Session:

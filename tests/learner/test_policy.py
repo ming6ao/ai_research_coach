@@ -6,7 +6,7 @@ import pytest
 
 from learner.policy import ActionType
 from learner.states import LearnerKnowledgeState, StateStatus
-from tests.learner.fixtures import seed_weighted_sampling
+from tests.learner.fixtures import get_node, misconception_node_id, seed_weighted_sampling
 
 
 @pytest.fixture()
@@ -20,8 +20,8 @@ def ctx(seeded_repository, learner_service, policy_engine):
     }
 
 
-def _set_state(ctx, slug, mastery, uncertainty, evidence_count, status):
-    node = ctx["repo"].get_node_by_slug(slug)
+def _set_state(ctx, alias, mastery, uncertainty, evidence_count, status):
+    node = get_node(ctx["repo"], alias)
     state = LearnerKnowledgeState(
         learner_id=ctx["learner"].id,
         node_id=node.id,
@@ -53,7 +53,7 @@ class TestActionSelection:
         weak_ids = {n.id for n in weak}
         strong_ids = {n.id for n in strong}
 
-        problem = ctx["repo"].get_node_by_slug("weighted_sampling_from_scratch")
+        problem = get_node(ctx["repo"], "weighted_sampling_from_scratch")
         from learner.frontier import FrontierService
 
         # Build frontier through the policy's own inputs by calling generate directly.
@@ -69,7 +69,7 @@ class TestActionSelection:
         from learner.frontier import FrontierStatus
 
         states = ctx["learner_service"].list_learner_states(ctx["learner"].id)
-        problem = ctx["repo"].get_node_by_slug("weighted_sampling_from_scratch")
+        problem = get_node(ctx["repo"], "weighted_sampling_from_scratch")
         # Reuse the frontier service through a manual pass: simulate frontier entries.
         from learner.frontier import LearnerFrontier
         from learner.graph import utcnow
@@ -130,7 +130,7 @@ class TestMisconceptionBoost:
         from tests.learner.fixtures import seed_misconceptions
 
         seed_misconceptions(repository)
-        mc_node = repository.get_node_by_slug("cdf_is_normalized_weights")
+        mc_node = repository.get_node(misconception_node_id())
         mc = misconception_service.suspect_misconception(ctx["learner"].id, mc_node.id)
         actions = ctx["policy"].generate(ctx["learner"].id, [])
         mc_actions = [a for a in actions if a.action_type == ActionType.MISCONCEPTION_PROBE]

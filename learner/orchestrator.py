@@ -43,7 +43,8 @@ class OrchestratorResult(BaseModel):
     candidate_actions: list[CandidateAction] = Field(default_factory=list)
     selected_action: Optional[CandidateAction] = None
     rationale: str = ""
-    current_topic_slug: Optional[str] = None
+    current_topic_id: Optional[str] = None
+    current_topic_name: Optional[str] = None
 
 class LearningOrchestrator:
     def __init__(self, container: Container, assessor: EvidenceAssessor) -> None:
@@ -110,7 +111,8 @@ class LearningOrchestrator:
             candidate_actions=actions,
             selected_action=selected,
             rationale=rationale,
-            current_topic_slug=topic.slug if topic else None,
+            current_topic_id=str(topic.id) if topic else None,
+            current_topic_name=topic.name if topic else None,
         )
 
     # -- helpers -----------------------------------------------------------------
@@ -137,10 +139,13 @@ class LearningOrchestrator:
         c = self.container
         for ev in evidence:
             payload = ev.assessment_payload or {}
-            slug = payload.get("misconception_node_slug")
-            if not slug:
+            raw_id = payload.get("misconception_node_id")
+            if not raw_id:
                 continue
-            node = c.knowledge_repository.get_node_by_slug(slug)
+            try:
+                node = c.knowledge_repository.get_node(uuid.UUID(str(raw_id)))
+            except ValueError:
+                continue
             if node is None:
                 continue
             relationship = payload.get("relationship", "supporting")
@@ -157,7 +162,7 @@ class LearningOrchestrator:
     def _rationale(topic, selected, frontier) -> str:
         parts = []
         if topic:
-            parts.append(f"topic: {topic.slug}")
+            parts.append(f"topic: {topic.name}")
         if selected:
             parts.append(f"next: {selected.action_type.value} -> {selected.rationale}")
         else:
@@ -186,14 +191,14 @@ class EvidenceAssessor(Protocol):
 
 class EvidenceSpec(dict):
     """A declarative evidence descriptor: keys map to Evidence fields, plus
-    ``node_slug`` (resolved via the node resolver)."""
+    ``node_id`` (a UUID string resolving to the target node)."""
 
 
 class RuleBasedEvidenceAssessor:
     """Deterministic keyword-rule assessor for tests.
 
     Each rule fires when ALL of its keywords appear in the (lowercased) message.
-    A ``node_slug`` is resolved via ``node_resolver`` (slug -> id).
+    A ``node_id`` is resolved via ``node_resolver`` (id string -> id).
     """
 
     def __init__(self, rules: list[dict], node_resolver: Callable[[str], Optional[uuid.UUID]]) -> None:
@@ -211,7 +216,7 @@ class RuleBasedEvidenceAssessor:
         for rule in self._rules:
             if not all(kw in lowered for kw in rule["keywords"]):
                 continue
-            node_id = self._resolve(rule["node_slug"])
+            node_id = self._resolve(rule["node_id"])
             if node_id is None:
                 continue
             evidence.append(self._build(rule, node_id, conversation_context))
@@ -254,11 +259,11 @@ class ScriptedEvidenceAssessor:
         self._index += 1
         out: list[Evidence] = []
         for spec in specs:
-            node_id = self._resolve(spec["node_slug"])
+            node_id = self._resolve(spec["node_id"])
             if node_id is None:
                 continue
             out.append(RuleBasedEvidenceAssessor._build(
-                {k: v for k, v in spec.items() if k != "node_slug"},
+                {k: v for k, v in spec.items() if k != "node_id"},
                 node_id, conversation_context,
             ))
         return out

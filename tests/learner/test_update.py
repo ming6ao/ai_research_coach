@@ -13,7 +13,7 @@ from learner.states import (
     StateStatus,
 )
 from learner.update import UpdateEngine, UpdateConfig
-from tests.learner.fixtures import seed_weighted_sampling
+from tests.learner.fixtures import get_node, seed_weighted_sampling
 
 
 @pytest.fixture()
@@ -326,7 +326,7 @@ class TestStatusTransitions:
 class TestAuditAndPersistence:
     def test_service_persists_state(self, learner_service, repository, seeded_ctx):
         _, _, learner = seeded_ctx
-        node = repository.get_node_by_slug("construct_cdf")
+        node = get_node(repository, "construct_cdf")
         ev = _evidence(learner, node.id, ObservationStatus.CORRECT,
                        correctness=1.0, confidence=1.0, evidence_type=EvidenceType.CODE)
         from learner.update import LearnerUpdateService
@@ -342,7 +342,7 @@ class TestAuditAndPersistence:
 
     def test_ignored_evidence_no_state_change(self, learner_service, repository, seeded_ctx):
         _, _, learner = seeded_ctx
-        node = repository.get_node_by_slug("construct_cdf")
+        node = get_node(repository, "construct_cdf")
         from learner.update import LearnerUpdateService
 
         usvc = LearnerUpdateService(learner_service._learners, repository)

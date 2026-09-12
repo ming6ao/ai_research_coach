@@ -90,10 +90,13 @@ class TestApiFlow:
         assert data["learner_update"]["learner_id"]
 
     def test_custom_question_bootstraps_general_skill(self, client):
+        from learner.graph import node_id_for
+        from learner.types import NodeType
+
         started = client.post("/api/start", json={
             "initial_question": "Explain what a cache eviction policy is.",
         }).json()
-        assert started["learner"]["primary_node_slug"] == "general"
+        assert started["learner"]["primary_node_id"] == str(node_id_for(NodeType.SKILL, "General"))
 
     def test_complete_includes_learner_snapshot(self, client):
         started = client.post("/api/start", json={}).json()

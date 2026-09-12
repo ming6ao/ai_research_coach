@@ -61,7 +61,7 @@ def _ordered_nodes(
     repo: KnowledgeGraphRepository, node_ids: set[uuid.UUID]
 ) -> list[KnowledgeNode]:
     nodes = [n for n in (repo.get_node(nid) for nid in node_ids) if n is not None]
-    return sorted(nodes, key=lambda n: n.slug)
+    return sorted(nodes, key=lambda n: (n.name, str(n.id)))
 
 
 def direct_prerequisites(

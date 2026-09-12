@@ -29,7 +29,7 @@ from coach.db import learner_db_url
 from coach.task_decomposer import TaskDecomposer
 from learner.container import build_container
 from learner.evidence import Evidence, EvidenceType, ObservationStatus
-from learner.graph import KnowledgeEdge, KnowledgeNode
+from learner.graph import KnowledgeEdge, KnowledgeNode, node_id_for
 from learner.states import Learner
 from learner.types import NodeType
 from coach.db import Base, create_session_factory
@@ -58,6 +58,15 @@ class LearnerEngine:
         if not self._schema_ready:
             # Idempotent create; the runtime path (also used by coach.db.create_schema).
             Base.metadata.create_all(self._engine)
+            # Migrate pre-slug-removal databases (drops the obsolete slug column
+            # so new inserts don't hit NOT NULL constraints).
+            try:
+                from coach.db import _migrate_slug_removal
+
+                with self._engine.begin() as conn:
+                    _migrate_slug_removal(conn)
+            except Exception:
+                pass
             self._schema_ready = True
         return self._session_factory()
 
@@ -99,10 +108,10 @@ class LearnerEngine:
     def bootstrap_task(self, task: dict) -> dict:
         """Decompose a picked task and register it in the knowledge graph.
 
-        Idempotent: nodes/edges are looked up before inserting.
-        Task->node mapping is ephemeral (derived from ``TaskKnowledge`` at
-        submit time); nothing task-like is persisted.
-        Returns {"primary_node_id", "primary_node_slug"}.
+        Idempotent: node ids are deterministic UUID5s of (type, name), so
+        re-decomposing reuses rows. Task->node mapping is ephemeral (derived
+        from ``TaskKnowledge`` at submit time); nothing task-like is persisted.
+        Returns {"primary_node_id"}.
         """
         knowledge = self.decomposer.decompose(task)
         session = self._session()
@@ -111,38 +120,35 @@ class LearnerEngine:
             node_ids = self._ensure_graph(
                 container, knowledge, task.get("skill", "general")
             )
-            primary_id = node_ids[knowledge.primary_node_slug]
+            primary_id = node_ids[knowledge.primary_node_key]
             return {
                 "primary_node_id": str(primary_id),
-                "primary_node_slug": knowledge.primary_node_slug,
             }
         finally:
             session.close()
 
     @staticmethod
     def _ensure_graph(container, knowledge, skill: str) -> dict[str, uuid.UUID]:
-        """Upsert decomposed nodes/edges; return slug -> node id."""
+        """Upsert decomposed nodes/edges; return key -> node id."""
         kg = container.knowledge_service
         node_ids: dict[str, uuid.UUID] = {}
         for node in knowledge.nodes:
-            existing = kg.get_node_by_slug(node.slug)
-            if existing is not None:
-                node_ids[node.slug] = existing.id
-                continue
-            created = kg.create_node(
-                KnowledgeNode(
-                    type=node.type,
-                    slug=node.slug,
-                    name=node.name,
-                    description=node.description,
-                    metadata={"importance": node.importance, "skill": skill},
+            nid = node_id_for(node.type, node.name)
+            if kg.get_node(nid) is None:
+                kg.create_node(
+                    KnowledgeNode(
+                        id=nid,
+                        type=node.type,
+                        name=node.name,
+                        description=node.description,
+                        metadata={"importance": node.importance, "skill": skill},
+                    )
                 )
-            )
-            node_ids[node.slug] = created.id
+            node_ids[node.key] = nid
 
         for edge in knowledge.edges:
-            src = node_ids[edge.source_slug]
-            tgt = node_ids[edge.target_slug]
+            src = node_ids[edge.source_key]
+            tgt = node_ids[edge.target_key]
             if kg.get_edge(src, tgt, edge.edge_type) is None:
                 kg.create_edge(
                     KnowledgeEdge(source_node_id=src, target_node_id=tgt, edge_type=edge.edge_type)
@@ -158,51 +164,47 @@ class LearnerEngine:
         """
         targets: list[tuple[uuid.UUID, float]] = []
         for node in knowledge.nodes:
-            if node.slug == knowledge.primary_node_slug:
-                targets.append((node_ids[node.slug], 1.0))
+            if node.key == knowledge.primary_node_key:
+                targets.append((node_ids[node.key], 1.0))
             elif node.type == NodeType.PROBLEM:
                 continue
             else:
-                targets.append((node_ids[node.slug], max(0.3, node.importance)))
+                targets.append((node_ids[node.key], max(0.3, node.importance)))
         return targets
 
     def bootstrap_generated_task(self, task: dict) -> dict:
         """Ensure the remediation target node exists (no task persistence).
 
         Args:
-            task: a generated task dict carrying ``mvp_target_slug``.
+            task: a generated task dict carrying ``mvp_target_node_id``.
 
-        Returns {"target_slug", "target_node_id"}.
+        Returns {"target_node_id"}.
         """
-        target_slug = task.get("mvp_target_slug")
-        if not target_slug:
-            raise ValueError("generated remediation task missing mvp_target_slug")
+        target_id_raw = task.get("mvp_target_node_id")
+        if not target_id_raw:
+            raise ValueError("generated remediation task missing mvp_target_node_id")
 
         session = self._session()
         try:
             container = self._container(session)
             kg = container.knowledge_service
-            node = kg.get_node_by_slug(target_slug)
+            try:
+                target_id = uuid.UUID(str(target_id_raw))
+            except ValueError:
+                raise ValueError(f"target node not found for id {target_id_raw!r}")
+            node = kg.get_node(target_id)
             if node is None:
-                # Node vanished: fall back to registering under the skill slug.
-                skill_slug = self._slugify(task.get("skill", "general"))
-                node = kg.get_node_by_slug(skill_slug)
+                # Node vanished: fall back to the skill node (deterministic id).
+                skill_name = (task.get("skill", "general") or "general").strip() or "general"
+                node = kg.get_node(node_id_for(NodeType.SKILL, skill_name.title()))
             if node is None:
-                raise ValueError(f"target node not found for slug {target_slug!r}")
+                raise ValueError(f"target node not found for id {target_id_raw!r}")
 
             return {
-                "target_slug": node.slug,
                 "target_node_id": str(node.id),
             }
         finally:
             session.close()
-
-    @staticmethod
-    def _slugify(text: str) -> str:
-        import re
-
-        slug = re.sub(r"[^a-z0-9]+", "-", text.strip().lower()).strip("-")
-        return slug[:60] or "general"
 
     # -- submission ------------------------------------------------------------------
 
@@ -253,7 +255,7 @@ class LearnerEngine:
             # Misconception: only when the coach names one and the score is low.
             # Linked to the primary (skill) node so remediation drills the skill,
             # not the misconception node itself.
-            primary_node = node_ids.get(knowledge.primary_node_slug)
+            primary_node = node_ids.get(knowledge.primary_node_key)
             misconception = self._maybe_misconception(
                 container, candidate, learner_id, task, coach, fraction, evidence_ids,
                 skill_node_id=primary_node,
@@ -286,16 +288,18 @@ class LearnerEngine:
         text = (coach.misconception if coach else "") or ""
         if not text.strip() or fraction >= MISCONCEPTION_SCORE_MAX:
             return None
-        slug = self._misconception_slug(text)
+        # Deterministic identity from the misconception text: same text reuses
+        # one node across submissions.
+        mc_id = node_id_for(NodeType.MISCONCEPTION, text.strip()[:120])
         metadata = {}
         if skill_node_id is not None:
             metadata["skill_node_id"] = str(skill_node_id)
-        node = container.knowledge_service.get_node_by_slug(slug)
+        node = container.knowledge_service.get_node(mc_id)
         if node is None:
             node = container.knowledge_service.create_node(
                 KnowledgeNode(
+                    id=mc_id,
                     type=NodeType.MISCONCEPTION,
-                    slug=slug,
                     name=f"Misconception: {task['id']}",
                     description=text.strip()[:300],
                     metadata=metadata,
@@ -308,26 +312,13 @@ class LearnerEngine:
         mc = container.misconception_service.suspect_misconception(learner_id, node.id)
         if evidence_ids:
             container.misconception_service.add_supporting_evidence(mc.id, uuid.UUID(evidence_ids[0]))
-        return {"misconception_node_id": str(node.id), "slug": slug, "confidence": mc.confidence}
-
-    @staticmethod
-    def _misconception_slug(text: str) -> str:
-        import re
-
-        slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-        if len(slug) <= 48:
-            return slug or "misconception"
-        # Truncate on a word boundary so slugs never cut mid-word.
-        head = slug[:48]
-        cut = head.rfind("-")
-        return head[:cut] if cut > 0 else head
+        return {"misconception_node_id": str(node.id), "confidence": mc.confidence}
 
     @staticmethod
     def _frontier_dict(container, entry) -> dict:
         node = container.knowledge_repository.get_node(entry.node_id)
         return {
             "node_id": str(entry.node_id),
-            "slug": node.slug if node else None,
             "name": node.name if node else None,
             "description": node.description if node else None,
             "priority": entry.priority,
@@ -341,7 +332,6 @@ class LearnerEngine:
         return {
             "action_type": action.action_type.value,
             "target_node_id": str(action.target_node_id),
-            "slug": node.slug if node else None,
             "name": node.name if node else None,
             "description": node.description if node else None,
             "total_score": action.total_score,
@@ -361,8 +351,9 @@ class LearnerEngine:
             states = {}
             for s in container.learner_service.list_learner_states(learner_id):
                 node = container.knowledge_repository.get_node(s.node_id)
-                slug = node.slug if node else str(s.node_id)
-                states[slug] = {
+                key = str(s.node_id)
+                states[key] = {
+                    "name": node.name if node else key,
                     "mastery": s.mastery,
                     "uncertainty": s.uncertainty,
                     "status": s.status.value,
@@ -371,18 +362,19 @@ class LearnerEngine:
 
             frontier = container.frontier_service.list_frontier(learner_id)[:limit]
             frontier_top = [self._frontier_dict(container, f) for f in frontier]
-            misconceptions = [
-                {
-                    "node_id": str(mc.misconception_node_id),
-                    "status": mc.status.value,
-                    "confidence": mc.confidence,
-                    "slug": container.knowledge_repository.get_node(mc.misconception_node_id).slug
-                    if container.knowledge_repository.get_node(mc.misconception_node_id)
-                    else None,
-                }
-                for mc in container.misconception_service.list_all(learner_id)
-                if mc.is_active
-            ]
+            misconceptions = []
+            for mc in container.misconception_service.list_all(learner_id):
+                if not mc.is_active:
+                    continue
+                mc_node = container.knowledge_repository.get_node(mc.misconception_node_id)
+                misconceptions.append(
+                    {
+                        "node_id": str(mc.misconception_node_id),
+                        "name": mc_node.name if mc_node else None,
+                        "status": mc.status.value,
+                        "confidence": mc.confidence,
+                    }
+                )
             actions = container.policy_engine.generate(learner_id, frontier)
             next_action = self._action_dict(container, actions[0]) if actions else None
 
@@ -532,10 +524,11 @@ def _format_snapshot(candidate: str, snap: dict) -> str:
     lines.append("states:")
     if not snap["states"]:
         lines.append("  (none — candidate has not answered any scored task)")
-    for slug in sorted(snap["states"]):
-        s = snap["states"][slug]
+    for node_id in sorted(snap["states"]):
+        s = snap["states"][node_id]
+        label = s.get("name") or node_id
         lines.append(
-            f"  {slug:<28} mastery={s['mastery']:.3f}  uncertainty={s['uncertainty']:.3f}  "
+            f"  {label:<28} mastery={s['mastery']:.3f}  uncertainty={s['uncertainty']:.3f}  "
             f"status={s['status']:<11} evidence={s['evidence_count']}"
         )
 
@@ -543,17 +536,17 @@ def _format_snapshot(candidate: str, snap: dict) -> str:
     if not snap["frontier_top"]:
         lines.append("  (empty)")
     for i, f in enumerate(snap["frontier_top"], 1):
-        lines.append(f"  #{i:<2} {f['slug'] or f['node_id']:<28} priority={f['priority']:.3f}  reason={f['reason']}")
+        lines.append(f"  #{i:<2} {f.get('name') or f['node_id']:<28} priority={f['priority']:.3f}  reason={f['reason']}")
 
     lines.append("misconceptions:")
     if not snap["misconceptions"]:
         lines.append("  (none)")
     for m in snap["misconceptions"]:
-        lines.append(f"  - {m['slug'] or m['node_id']}   {m['status']}   confidence={m['confidence']:.2f}")
+        lines.append(f"  - {m.get('name') or m['node_id']}   {m['status']}   confidence={m['confidence']:.2f}")
 
     na = snap["next_action"]
     if na:
-        lines.append(f"next_action: {na['action_type']} -> {na['slug'] or na['target_node_id']} "
+        lines.append(f"next_action: {na['action_type']} -> {na.get('name') or na['target_node_id']} "
                      f"(score={na['total_score']:.3f})")
     else:
         lines.append("next_action: (none)")

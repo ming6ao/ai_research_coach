@@ -15,7 +15,7 @@ export interface Task {
   difficulty: number;
   scaffold?: string;
   hints?: Hint[];
-  remediation?: { node_slug?: string };
+  remediation?: { node_id?: string };
 }
 
 export interface EvaluationResult {
@@ -47,6 +47,7 @@ export interface SkillUpdate {
 }
 
 export interface LearnerState {
+  name: string;
   mastery: number;
   uncertainty: number;
   status: string;
@@ -55,7 +56,6 @@ export interface LearnerState {
 
 export interface LearnerFrontierEntry {
   node_id: string;
-  slug: string | null;
   name: string | null;
   description: string | null;
   priority: number;
@@ -65,15 +65,14 @@ export interface LearnerFrontierEntry {
 
 export interface LearnerMisconception {
   node_id: string;
+  name: string | null;
   status: string;
   confidence: number;
-  slug: string | null;
 }
 
 export interface LearnerAction {
   action_type: string;
   target_node_id: string;
-  slug: string | null;
   name: string | null;
   description: string | null;
   total_score: number;
@@ -94,7 +93,7 @@ export interface StartResponse {
   message: string;
   total_tasks: number;
   first_task: Task | null;
-  learner?: { learner_id: string; primary_node_slug?: string | null } | null;
+  learner?: { learner_id: string; primary_node_id?: string | null } | null;
 }
 
 export interface SubmitResponse {
@@ -211,7 +210,6 @@ export interface AdminLearner {
 export interface AdminGraphNode {
   id: string;
   type: string;
-  slug: string;
   name: string;
   description: string | null;
   importance: number;
@@ -228,7 +226,6 @@ export interface AdminGraphEdge {
 
 export interface AdminLearnerState {
   node_id: string;
-  slug: string;
   node_name: string;
   node_type: string;
   mastery: number;
@@ -246,7 +243,6 @@ export interface AdminLearnerState {
 
 export interface AdminFrontierEntry {
   node_id: string;
-  slug: string;
   node_name: string;
   priority: number;
   reason: string;
@@ -256,7 +252,6 @@ export interface AdminFrontierEntry {
 export interface AdminMisconception {
   id: string;
   node_id: string;
-  slug: string;
   node_name: string;
   description: string;
   confidence: number;
@@ -268,7 +263,7 @@ export interface AdminMisconception {
 export interface AdminEvidence {
   id: string;
   node_id: string;
-  slug: string;
+  node_name: string;
   evidence_type: string;
   observation_status: string;
   correctness: number | null;
@@ -286,7 +281,7 @@ export interface AdminLearnerDetail {
   next_action: {
     action_type: string;
     target_node_id: string;
-    slug: string;
+    node_name: string;
     total_score: number;
     rationale: string;
   } | null;

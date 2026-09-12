@@ -31,12 +31,16 @@ class FakeDecomposer:
             "skill": original_task.get("skill", "general"),
             "type": "code",
             "difficulty": max(1, int(original_task.get("difficulty", 2)) - 1),
-            "prompt": f"Simpler task for {node.get('slug')}.",
+            "prompt": f"Simpler task for {node.get('name') or node.get('node_id')}.",
             "max_score": 5,
             "hints": [],
             "generated": True,
-            "mvp_target_slug": node.get("slug"),
+            "mvp_target_node_id": node.get("node_id"),
         }
+
+
+_NODE_A_ID = "11111111-1111-1111-1111-111111111111"
+_NODE_B_ID = "22222222-2222-2222-2222-222222222222"
 
 
 def _session(**kwargs):
@@ -60,13 +64,13 @@ class TestPickNextTask:
             "max_score": 5,
             "hints": [],
             "generated": True,
-            "mvp_target_slug": "cache-eviction",
+            "mvp_target_node_id": _NODE_A_ID,
         }
         session.add_generated_task(generated)
         picked = pick_next_task(session.candidate, session)
         assert picked is not None
         assert picked["id"] == "remed_pending"
-        assert picked["remediation"]["node_slug"] == "cache-eviction"
+        assert picked["remediation"]["node_id"] == _NODE_A_ID
 
     def test_bank_picker_fallback(self):
         from learner.engine import pick_next_task
@@ -97,10 +101,10 @@ def _base_task(skill="ml_systems", difficulty=3):
 
 def _learner_update(status="incorrect", fraction=0.2, frontier=None, next_action=None, misconceptions=False):
     frontier = frontier or [
-        {"node_id": str(uuid.uuid4()), "slug": "cache-eviction", "name": "Cache Eviction", "description": "Choosing what to drop.", "priority": 0.9, "reason": "uncertain"},
-        {"node_id": str(uuid.uuid4()), "slug": "cache-invalidation", "name": "Cache Invalidation", "description": "Keeping stale data out.", "priority": 0.8, "reason": "uncertain"},
+        {"node_id": _NODE_A_ID, "name": "Cache Eviction", "description": "Choosing what to drop.", "priority": 0.9, "reason": "uncertain", "status": "uncertain"},
+        {"node_id": _NODE_B_ID, "name": "Cache Invalidation", "description": "Keeping stale data out.", "priority": 0.8, "reason": "uncertain", "status": "uncertain"},
     ]
-    next_action = next_action or {"action_type": "code", "target_node_id": frontier[0]["node_id"], "slug": frontier[0]["slug"], "name": frontier[0]["name"], "description": frontier[0]["description"]}
+    next_action = next_action or {"action_type": "code", "target_node_id": frontier[0]["node_id"], "name": frontier[0]["name"], "description": frontier[0]["description"], "total_score": 1.0, "rationale": "gap"}
     return {
         "observation_status": status,
         "fraction": fraction,
@@ -111,11 +115,11 @@ def _learner_update(status="incorrect", fraction=0.2, frontier=None, next_action
 
 
 def _snapshot(uncertainties=None, misconceptions=None):
-    uncertainties = uncertainties or {"cache-eviction": 0.8, "cache-invalidation": 0.7}
+    uncertainties = uncertainties or {_NODE_A_ID: 0.8, _NODE_B_ID: 0.7}
     return {
         "states": {
-            slug: {"mastery": 0.4, "uncertainty": u, "status": "uncertain", "evidence_count": 1}
-            for slug, u in uncertainties.items()
+            node_id: {"name": "N", "mastery": 0.4, "uncertainty": u, "status": "uncertain", "evidence_count": 1}
+            for node_id, u in uncertainties.items()
         },
         "misconceptions": misconceptions or [],
     }
@@ -130,7 +134,7 @@ class TestTrigger:
         )
         assert gen is not None
         assert gen["generated"] is True
-        assert gen["mvp_target_slug"] == "cache-eviction"
+        assert gen["mvp_target_node_id"] == _NODE_A_ID
 
     def test_partially_correct_triggers(self):
         planner = RemediationPlanner(decomposer=FakeDecomposer())
@@ -150,7 +154,7 @@ class TestTrigger:
 
     def test_correct_and_confident_does_not_trigger(self):
         planner = RemediationPlanner(decomposer=FakeDecomposer())
-        snap = _snapshot(uncertainties={"cache-eviction": 0.05, "cache-invalidation": 0.05})
+        snap = _snapshot(uncertainties={_NODE_A_ID: 0.05, _NODE_B_ID: 0.05})
         gen = planner.decide(
             _session(), _base_task(), None,
             _learner_update(status="correct", fraction=0.95), snap,
@@ -159,7 +163,7 @@ class TestTrigger:
 
     def test_active_misconception_triggers_even_on_correct(self):
         planner = RemediationPlanner(decomposer=FakeDecomposer())
-        snap = _snapshot(misconceptions=[{"slug": "confused-eviction", "status": "suspected"}])
+        snap = _snapshot(misconceptions=[{"node_id": _NODE_A_ID, "name": "Confused Eviction", "status": "suspected", "confidence": 0.7}])
         gen = planner.decide(
             _session(), _base_task(), None,
             _learner_update(status="correct", fraction=0.9), snap,
@@ -170,38 +174,39 @@ class TestTrigger:
 class TestTargetSelection:
     def test_uses_next_action_target(self):
         planner = RemediationPlanner(decomposer=FakeDecomposer())
-        action = {"action_type": "code", "target_node_id": "n1", "slug": "cache-invalidation", "name": "Cache Invalidation", "description": "Keeping stale data out."}
+        action = {"action_type": "code", "target_node_id": _NODE_B_ID, "name": "Cache Invalidation", "description": "Keeping stale data out.", "total_score": 1.0, "rationale": "gap"}
         gen = planner.decide(
             _session(), _base_task(), None,
             _learner_update(status="incorrect", next_action=action), _snapshot(),
         )
-        assert gen["mvp_target_slug"] == "cache-invalidation"
+        assert gen["mvp_target_node_id"] == _NODE_B_ID
 
     def test_generated_task_uses_real_node_name_and_description(self):
         decomposer = FakeDecomposer()
         planner = RemediationPlanner(decomposer=decomposer)
-        action = {"action_type": "code", "target_node_id": "n1", "slug": "cache-invalidation", "name": "Cache Invalidation", "description": "Keeping stale data out."}
+        action = {"action_type": "code", "target_node_id": _NODE_B_ID, "name": "Cache Invalidation", "description": "Keeping stale data out.", "total_score": 1.0, "rationale": "gap"}
         gen = planner.decide(
             _session(), _base_task(), None,
             _learner_update(status="incorrect", next_action=action), _snapshot(),
         )
         assert gen is not None
-        assert gen["mvp_target_slug"] == "cache-invalidation"
+        assert gen["mvp_target_node_id"] == _NODE_B_ID
         node = decomposer.calls[-1][0]
         assert node["name"] == "Cache Invalidation"
         assert node["description"] == "Keeping stale data out."
 
-    def test_node_dict_falls_back_to_slug_when_name_absent(self):
+    def test_node_dict_falls_back_to_this_topic_when_name_absent(self):
         decomposer = FakeDecomposer()
         planner = RemediationPlanner(decomposer=decomposer)
-        action = {"action_type": "code", "target_node_id": "n1", "slug": "cache-invalidation"}
+        action = {"action_type": "code", "target_node_id": _NODE_B_ID}
         gen = planner.decide(
             _session(), _base_task(), None,
             _learner_update(status="incorrect", next_action=action), _snapshot(),
         )
         assert gen is not None
         node = decomposer.calls[-1][0]
-        assert node["name"] == "Cache Invalidation"  # slug-derived fallback
+        assert node["node_id"] == _NODE_B_ID
+        assert node["name"] == "this topic"  # fallback when name absent
         assert node["description"] == "uncertain"  # falls back to node status
 
     def test_falls_back_to_highest_uncertainty_when_no_action(self):
@@ -238,7 +243,7 @@ class TestBudgetGuards:
     def test_confident_target_not_actionable(self):
         decomposer = FakeDecomposer()
         planner = RemediationPlanner(decomposer=decomposer)
-        snap = _snapshot(uncertainties={"cache-eviction": 0.05})
+        snap = _snapshot(uncertainties={_NODE_A_ID: 0.05, _NODE_B_ID: 0.05})
         gen = planner.decide(_session(), _base_task(), None, _learner_update(), snap)
         assert gen is None
         assert decomposer.calls == []

@@ -184,7 +184,7 @@ python -m learner.engine alice@example.com
   `scaffold`/`difficulty`/`hints`. Or pass `initial_question` to
   `/api/start`. The `skill` tag is a free-form id — a new tag starts a fresh
   per-skill belief. User rows are private by default (guests create public
-  rows); generated follow-ups link via `parent_task_id`/`target_node_slug`.
+  rows); generated follow-ups link via `parent_task_id`/`mvp_target_node_id`.
 - **Change the model**: set `EVAL_MODEL` in `.env` (e.g. `gemini-3.5-flash-lite`).
 
 ## Environment variables

@@ -11,7 +11,7 @@ from learner.types import (
     NodeStatus,
     NodeType,
     DuplicateEdgeError,
-    DuplicateSlugError,
+    DuplicateNodeError,
     NodeNotFoundError,
     NodeReferencedError,
     SelfEdgeError,
@@ -42,15 +42,34 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# Deterministic node identity: same (type, name) always maps to the same id,
+# so cross-task decomposition dedups without a separate slug column.
+KNOWLEDGE_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "ai-research-coach/knowledge-node")
+
+
+def normalize_name(name: str) -> str:
+    """Canonical form used for identity: casefolded, whitespace-collapsed."""
+    return " ".join((name or "").strip().casefold().split())[:120]
+
+
+def node_id_for(ntype: object, name: str) -> uuid.UUID:
+    """Deterministic UUID5 for a (type, name) pair."""
+    type_str = ntype.value if hasattr(ntype, "value") else str(ntype)
+    return uuid.uuid5(KNOWLEDGE_NAMESPACE, f"{type_str}:{normalize_name(name)}")
+
+
 class KnowledgeNode(BaseModel):
     """A node in the knowledge graph: a concept, skill, procedure, problem, strategy,
-    misconception, or domain."""
+    misconception, or domain.
+
+    Identity is deterministic: ``id`` should be ``node_id_for(type, name)`` so
+    the same concept reuses one row across tasks.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
     type: NodeType
-    slug: str
     name: str
     description: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -87,9 +106,6 @@ class KnowledgeGraphService:
 
     def get_node(self, node_id: uuid.UUID) -> KnowledgeNode | None:
         return self.repository.get_node(node_id)
-
-    def get_node_by_slug(self, slug: str) -> KnowledgeNode | None:
-        return self.repository.get_node_by_slug(slug)
 
     def update_node(self, node_id: uuid.UUID, **changes: Any) -> KnowledgeNode:
         return self.repository.update_node(node_id, **changes)
@@ -145,13 +161,9 @@ class SQLKnowledgeGraphRepository:
     # -- nodes ---------------------------------------------------------
 
     def create_node(self, node: KnowledgeNode) -> KnowledgeNode:
-        existing = self.get_node_by_slug(node.slug)
-        if existing is not None:
-            raise DuplicateSlugError(node.slug)
         model = KnowledgeNodeModel(
             id=uid(node.id),
             type=node.type.value,
-            slug=node.slug,
             name=node.name,
             description=node.description,
             meta=node.metadata,
@@ -164,17 +176,11 @@ class SQLKnowledgeGraphRepository:
             self._session.commit()
         except IntegrityError as exc:
             self._session.rollback()
-            raise DuplicateSlugError(node.slug) from exc
+            raise DuplicateNodeError(node.id) from exc
         return self.get_node(node.id)
 
     def get_node(self, node_id: uuid.UUID) -> KnowledgeNode | None:
         model = self._session.get(KnowledgeNodeModel, uid(node_id))
-        return self._to_node(model) if model else None
-
-    def get_node_by_slug(self, slug: str) -> KnowledgeNode | None:
-        model = self._session.scalar(
-            select(KnowledgeNodeModel).where(KnowledgeNodeModel.slug == slug)
-        )
         return self._to_node(model) if model else None
 
     def update_node(self, node_id: uuid.UUID, **changes: Any) -> KnowledgeNode:
@@ -194,18 +200,9 @@ class SQLKnowledgeGraphRepository:
         if "status" in changes:
             value = changes["status"]
             model.status = value.value if isinstance(value, NodeStatus) else str(value)
-        if "slug" in changes:
-            new_slug = changes["slug"]
-            if self.get_node_by_slug(new_slug) is not None:
-                raise DuplicateSlugError(new_slug)
-            model.slug = new_slug
         model.updated_at = naive_utc(datetime.now(timezone.utc))
 
-        try:
-            self._session.commit()
-        except IntegrityError as exc:
-            self._session.rollback()
-            raise DuplicateSlugError(changes.get("slug", "")) from exc
+        self._session.commit()
         return self.get_node(node_id)
 
     def delete_node(self, node_id: uuid.UUID, *, force: bool = False) -> bool:
@@ -336,7 +333,6 @@ class SQLKnowledgeGraphRepository:
         return KnowledgeNode(
             id=uuid.UUID(model.id),
             type=NodeType(model.type),
-            slug=model.slug,
             name=model.name,
             description=model.description,
             metadata=dict(model.meta or {}),
@@ -362,7 +358,6 @@ class KnowledgeNodeModel(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     type: Mapped[str] = mapped_column(String(32), nullable=False)
-    slug: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     meta: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict, nullable=False)

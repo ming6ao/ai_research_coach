@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from learner.types import (
     DuplicateEdgeError,
-    DuplicateSlugError,
+    DuplicateNodeError,
     NodeNotFoundError,
     SelfEdgeError,
 )
@@ -24,7 +24,7 @@ class TestEdgeValidation:
 
     def test_edge_references_must_exist(self, repository):
         a = repository.create_node(make_node("a"))
-        ghost = KnowledgeNode(type=NodeType.CONCEPT, slug="ghost", name="Ghost")
+        ghost = KnowledgeNode(type=NodeType.CONCEPT, name="Ghost")
         with pytest.raises(NodeNotFoundError):
             repository.create_edge(make_edge(a, ghost, EdgeType.REQUIRES))
 
@@ -54,15 +54,9 @@ class TestEdgeValidation:
 class TestNodeValidation:
     def test_extra_field_rejected(self):
         with pytest.raises(ValidationError):
-            KnowledgeNode(type=NodeType.CONCEPT, slug="x", name="X", bogus=True)
+            KnowledgeNode(type=NodeType.CONCEPT, name="X", bogus=True)
 
-    def test_duplicate_slug_rejected(self, repository):
+    def test_duplicate_node_rejected(self, repository):
         repository.create_node(make_node("probability"))
-        with pytest.raises(DuplicateSlugError):
+        with pytest.raises(DuplicateNodeError):
             repository.create_node(make_node("probability"))
-
-    def test_update_to_existing_slug_rejected(self, repository):
-        a = repository.create_node(make_node("alpha"))
-        repository.create_node(make_node("beta"))
-        with pytest.raises(DuplicateSlugError):
-            repository.update_node(a.id, slug="beta")

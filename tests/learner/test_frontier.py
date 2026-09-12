@@ -6,12 +6,12 @@ import pytest
 
 from learner.frontier import FrontierStatus
 from learner.states import LearnerKnowledgeState, StateStatus
-from tests.learner.fixtures import seed_weighted_sampling
+from tests.learner.fixtures import get_node, seed_weighted_sampling
 from learner.frontier import FrontierService
 
 
-def _set_state(ctx, slug, mastery, uncertainty, evidence_count, status):
-    node = ctx["repo"].get_node_by_slug(slug)
+def _set_state(ctx, alias, mastery, uncertainty, evidence_count, status):
+    node = get_node(ctx["repo"], alias)
     state = LearnerKnowledgeState(
         learner_id=ctx["learner"].id,
         node_id=node.id,
@@ -47,26 +47,26 @@ class TestGeneration:
         _, complexity = _set_state(ctx, "analyze_sampling_complexity", 0.5, 0.6, 1, StateStatus.UNCERTAIN)
         _, boundary = _set_state(ctx, "handle_boundaries", 0.3, 0.5, 2, StateStatus.DEVELOPING)
 
-        problem = ctx["repo"].get_node_by_slug("weighted_sampling_from_scratch")
+        problem = get_node(ctx["repo"], "weighted_sampling_from_scratch")
         frontier = ctx["frontier_service"].generate(ctx["learner"].id, problem.id)
 
         by_id = {f.node_id: f for f in frontier}
         # The three gaps are on the frontier.
         for node in (binary, complexity, boundary):
-            assert node.id in by_id, f"{node.slug} should be on frontier"
+            assert node.id in by_id, f"{node.name} should be on frontier"
         # Mastered skills are not prioritized.
         assert normalize.id not in by_id
         assert cdf.id not in by_id
 
     def test_reasons_are_recorded(self, ctx):
         _, binary = _set_state(ctx, "binary_search_cdf", 0.5, 1.0, 0, StateStatus.UNKNOWN)
-        problem = ctx["repo"].get_node_by_slug("weighted_sampling_from_scratch")
+        problem = get_node(ctx["repo"], "weighted_sampling_from_scratch")
         frontier = ctx["frontier_service"].generate(ctx["learner"].id, problem.id)
         entry = next(f for f in frontier if f.node_id == binary.id)
         assert entry.reason == "uncertain"
 
     def test_empty_learner_has_frontier_from_related(self, ctx):
-        problem = ctx["repo"].get_node_by_slug("weighted_sampling_from_scratch")
+        problem = get_node(ctx["repo"], "weighted_sampling_from_scratch")
         frontier = ctx["frontier_service"].generate(ctx["learner"].id, problem.id)
         assert len(frontier) >= 1
 
@@ -74,7 +74,7 @@ class TestGeneration:
 class TestStatus:
     def test_set_status(self, ctx):
         _, binary = _set_state(ctx, "binary_search_cdf", 0.5, 1.0, 0, StateStatus.UNKNOWN)
-        problem = ctx["repo"].get_node_by_slug("weighted_sampling_from_scratch")
+        problem = get_node(ctx["repo"], "weighted_sampling_from_scratch")
         ctx["frontier_service"].generate(ctx["learner"].id, problem.id)
         ctx["frontier_service"].set_status(ctx["learner"].id, binary.id, FrontierStatus.ACTIVE)
         entries = ctx["frontier_service"].list_frontier(ctx["learner"].id)
@@ -84,7 +84,7 @@ class TestStatus:
     def test_list_frontier_sorted_by_priority(self, ctx):
         _, binary = _set_state(ctx, "binary_search_cdf", 0.5, 1.0, 0, StateStatus.UNKNOWN)
         _, complexity = _set_state(ctx, "analyze_sampling_complexity", 0.5, 0.6, 1, StateStatus.UNCERTAIN)
-        problem = ctx["repo"].get_node_by_slug("weighted_sampling_from_scratch")
+        problem = get_node(ctx["repo"], "weighted_sampling_from_scratch")
         ctx["frontier_service"].generate(ctx["learner"].id, problem.id)
         entries = ctx["frontier_service"].list_frontier(ctx["learner"].id)
         priorities = [f.priority for f in entries]

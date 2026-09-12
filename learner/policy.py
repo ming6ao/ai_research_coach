@@ -137,7 +137,7 @@ class PolicyEngine:
         )
 
         rationale = (
-            f"{action_type.value} on {node.slug} (mastery={state.mastery:.2f}, "
+            f"{action_type.value} on {node.name} (mastery={state.mastery:.2f}, "
             f"uncertainty={state.uncertainty:.2f}, frontier={entry.priority:.2f})"
         )
         return CandidateAction(
@@ -184,7 +184,7 @@ class PolicyEngine:
         skill_id = (node.metadata or {}).get("skill_node_id") if node else None
         target_id = uuid.UUID(skill_id) if skill_id else node_id
         target = self._knowledge.get_node(target_id)
-        slug = target.slug if target else (node.slug if node else str(node_id))
+        label = target.name if target else (node.name if node else str(node_id))
         return CandidateAction(
             action_type=ActionType.MISCONCEPTION_PROBE,
             target_node_id=target_id,
@@ -196,7 +196,7 @@ class PolicyEngine:
             frustration_cost=0.1,
             redundancy_cost=0.0,
             total_score=round(3.0 + self.config.misconception_boost, 4),
-            rationale=f"misconception_probe on {slug} (confidence={mc.confidence:.2f})",
+            rationale=f"misconception_probe on {label} (confidence={mc.confidence:.2f})",
         )
 
     @staticmethod

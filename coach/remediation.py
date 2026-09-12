@@ -69,7 +69,7 @@ class RemediationPlanner:
         ``learner_update`` is the value returned by
         ``LearnerBridge.record_submission`` (contains ``frontier``,
         ``next_action``, ``observation_status``, ``fraction``). ``learner_snapshot``
-        carries per-node ``uncertainty``/``mastery`` keyed by slug. ``session`` is
+        carries per-node ``uncertainty``/``mastery`` keyed by node id. ``session`` is
         the parent ``Session`` (used for budget caps and to look up the source
         skill).
         """
@@ -80,7 +80,7 @@ class RemediationPlanner:
         if self._skill_generated_count(session, skill_id) >= self.max_per_skill:
             return None
 
-        # 2. Node states keyed by slug (for uncertainty lookup).
+        # 2. Node states keyed by node id (for uncertainty lookup).
         states = (learner_snapshot or {}).get("states") or {}
 
         # 3. Pick a target node: the policy-ranked frontier top first, then the
@@ -119,7 +119,6 @@ class RemediationPlanner:
         if action:
             return {
                 "node_id": action.get("target_node_id"),
-                "slug": action.get("slug"),
                 "name": action.get("name"),
                 "description": action.get("description"),
             }
@@ -127,15 +126,14 @@ class RemediationPlanner:
         frontier = (learner_update or {}).get("frontier") or []
         ranked = sorted(
             frontier,
-            key=lambda f: self._state_uncertainty(f.get("slug"), states) or 0.0,
+            key=lambda f: self._state_uncertainty(f.get("node_id"), states) or 0.0,
             reverse=True,
         )
         for entry in ranked:
-            u = self._state_uncertainty(entry.get("slug"), states)
+            u = self._state_uncertainty(entry.get("node_id"), states)
             if u is not None and u >= self.uncertainty_remediate_at:
                 return {
                     "node_id": entry.get("node_id"),
-                    "slug": entry.get("slug"),
                     "name": entry.get("name"),
                     "description": entry.get("description"),
                 }
@@ -152,8 +150,8 @@ class RemediationPlanner:
         states: dict,
     ) -> bool:
         """True when remediation is warranted for this target."""
-        slug = target.get("slug")
-        uncertainty = self._state_uncertainty(slug, states)
+        node_id = target.get("node_id")
+        uncertainty = self._state_uncertainty(node_id, states)
 
         # Stop once the node is confident.
         if uncertainty is not None and uncertainty < self.uncertainty_stop_at:
@@ -190,10 +188,10 @@ class RemediationPlanner:
         return bool((learner_snapshot or {}).get("misconceptions"))
 
     @staticmethod
-    def _state_uncertainty(slug: Optional[str], states: dict) -> Optional[float]:
-        if not slug:
+    def _state_uncertainty(node_id: Optional[str], states: dict) -> Optional[float]:
+        if not node_id:
             return None
-        state = states.get(slug)
+        state = states.get(str(node_id))
         if not state:
             return None
         u = state.get("uncertainty")
@@ -201,14 +199,14 @@ class RemediationPlanner:
 
     @staticmethod
     def _node_dict(target: dict, states: dict) -> dict:
-        slug = target.get("slug") or ""
-        state = states.get(slug) or {}
-        name = target.get("name") or slug.replace("-", " ").title()
+        node_id = target.get("node_id") or ""
+        state = states.get(str(node_id)) or {}
+        name = target.get("name") or "this topic"
         description = target.get("description")
         if not description:
             description = state.get("status", "")
         return {
-            "slug": slug,
+            "node_id": node_id,
             "name": name,
             "description": description,
         }
@@ -283,7 +281,7 @@ def _persist_generated_task(session, generated: dict, parent_task: dict | None) 
             hints=generated.get("hints", []),
             source="generated",
             parent_task_id=(parent_task or {}).get("id"),
-            target_node_slug=generated.get("mvp_target_slug"),
+            target_node_id=generated.get("mvp_target_node_id"),
             is_public=False,
             task_id=generated.get("id"),
         )
@@ -324,12 +322,11 @@ def plan_consolidation(
 
         states = (learner_snapshot or {}).get("states") or {}
         action = (learner_update or {}).get("next_action") or {}
-        slug = action.get("slug")
+        node_id = action.get("target_node_id")
         target = None
-        if slug:
+        if node_id:
             target = {
-                "node_id": action.get("target_node_id"),
-                "slug": slug,
+                "node_id": node_id,
                 "name": action.get("name"),
                 "description": action.get("description"),
             }
@@ -338,14 +335,13 @@ def plan_consolidation(
             if frontier:
                 target = {
                     "node_id": frontier[0].get("node_id"),
-                    "slug": frontier[0].get("slug"),
                     "name": frontier[0].get("name"),
                     "description": frontier[0].get("description"),
                 }
-        if not target or not target.get("slug"):
+        if not target or not target.get("node_id"):
             return None
 
-        state = states.get(target["slug"]) or {}
+        state = states.get(str(target["node_id"])) or {}
         uncertainty = state.get("uncertainty")
         mastery = state.get("mastery")
         # Confident already -> no consolidation needed.

@@ -73,10 +73,10 @@ def test_consolidation_fires_after_strong_answer():
     result = type("R", (), {"score": 5, "max_score": 5})()
     learner_update = {
         "fraction": 1.0,
-        "frontier": [{"node_id": "n", "slug": "some-node", "name": "N", "description": "d"}],
-        "next_action": {"target_node_id": "n", "slug": "some-node", "name": "N", "description": "d"},
+        "frontier": [{"node_id": "n", "name": "N", "description": "d", "priority": 0.9, "reason": "uncertain", "status": "uncertain"}],
+        "next_action": {"action_type": "code", "target_node_id": "n", "name": "N", "description": "d", "total_score": 1.0, "rationale": "gap"},
     }
-    snapshot = {"states": {"some-node": {"mastery": 0.65, "uncertainty": 0.5}}, "misconceptions": []}
+    snapshot = {"states": {"n": {"name": "N", "mastery": 0.65, "uncertainty": 0.5, "status": "uncertain", "evidence_count": 1}}, "misconceptions": []}
     gen = plan_consolidation(session, task, result, learner_update, snapshot, bridge=None)
     # Bridge=None builds a real engine (fallback decomposer, no API key) — hermetic.
     assert gen is None or gen["difficulty"] <= task["difficulty"]

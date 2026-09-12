@@ -4,19 +4,24 @@ Ports the old ``learner`` package into the test tree (the app no
 longer ships seed machinery). Idempotent seeder functions build a small
 "Weighted Sampling From Scratch" graph and a
 misconception node for the learner-model / orchestrator tests.
+
+Node identity is deterministic: ``node_id_for(type, name)``. The first
+element of each spec is a short test alias (kept stable so tests stay
+readable); the display ``name`` is the identity input.
 """
 
 from __future__ import annotations
 
-from typing import Any
+import uuid
+from typing import Any, Optional
 
 from learner.interfaces import (
     KnowledgeGraphRepository,
 )
-from learner.graph import KnowledgeEdge, KnowledgeNode
+from learner.graph import KnowledgeEdge, KnowledgeNode, node_id_for
 from learner.types import EdgeType, NodeType
 
-CDF_MISCONCEPTION_SLUG = "cdf_is_normalized_weights"
+CDF_MISCONCEPTION_NAME = "CDF is just the normalized probability array"
 
 NODE_SPECS: list[tuple[str, NodeType, str, str]] = [
     ("probability", NodeType.CONCEPT, "Probability",
@@ -65,24 +70,40 @@ EDGE_SPECS: list[tuple[str, str, EdgeType]] = [
     ("binary_search_cdf", "map_sample_to_interval", EdgeType.ENABLES),
 ]
 
+_SPECS_BY_ALIAS: dict[str, tuple[NodeType, str, str]] = {
+    alias: (ntype, name, description) for alias, ntype, name, description in NODE_SPECS
+}
+
+
+def node_id(alias: str) -> uuid.UUID:
+    """Deterministic node id for a seed-graph alias."""
+    ntype, name, _ = _SPECS_BY_ALIAS[alias]
+    return node_id_for(ntype, name)
+
+
+def get_node(repo: KnowledgeGraphRepository, alias: str) -> Optional[KnowledgeNode]:
+    """Fetch a seed-graph node by its test alias."""
+    return repo.get_node(node_id(alias))
+
 
 def seed_weighted_sampling(repo: KnowledgeGraphRepository) -> dict:
     """Create the seed graph. Returns counts of created nodes/edges."""
     node_ids: dict[str, Any] = {}
     created_nodes = 0
-    for slug, ntype, name, description in NODE_SPECS:
-        node = repo.get_node_by_slug(slug)
+    for alias, ntype, name, description in NODE_SPECS:
+        nid = node_id_for(ntype, name)
+        node = repo.get_node(nid)
         if node is None:
             node = repo.create_node(
-                KnowledgeNode(type=ntype, slug=slug, name=name, description=description)
+                KnowledgeNode(id=nid, type=ntype, name=name, description=description)
             )
             created_nodes += 1
-        node_ids[slug] = node.id
+        node_ids[alias] = node.id
 
     created_edges = 0
-    for source_slug, target_slug, edge_type in EDGE_SPECS:
-        source_id = node_ids[source_slug]
-        target_id = node_ids[target_slug]
+    for source_alias, target_alias, edge_type in EDGE_SPECS:
+        source_id = node_ids[source_alias]
+        target_id = node_ids[target_alias]
         if repo.get_edge(source_id, target_id, edge_type) is None:
             repo.create_edge(
                 KnowledgeEdge(
@@ -97,26 +118,30 @@ def seed_weighted_sampling(repo: KnowledgeGraphRepository) -> dict:
             "total_nodes": len(NODE_SPECS), "total_edges": len(EDGE_SPECS)}
 
 
-TASK_SLUG = "weighted_sampling_from_scratch"
+TASK_NAME = "Weighted Sampling From Scratch"
 
 
-MISCONCEPTION_NODES: list[tuple[str, NodeType, str, str]] = [
+MISCONCEPTION_NODES: list[tuple[NodeType, str, str]] = [
     (
-        CDF_MISCONCEPTION_SLUG,
         NodeType.MISCONCEPTION,
-        "CDF is just the normalized probability array",
+        CDF_MISCONCEPTION_NAME,
         "The learner believes the cumulative distribution function is simply the "
         "normalized weights, ignoring that it must accumulate probabilities.",
     ),
 ]
 
 
+def misconception_node_id() -> uuid.UUID:
+    return node_id_for(NodeType.MISCONCEPTION, CDF_MISCONCEPTION_NAME)
+
+
 def seed_misconceptions(repo: KnowledgeGraphRepository) -> dict:
     created = 0
-    for slug, ntype, name, description in MISCONCEPTION_NODES:
-        if repo.get_node_by_slug(slug) is None:
+    for ntype, name, description in MISCONCEPTION_NODES:
+        nid = node_id_for(ntype, name)
+        if repo.get_node(nid) is None:
             repo.create_node(
-                KnowledgeNode(type=ntype, slug=slug, name=name, description=description)
+                KnowledgeNode(id=nid, type=ntype, name=name, description=description)
             )
             created += 1
     return {"misconception_nodes_created": created, "total": len(MISCONCEPTION_NODES)}

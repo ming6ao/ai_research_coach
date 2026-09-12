@@ -131,18 +131,24 @@ def seeded_repository(repository):
 def sample_node() -> KnowledgeNode:
     return KnowledgeNode(
         type=NodeType.CONCEPT,
-        slug="probability",
         name="Probability",
         description="Measure of likelihood.",
     )
 
 
 def make_node(
-    slug: str,
+    name: str,
     ntype: NodeType = NodeType.CONCEPT,
-    name: str | None = None,
+    description: str | None = None,
 ) -> KnowledgeNode:
-    return KnowledgeNode(type=ntype, slug=slug, name=name or slug.replace("_", " ").title())
+    from learner.graph import node_id_for
+
+    return KnowledgeNode(
+        id=node_id_for(ntype, name),
+        type=ntype,
+        name=name,
+        description=description,
+    )
 
 
 def make_edge(

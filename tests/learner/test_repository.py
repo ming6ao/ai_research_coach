@@ -5,7 +5,7 @@ import pytest
 
 from learner.types import (
     DuplicateEdgeError,
-    DuplicateSlugError,
+    DuplicateNodeError,
     NodeNotFoundError,
     NodeReferencedError,
     SelfEdgeError,
@@ -15,10 +15,10 @@ from tests.conftest import make_edge, make_node
 
 class TestNodeCRUD:
     def test_create_and_get_node(self, repository):
-        node = make_node("probability", NodeType.CONCEPT, "Probability")
+        node = make_node("Probability", NodeType.CONCEPT, "Measure of likelihood.")
         created = repository.create_node(node)
         assert created.id == node.id
-        assert created.slug == "probability"
+        assert created.name == "Probability"
 
         fetched = repository.get_node(node.id)
         assert fetched == created
@@ -30,18 +30,18 @@ class TestNodeCRUD:
 
         assert repository.get_node(uuid.uuid4()) is None
 
-    def test_get_node_by_slug(self, repository):
-        node = repository.create_node(make_node("prefix_sum"))
-        assert repository.get_node_by_slug("prefix_sum").id == node.id
-        assert repository.get_node_by_slug("nope") is None
+    def test_duplicate_node_rejected(self, repository):
+        repository.create_node(make_node("Probability"))
+        with pytest.raises(DuplicateNodeError):
+            repository.create_node(make_node("Probability"))
 
-    def test_duplicate_slug_rejected(self, repository):
-        repository.create_node(make_node("probability"))
-        with pytest.raises(DuplicateSlugError):
-            repository.create_node(make_node("probability"))
+    def test_same_name_different_type_allowed(self, repository):
+        repository.create_node(make_node("Probability", NodeType.CONCEPT))
+        created = repository.create_node(make_node("Probability", NodeType.SKILL))
+        assert created.type == NodeType.SKILL
 
     def test_update_node(self, repository):
-        node = repository.create_node(make_node("probability", name="Probability"))
+        node = repository.create_node(make_node("Probability"))
         updated = repository.update_node(node.id, name="Probability v2", description="updated")
         assert updated.name == "Probability v2"
         assert updated.description == "updated"
@@ -100,7 +100,7 @@ class TestEdgeCRUD:
 
         with pytest.raises(NodeNotFoundError):
             repository.create_edge(
-                make_edge(a, KnowledgeNode(type=NodeType.CONCEPT, slug="ghost", name="Ghost"), EdgeType.REQUIRES)
+                make_edge(a, KnowledgeNode(type=NodeType.CONCEPT, name="Ghost"), EdgeType.REQUIRES)
             )
 
     def test_outgoing_and_incoming_edges(self, repository):

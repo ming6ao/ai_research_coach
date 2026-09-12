@@ -99,14 +99,14 @@ export function LearnerProgressView() {
           {nodes.length === 0 && (
             <p className="text-sm text-[var(--color-text-muted)]">No knowledge nodes measured yet.</p>
           )}
-          {nodes.map(([slug, s]) => (
+          {nodes.map(([nodeId, s]) => (
             <div
-              key={slug}
+              key={nodeId}
               className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4"
             >
               <div className="mb-2 flex items-center justify-between gap-2">
                 <span className="min-w-0 truncate text-sm font-semibold text-[var(--color-text-primary)]">
-                  {slug.replace(/-/g, ' ')}
+                  {s.name}
                 </span>
                 <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${statusColor(s.status)}`}>
                   {s.status}
@@ -132,7 +132,7 @@ export function LearnerProgressView() {
                 className="rounded-lg border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/5 p-4"
               >
                 <p className="text-sm font-semibold text-[var(--color-text-primary)]">
-                  {m.slug ? m.slug.replace(/-/g, ' ') : 'Unknown gap'}
+                  {m.name ?? 'Unknown gap'}
                 </p>
                 <p className="mt-1 text-xs text-[var(--color-text-muted)]">
                   Confidence: {(m.confidence * 100).toFixed(0)}% · {m.status}
@@ -150,7 +150,7 @@ export function LearnerProgressView() {
             <div className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
               <p className="text-sm font-semibold text-[var(--color-text-primary)]">
                 {nextAction.action_type.replace(/_/g, ' ')}
-                {nextAction.slug ? ` → ${nextAction.slug.replace(/-/g, ' ')}` : ''}
+                {nextAction.name ? ` → ${nextAction.name}` : ''}
               </p>
               {nextAction.rationale && (
                 <p className="mt-1 text-xs text-[var(--color-text-secondary)]">{nextAction.rationale}</p>

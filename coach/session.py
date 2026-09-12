@@ -181,5 +181,5 @@ def task_view(task: dict, session: Session) -> dict | None:
         "hints": select_hints(task, ability),
     }
     if task.get("generated"):
-        view["remediation"] = {"node_slug": task.get("mvp_target_slug")}
+        view["remediation"] = {"node_id": task.get("mvp_target_node_id")}
     return view

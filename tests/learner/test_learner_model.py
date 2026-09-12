@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from learner.types import LearnerNotFoundError, NodeNotFoundError
 from learner.graph import utcnow
+from tests.learner.fixtures import get_node
 from learner.states import (
     LOW_MASTERY_THRESHOLD,
     UNKNOWN_DIMENSION,
@@ -30,13 +31,13 @@ def seeded(seeded_repository):
 
 @pytest.fixture()
 def node_ids(seeded):
-    """Returns {slug: node_id} for a few seed nodes."""
+    """Returns {alias: node_id} for a few seed nodes."""
     return {
-        "probability": seeded.get_node_by_slug("probability").id,
-        "prefix_sum": seeded.get_node_by_slug("prefix_sum").id,
-        "construct_cdf": seeded.get_node_by_slug("construct_cdf").id,
-        "weighted_sampling_from_scratch": seeded.get_node_by_slug(
-            "weighted_sampling_from_scratch"
+        "probability": get_node(seeded, "probability").id,
+        "prefix_sum": get_node(seeded, "prefix_sum").id,
+        "construct_cdf": get_node(seeded, "construct_cdf").id,
+        "weighted_sampling_from_scratch": get_node(
+            seeded, "weighted_sampling_from_scratch"
         ).id,
     }
 

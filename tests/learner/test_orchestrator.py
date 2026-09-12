@@ -12,6 +12,9 @@ from learner.container import build_container
 from learner.states import StateStatus
 from learner.orchestrator import LearnerInteraction
 from tests.learner.fixtures import (
+    get_node,
+    misconception_node_id,
+    node_id,
     seed_misconceptions,
     seed_weighted_sampling,
 )
@@ -38,12 +41,9 @@ def world(session):
     seed_misconceptions(c.knowledge_repository)
 
     learner = c.learner_service.create_learner()
-    problem = c.knowledge_repository.get_node_by_slug("weighted_sampling_from_scratch")
+    problem = get_node(c.knowledge_repository, "weighted_sampling_from_scratch")
 
-    resolver = lambda slug: (  # noqa: E731
-    c.knowledge_repository.get_node_by_slug(slug).id
-    if c.knowledge_repository.get_node_by_slug(slug) else None
-)
+    resolver = lambda nid: uuid.UUID(str(nid))  # noqa: E731
     assessor = RuleBasedEvidenceAssessor(rules=RULES, node_resolver=resolver)
     orchestrator = LearningOrchestrator(c, assessor)
     return {
@@ -58,7 +58,7 @@ RULES = [
     # Interaction 1: learner correctly explains normalization and CDF.
     {
         "keywords": ["normalize", "cdf"],
-        "node_slug": "normalize_weights",
+        "node_id": str(node_id("normalize_weights")),
         "evidence_type": "explanation",
         "observation_status": "correct",
         "correctness": 1.0, "confidence": 1.0, "independence": 1.0,
@@ -66,7 +66,7 @@ RULES = [
     },
     {
         "keywords": ["normalize", "cdf"],
-        "node_slug": "construct_cdf",
+        "node_id": str(node_id("construct_cdf")),
         "evidence_type": "explanation",
         "observation_status": "correct",
         "correctness": 1.0, "confidence": 1.0, "independence": 1.0,
@@ -75,21 +75,21 @@ RULES = [
     # Interaction 2: correct linear-scan implementation (not binary search).
     {
         "keywords": ["linear"],
-        "node_slug": "normalize_weights",
+        "node_id": str(node_id("normalize_weights")),
         "evidence_type": "code",
         "observation_status": "correct",
         "correctness": 1.0, "confidence": 1.0, "independence": 1.0,
     },
     {
         "keywords": ["linear"],
-        "node_slug": "construct_cdf",
+        "node_id": str(node_id("construct_cdf")),
         "evidence_type": "code",
         "observation_status": "correct",
         "correctness": 1.0, "confidence": 1.0, "independence": 1.0,
     },
     {
         "keywords": ["linear"],
-        "node_slug": "map_sample_to_interval",
+        "node_id": str(node_id("map_sample_to_interval")),
         "evidence_type": "code",
         "observation_status": "correct",
         "correctness": 1.0, "confidence": 1.0, "independence": 1.0,
@@ -97,7 +97,7 @@ RULES = [
     # Interaction 3: how to optimize repeated sampling (complexity, partial).
     {
         "keywords": ["optimize"],
-        "node_slug": "analyze_sampling_complexity",
+        "node_id": str(node_id("analyze_sampling_complexity")),
         "evidence_type": "prediction",
         "observation_status": "partially_correct",
         "correctness": 0.5, "confidence": 0.5, "reasoning_quality": 0.6,
@@ -106,18 +106,18 @@ RULES = [
     # plus a supporting diagnostic evidence for the CDF misconception.
     {
         "keywords": ["boundary"],
-        "node_slug": "handle_boundaries",
+        "node_id": str(node_id("handle_boundaries")),
         "evidence_type": "code",
         "observation_status": "incorrect",
         "correctness": 0.0, "confidence": 0.8, "independence": 0.8,
     },
     {
         "keywords": ["boundary"],
-        "node_slug": "cdf_is_normalized_weights",
+        "node_id": str(misconception_node_id()),
         "evidence_type": "debugging",
         "observation_status": "incorrect",
         "assessment_payload": {
-            "misconception_node_slug": "cdf_is_normalized_weights",
+            "misconception_node_id": str(misconception_node_id()),
             "relationship": "supporting",
         },
     },
@@ -145,17 +145,17 @@ class TestEndToEndLoop:
         r4 = orch.process(_interaction(world, "I get the cumulative boundary wrong at the first bucket.", 4))
 
         states = {s.node_id: s for s in c.learner_service.list_learner_states(world["learner"].id)}
-        def slug_state(slug):
-            return states[c.knowledge_repository.get_node_by_slug(slug).id]
+        def alias_state(alias):
+            return states[get_node(c.knowledge_repository, alias).id]
 
-        normalize = slug_state("normalize_weights")
-        cdf = slug_state("construct_cdf")
-        impl = slug_state("map_sample_to_interval")
+        normalize = alias_state("normalize_weights")
+        cdf = alias_state("construct_cdf")
+        impl = alias_state("map_sample_to_interval")
         binary = c.learner_service.get_state(
-            world["learner"].id, c.knowledge_repository.get_node_by_slug("binary_search_cdf").id
+            world["learner"].id, get_node(c.knowledge_repository, "binary_search_cdf").id
         )
-        complexity = slug_state("analyze_sampling_complexity")
-        boundary = slug_state("handle_boundaries")
+        complexity = alias_state("analyze_sampling_complexity")
+        boundary = alias_state("handle_boundaries")
 
         # normalization becomes proficient
         assert normalize.mastery >= 0.7 and normalize.status == StateStatus.PROFICIENT
@@ -187,10 +187,10 @@ class TestEndToEndLoop:
         frontier = c.frontier_service.list_frontier(world["learner"].id)
         by_node = {f.node_id: f.priority for f in frontier}
 
-        normalize = c.knowledge_repository.get_node_by_slug("normalize_weights").id
-        cdf = c.knowledge_repository.get_node_by_slug("construct_cdf").id
-        boundary = c.knowledge_repository.get_node_by_slug("handle_boundaries").id
-        complexity = c.knowledge_repository.get_node_by_slug("analyze_sampling_complexity").id
+        normalize = get_node(c.knowledge_repository, "normalize_weights").id
+        cdf = get_node(c.knowledge_repository, "construct_cdf").id
+        boundary = get_node(c.knowledge_repository, "handle_boundaries").id
+        complexity = get_node(c.knowledge_repository, "analyze_sampling_complexity").id
 
         # Remaining evidenced gaps are on the frontier with nonzero priority.
         # (Without a persisted task catalog, never-evidenced nodes like
@@ -209,7 +209,7 @@ class TestEndToEndLoop:
         c = world["c"]
         # The engine should NOT re-teach the strong skills.
         strong_ids = {
-            c.knowledge_repository.get_node_by_slug(s).id
+            get_node(c.knowledge_repository, s).id
             for s in ("normalize_weights", "construct_cdf")
         }
         assert result.selected_action is not None
@@ -221,7 +221,7 @@ class TestEndToEndLoop:
         c = world["c"]
         active = c.misconception_service.list_active_misconceptions(world["learner"].id)
         assert active, "diagnostic evidence should raise a misconception"
-        mc_node = c.knowledge_repository.get_node_by_slug("cdf_is_normalized_weights")
+        mc_node = c.knowledge_repository.get_node(misconception_node_id())
         assert any(m.misconception_node_id == mc_node.id for m in active)
 
     def test_result_shape(self, world):
@@ -229,6 +229,7 @@ class TestEndToEndLoop:
         r = orch.process(_interaction(world, "I normalize the weights and build the CDF.", 1))
         assert r.new_evidence, "evidence was persisted"
         assert r.updated_states
-        assert r.current_topic_slug == "weighted_sampling_from_scratch"
+        assert r.current_topic_id == str(world["problem"].id)
+        assert r.current_topic_name == "Weighted Sampling From Scratch"
         assert r.frontier  # frontier expanded
         assert r.selected_action is not None

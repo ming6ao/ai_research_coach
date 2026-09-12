@@ -58,7 +58,7 @@ class TaskModel(Base):
     expected_time_min: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     parent_task_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    target_node_slug: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    target_node_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     is_public: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
@@ -119,8 +119,8 @@ def task_to_dict(model: TaskModel) -> dict:
         d["expected_time_min"] = model.expected_time_min
     if model.parent_task_id:
         d["parent_task_id"] = model.parent_task_id
-    if model.target_node_slug:
-        d["mvp_target_slug"] = model.target_node_slug
+    if model.target_node_id:
+        d["mvp_target_node_id"] = model.target_node_id
         d["generated"] = True
     elif model.source == "generated":
         d["generated"] = True
@@ -138,7 +138,7 @@ def create_task(
     expected_time_min: Optional[float] = None,
     source: str = "user",
     parent_task_id: Optional[str] = None,
-    target_node_slug: Optional[str] = None,
+    target_node_id: Optional[str] = None,
     is_public: bool = False,
     task_id: Optional[str] = None,
 ) -> dict:
@@ -161,7 +161,7 @@ def create_task(
             expected_time_min=expected_time_min,
             source=source,
             parent_task_id=parent_task_id,
-            target_node_slug=target_node_slug,
+            target_node_id=target_node_id,
             is_public=1 if is_public else 0,
             created_at=_utcnow_naive(),
         )

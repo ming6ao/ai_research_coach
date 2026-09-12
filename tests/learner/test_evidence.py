@@ -22,7 +22,7 @@ from learner.evidence import (
 )
 from learner.graph import utcnow
 from learner.states import Learner
-from tests.learner.fixtures import seed_weighted_sampling
+from tests.learner.fixtures import get_node, seed_weighted_sampling
 
 
 @pytest.fixture()
@@ -30,7 +30,7 @@ def seeded_ctx(evidence_service, repository):
     """Seed the graph and create a learner; returns (evidence_service, learner, node)."""
     seed_weighted_sampling(repository)
     learner = evidence_service.learner_repository.create_learner(Learner())
-    problem = repository.get_node_by_slug("weighted_sampling_from_scratch")
+    problem = get_node(repository, "weighted_sampling_from_scratch")
     return evidence_service, learner, problem
 
 
@@ -108,7 +108,7 @@ class TestCRUD:
 
     def test_list_for_node(self, seeded_ctx):
         service, learner, problem = seeded_ctx
-        cdf =  service.knowledge_repository.get_node_by_slug("construct_cdf")
+        cdf = get_node(service.knowledge_repository, "construct_cdf")
         service.add_evidence(make_evidence(learner.id, problem.id))
         service.add_evidence(make_evidence(learner.id, cdf.id))
 

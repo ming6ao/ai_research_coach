@@ -18,7 +18,12 @@ from learner.misconception import (
     MisconceptionStatus,
 )
 from learner.types import NodeType
-from tests.learner.fixtures import seed_misconceptions, seed_weighted_sampling
+from tests.learner.fixtures import (
+    get_node,
+    misconception_node_id,
+    seed_misconceptions,
+    seed_weighted_sampling,
+)
 
 
 @pytest.fixture()
@@ -26,7 +31,7 @@ def ctx(seeded_repository, learner_service, misconception_service, evidence_serv
     """Seed graph + misconception nodes; returns (services, learner, misconception node)."""
     seed_misconceptions(seeded_repository)
     learner = learner_service.create_learner()
-    mc_node = seeded_repository.get_node_by_slug("cdf_is_normalized_weights")
+    mc_node = seeded_repository.get_node(misconception_node_id())
 
     def make_evidence(status="incorrect"):
         from learner.evidence import Evidence, EvidenceType, ObservationStatus
@@ -64,7 +69,7 @@ class TestCreation:
         assert mc.misconception_node_id == ctx["mc_node"].id
 
     def test_requires_misconception_node_type(self, ctx):
-        concept = ctx["repo"].get_node_by_slug("probability")
+        concept = get_node(ctx["repo"], "probability")
         with pytest.raises(NotMisconceptionNodeError):
             ctx["mc_service"].suspect_misconception(ctx["learner"].id, concept.id)
 
@@ -81,7 +86,7 @@ class TestCreation:
     def test_incorrect_answer_does_not_create_misconception(self, ctx):
         """An incorrect answer alone must NOT create a misconception."""
         learner = ctx["learner_service"].create_learner()
-        problem = ctx["repo"].get_node_by_slug("weighted_sampling_from_scratch")
+        problem = get_node(ctx["repo"], "weighted_sampling_from_scratch")
         ctx["learner_service"].initialize_state(learner.id, problem.id)
         assert ctx["mc_service"].list_active_misconceptions(learner.id) == []
 

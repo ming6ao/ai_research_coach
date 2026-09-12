@@ -82,7 +82,6 @@ def get_graph(user: dict = Depends(_require_user)):
                 nodes.append({
                     "id": m.id,
                     "type": m.type,
-                    "slug": m.slug,
                     "name": m.name,
                     "description": m.description,
                     "importance": (m.meta or {}).get("importance", 0.7),
@@ -103,7 +102,6 @@ def get_graph(user: dict = Depends(_require_user)):
                 {
                     "id": str(n.id),
                     "type": n.type.value if hasattr(n.type, 'value') else str(n.type),
-                    "slug": n.slug,
                     "name": n.name,
                     "description": n.description,
                     "importance": n.metadata.get("importance", 0.7),
@@ -170,7 +168,6 @@ def get_node_detail(node_id: str, user: dict = Depends(_require_user)):
             "node": {
                 "id": str(node.id),
                 "type": node.type.value if hasattr(node.type, 'value') else str(node.type),
-                "slug": node.slug,
                 "name": node.name,
                 "description": node.description,
                 "importance": node.metadata.get("importance", 0.7),
@@ -198,7 +195,6 @@ def get_node_detail(node_id: str, user: dict = Depends(_require_user)):
                 {
                     "id": str(n.id),
                     "type": n.type.value if hasattr(n.type, 'value') else str(n.type),
-                    "slug": n.slug,
                     "name": n.name,
                 }
                 for n in related
@@ -227,7 +223,6 @@ def get_learner_detail(candidate: str, user: dict = Depends(_require_user)):
             node = container.knowledge_repository.get_node(s.node_id)
             states.append({
                 "node_id": str(s.node_id),
-                "slug": node.slug if node else str(s.node_id),
                 "node_name": node.name if node else str(s.node_id),
                 "node_type": (node.type.value if hasattr(node.type, 'value') else str(node.type)) if node else "unknown",
                 "mastery": s.mastery,
@@ -249,7 +244,6 @@ def get_learner_detail(candidate: str, user: dict = Depends(_require_user)):
             node = container.knowledge_repository.get_node(f.node_id)
             frontier.append({
                 "node_id": str(f.node_id),
-                "slug": node.slug if node else str(f.node_id),
                 "node_name": node.name if node else str(f.node_id),
                 "priority": f.priority,
                 "reason": f.reason,
@@ -265,7 +259,6 @@ def get_learner_detail(candidate: str, user: dict = Depends(_require_user)):
             misconceptions.append({
                 "id": str(mc.id),
                 "node_id": str(mc.misconception_node_id),
-                "slug": node.slug if node else str(mc.misconception_node_id),
                 "node_name": node.name if node else "",
                 "description": node.description if node else "",
                 "confidence": mc.confidence,
@@ -281,7 +274,7 @@ def get_learner_detail(candidate: str, user: dict = Depends(_require_user)):
             evidence.append({
                 "id": str(ev.id),
                 "node_id": str(ev.node_id),
-                "slug": node.slug if node else str(ev.node_id),
+                "node_name": node.name if node else str(ev.node_id),
                 "evidence_type": ev.evidence_type.value if hasattr(ev.evidence_type, 'value') else str(ev.evidence_type),
                 "observation_status": ev.observation_status.value if hasattr(ev.observation_status, 'value') else str(ev.observation_status),
                 "correctness": ev.correctness,
@@ -299,7 +292,7 @@ def get_learner_detail(candidate: str, user: dict = Depends(_require_user)):
             next_action = {
                 "action_type": a.action_type.value if hasattr(a.action_type, 'value') else str(a.action_type),
                 "target_node_id": str(a.target_node_id),
-                "slug": node.slug if node else str(a.target_node_id),
+                "node_name": node.name if node else str(a.target_node_id),
                 "total_score": a.total_score,
                 "rationale": a.rationale,
             }

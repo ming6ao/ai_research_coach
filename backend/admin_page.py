@@ -373,14 +373,14 @@ function renderGraph() {
     // Mastery overlay
     let masteryR = 0;
     if (learnerData) {
-      const st = learnerData.states.find(s => s.slug === n.slug);
+      const st = learnerData.states.find(s => s.node_id === n.id);
       if (st) masteryR = r * st.mastery;
     }
     if (masteryR > 0) {
       html += '<circle cx="'+n.x+'" cy="'+n.y+'" r="'+masteryR+'" fill="'+color+'" opacity="0.3"/>';
     }
     html += '<circle cx="'+n.x+'" cy="'+n.y+'" r="'+r+'" fill="'+color+'" class="node-circle'+sel+'" data-id="'+n.id+'" opacity="0.85"/>';
-    html += '<text x="'+n.x+'" y="'+(n.y + r + 12)+'" class="node-label">'+n.slug.slice(0,16)+'</text>';
+    html += '<text x="'+n.x+'" y="'+(n.y + r + 12)+'" class="node-label">'+(n.name||'').slice(0,16)+'</text>';
   });
 
   svg.innerHTML = html;
@@ -398,14 +398,14 @@ function renderGraph() {
 function showNodeDetail(nodeId) {
   const node = graphData.nodes.find(n => n.id === nodeId);
   if (!node) return;
-  const state = learnerData ? learnerData.states.find(s => s.slug === node.slug) : null;
+  const state = learnerData ? learnerData.states.find(s => s.node_id === node.id) : null;
   const outgoing = graphData.edges.filter(e => e.source === nodeId);
   const incoming = graphData.edges.filter(e => e.target === nodeId);
   const color = NODE_COLORS[node.type] || '#6b7280';
 
   let html = '<div class="node-detail">';
   html += '<h3><span class="badge badge-'+node.type+'" style="background:'+color+'20;color:'+color+'">'+node.type+'</span> '+node.name+'</h3>';
-  html += '<div class="meta">slug: '+node.slug+'</div>';
+  html += '<div class="meta">id: '+node.id+'</div>';
   if (node.description) html += '<div class="meta" style="margin-top:4px">'+node.description+'</div>';
   html += '<div class="meta" style="margin-top:4px">importance: '+(node.importance||0.7).toFixed(2)+' · status: '+node.status+'</div>';
   if (state) {
@@ -419,7 +419,7 @@ function showNodeDetail(nodeId) {
     html += '<div class="connections"><b>Outgoing:</b><ul>';
     outgoing.forEach(e => {
       const target = graphData.nodes.find(n => n.id === e.target);
-      html += '<li>'+e.edge_type+' → '+(target ? target.slug : e.target.slice(0,8))+'</li>';
+      html += '<li>'+e.edge_type+' → '+(target ? target.name : e.target.slice(0,8))+'</li>';
     });
     html += '</ul></div>';
   }
@@ -427,7 +427,7 @@ function showNodeDetail(nodeId) {
     html += '<div class="connections"><b>Incoming:</b><ul>';
     incoming.forEach(e => {
       const source = graphData.nodes.find(n => n.id === e.source);
-      html += '<li>'+e.edge_type+' ← '+(source ? source.slug : e.source.slice(0,8))+'</li>';
+      html += '<li>'+e.edge_type+' ← '+(source ? source.name : e.source.slice(0,8))+'</li>';
     });
     html += '</ul></div>';
   }
@@ -467,7 +467,7 @@ function renderStates() {
       compHtml += '<div class="competency-cell"><div class="label">'+dimLabels[i]+'</div><div class="bar"><div class="fill" style="width:'+(d*100)+'%"></div></div></div>';
     });
     compHtml += '</div>';
-    html += '<tr><td>'+s.slug+'</td><td><span class="badge badge-'+s.node_type+'">'+s.node_type+'</span></td><td>'+bar(s.mastery,'bar-mastery')+'</td><td>'+bar(s.uncertainty,'bar-uncertainty')+'</td><td><span class="badge badge-'+s.status+'">'+s.status+'</span></td><td>'+s.evidence_count+'</td><td>'+compHtml+'</td></tr>';
+    html += '<tr><td>'+s.node_name+'</td><td><span class="badge badge-'+s.node_type+'">'+s.node_type+'</span></td><td>'+bar(s.mastery,'bar-mastery')+'</td><td>'+bar(s.uncertainty,'bar-uncertainty')+'</td><td><span class="badge badge-'+s.status+'">'+s.status+'</span></td><td>'+s.evidence_count+'</td><td>'+compHtml+'</td></tr>';
   });
   html += '</tbody></table>';
   el.innerHTML = html;
@@ -478,7 +478,7 @@ function renderFrontier() {
   if (!learnerData || !learnerData.frontier.length) { el.innerHTML = '<div class="empty"><p>Frontier is empty</p></div>'; return; }
   let html = '<table><thead><tr><th>#</th><th>Node</th><th>Priority</th><th>Reason</th><th>Status</th></tr></thead><tbody>';
   learnerData.frontier.forEach((f,i) => {
-    html += '<tr><td>'+(i+1)+'</td><td>'+f.slug+'</td><td>'+bar(f.priority,'bar-priority')+'</td><td>'+f.reason+'</td><td>'+f.status+'</td></tr>';
+    html += '<tr><td>'+(i+1)+'</td><td>'+f.node_name+'</td><td>'+bar(f.priority,'bar-priority')+'</td><td>'+f.reason+'</td><td>'+f.status+'</td></tr>';
   });
   html += '</tbody></table>';
   el.innerHTML = html;
@@ -490,7 +490,7 @@ function renderMisconceptions() {
   let html = '';
   learnerData.misconceptions.forEach(m => {
     html += '<div class="node-detail">';
-    html += '<h3><span class="badge badge-misconception">'+m.status+'</span> '+m.slug+'</h3>';
+    html += '<h3><span class="badge badge-misconception">'+m.status+'</span> '+m.node_name+'</h3>';
     if (m.description) html += '<div class="meta" style="margin-top:4px">'+m.description+'</div>';
     html += '<div style="margin-top:6px">Confidence: '+bar(m.confidence,'bar-confidence')+'</div>';
     html += '<div class="meta" style="margin-top:4px">Detected: '+(m.first_detected_at||'—')+' · Last: '+(m.last_observed_at||'—')+'</div>';
@@ -505,7 +505,7 @@ function renderEvidence() {
   let html = '<table><thead><tr><th>Time</th><th>Node</th><th>Type</th><th>Status</th><th>Correctness</th><th>Assessor Note</th></tr></thead><tbody>';
   learnerData.evidence.forEach(e => {
     const note = (e.assessor_explanation || '').slice(0, 60) + ((e.assessor_explanation||'').length > 60 ? '...' : '');
-    html += '<tr><td style="white-space:nowrap">'+(e.created_at||'').replace('T',' ').slice(0,19)+'</td><td>'+e.slug+'</td><td>'+e.evidence_type+'</td><td><span class="badge badge-'+e.observation_status+'">'+e.observation_status+'</span></td><td>'+(e.correctness != null ? (e.correctness*100).toFixed(0)+'%' : '—')+'</td><td title="'+(e.assessor_explanation||'')+'">'+note+'</td></tr>';
+    html += '<tr><td style="white-space:nowrap">'+(e.created_at||'').replace('T',' ').slice(0,19)+'</td><td>'+e.node_name+'</td><td>'+e.evidence_type+'</td><td><span class="badge badge-'+e.observation_status+'">'+e.observation_status+'</span></td><td>'+(e.correctness != null ? (e.correctness*100).toFixed(0)+'%' : '—')+'</td><td title="'+(e.assessor_explanation||'')+'">'+note+'</td></tr>';
   });
   html += '</tbody></table>';
   el.innerHTML = html;

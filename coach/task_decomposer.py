@@ -12,7 +12,6 @@ skill-level graph (a SKILL node + a PROBLEM node) so `/start` never breaks.
 from __future__ import annotations
 
 import json
-import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Optional
@@ -30,33 +29,33 @@ _NODE_TYPES = {n.value for n in NodeType}
 _NODE_SCHEMA = types.Schema(
     type=types.Type.OBJECT,
     properties={
+        "key": types.Schema(type=types.Type.STRING),
         "type": types.Schema(type=types.Type.STRING),
-        "slug": types.Schema(type=types.Type.STRING),
         "name": types.Schema(type=types.Type.STRING),
         "description": types.Schema(type=types.Type.STRING),
         "importance": types.Schema(type=types.Type.NUMBER),
     },
-    required=["type", "slug", "name"],
+    required=["key", "type", "name"],
 )
 
 _EDGE_SCHEMA = types.Schema(
     type=types.Type.OBJECT,
     properties={
-        "source_slug": types.Schema(type=types.Type.STRING),
-        "target_slug": types.Schema(type=types.Type.STRING),
+        "source_key": types.Schema(type=types.Type.STRING),
+        "target_key": types.Schema(type=types.Type.STRING),
         "edge_type": types.Schema(type=types.Type.STRING),
     },
-    required=["source_slug", "target_slug", "edge_type"],
+    required=["source_key", "target_key", "edge_type"],
 )
 
 _SCHEMA = types.Schema(
     type=types.Type.OBJECT,
     properties={
-        "primary_node_slug": types.Schema(type=types.Type.STRING),
+        "primary_node_key": types.Schema(type=types.Type.STRING),
         "nodes": types.Schema(type=types.Type.ARRAY, items=_NODE_SCHEMA),
         "edges": types.Schema(type=types.Type.ARRAY, items=_EDGE_SCHEMA),
     },
-    required=["primary_node_slug", "nodes", "edges"],
+    required=["primary_node_key", "nodes", "edges"],
 )
 
 _REMEDIATION_SCHEMA = types.Schema(
@@ -74,13 +73,16 @@ task or interview question, decompose the knowledge a learner needs to solve it 
 into a small knowledge graph.
 
 Return JSON with three keys:
-  "primary_node_slug": the slug of the single node the task MOST directly measures.
-  "nodes": 2-8 items. Each item: {"type", "slug", "name", "description", "importance"}.
+  "primary_node_key": the key of the single node the task MOST directly measures.
+  "nodes": 2-8 items. Each item: {"key", "type", "name", "description", "importance"}.
+    - "key" is an ephemeral id for this payload only (e.g. "n0", "n1"). Edges
+      reference keys, never names or ids.
     - "type" must be one of: concept, skill, procedure, problem, strategy, misconception, domain.
-    - "slug" is a lowercase kebab-case unique id (e.g. "binary_search_cdf").
+    - "name" is the stable human-readable label (e.g. "Binary Search CDF").
+      Reuse the exact same name+type spelling for the same concept.
     - "importance" is a number in [0, 1] (how central this node is to the task).
-  "edges": 1-8 directed relationships between the node slugs.
-    Each item: {"source_slug", "target_slug", "edge_type"} where edge_type is one of:
+  "edges": 1-8 directed relationships between the node keys.
+    Each item: {"source_key", "target_key", "edge_type"} where edge_type is one of:
     prerequisite_of, requires, part_of, composed_of, applied_in, contrasts_with,
     commonly_confused_with, generalizes_to, specializes_to, enables, alternative_to.
 
@@ -106,8 +108,8 @@ answerable in a few minutes."""
 
 @dataclass
 class DecomposedNode:
+    key: str
     type: NodeType
-    slug: str
     name: str
     description: Optional[str] = None
     importance: float = 0.7
@@ -115,8 +117,8 @@ class DecomposedNode:
 
 @dataclass
 class DecomposedEdge:
-    source_slug: str
-    target_slug: str
+    source_key: str
+    target_key: str
     edge_type: EdgeType
 
 
@@ -126,18 +128,13 @@ class TaskKnowledge:
 
     task_id: str
     skill: str
-    primary_node_slug: str
+    primary_node_key: str
     nodes: list[DecomposedNode] = field(default_factory=list)
     edges: list[DecomposedEdge] = field(default_factory=list)
 
     @property
     def primary_node(self) -> DecomposedNode | None:
-        return next((n for n in self.nodes if n.slug == self.primary_node_slug), None)
-
-
-def _slugify(text: str, fallback: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", text.strip().lower()).strip("-")
-    return slug[:60] or fallback
+        return next((n for n in self.nodes if n.key == self.primary_node_key), None)
 
 
 class TaskDecomposer:
@@ -188,41 +185,41 @@ class TaskDecomposer:
     def _validate(self, task_id: str, skill: str, payload: dict) -> TaskKnowledge:
         raw_nodes = payload.get("nodes") or []
         raw_edges = payload.get("edges") or []
-        primary = payload.get("primary_node_slug", "")
+        primary = str(payload.get("primary_node_key", "") or "").strip()
 
         nodes: list[DecomposedNode] = []
-        by_slug: dict[str, DecomposedNode] = {}
-        for item in raw_nodes[:12]:
+        by_key: dict[str, DecomposedNode] = {}
+        for i, item in enumerate(raw_nodes[:12]):
             ntype = item.get("type")
             if ntype not in _NODE_TYPES:
                 ntype = "concept"
-            slug = _slugify(str(item.get("slug", "")), f"node_{len(nodes)}")
-            if slug in by_slug:
+            key = str(item.get("key", "") or "").strip() or f"n{i}"
+            if key in by_key:
                 continue
+            name = str(item.get("name") or f"Node {i}").strip()[:255] or f"Node {i}"
             node = DecomposedNode(
+                key=key,
                 type=NodeType(ntype),
-                slug=slug,
-                name=str(item.get("name") or slug.replace("-", " ").title()),
+                name=name,
                 description=str(item.get("description") or None),
                 importance=max(0.0, min(1.0, float(item.get("importance", 0.7)))),
             )
-            by_slug[slug] = node
+            by_key[key] = node
             nodes.append(node)
 
         # Ensure primary node exists (fall back to first node if missing).
-        primary = _slugify(primary, "") if primary else ""
-        if primary not in by_slug and nodes:
-            primary = nodes[0].slug
+        if primary not in by_key and nodes:
+            primary = nodes[0].key
         if not nodes:
             raise ValueError("decomposition produced no nodes")
 
         edges: list[DecomposedEdge] = []
         seen: set[tuple[str, str, str]] = set()
         for item in raw_edges[:16]:
-            src = _slugify(str(item.get("source_slug", "")), "")
-            tgt = _slugify(str(item.get("target_slug", "")), "")
+            src = str(item.get("source_key", "") or "").strip()
+            tgt = str(item.get("target_key", "") or "").strip()
             etype = str(item.get("edge_type", ""))
-            if src not in by_slug or tgt not in by_slug or etype not in _EDGE_TYPES:
+            if src not in by_key or tgt not in by_key or etype not in _EDGE_TYPES:
                 continue
             key = (src, tgt, etype)
             if key in seen:
@@ -230,30 +227,31 @@ class TaskDecomposer:
             seen.add(key)
             edges.append(DecomposedEdge(src, tgt, EdgeType(etype)))
 
-        return TaskKnowledge(task_id=task_id, skill=skill, primary_node_slug=primary,
+        return TaskKnowledge(task_id=task_id, skill=skill, primary_node_key=primary,
                              nodes=nodes, edges=edges)
 
     # -- deterministic fallback -------------------------------------------
 
     def _fallback(self, task_id: str, skill: str, prompt: str) -> TaskKnowledge:
-        skill_slug = _slugify(skill, "general")
-        problem_slug = _slugify(f"task {task_id}", f"task_{task_id}")
+        skill_name = (skill or "general").strip() or "general"
         skill_node = DecomposedNode(
-            type=NodeType.SKILL, slug=skill_slug, name=skill.title(),
+            key="n0",
+            type=NodeType.SKILL, name=skill_name.title(),
             description=f"Skill exercised by {task_id}.", importance=0.8,
         )
         problem_node = DecomposedNode(
-            type=NodeType.PROBLEM, slug=problem_slug, name=f"Task: {task_id}",
+            key="n1",
+            type=NodeType.PROBLEM, name=f"Task: {task_id}",
             description=prompt[:200], importance=1.0,
         )
         return TaskKnowledge(
             task_id=task_id,
             skill=skill,
-            primary_node_slug=skill_slug,
+            primary_node_key="n0",
             nodes=[skill_node, problem_node],
             edges=[
-                DecomposedEdge(problem_slug, skill_slug, EdgeType.APPLIED_IN),
-                DecomposedEdge(problem_slug, skill_slug, EdgeType.REQUIRES),
+                DecomposedEdge("n1", "n0", EdgeType.APPLIED_IN),
+                DecomposedEdge("n1", "n0", EdgeType.REQUIRES),
             ],
         )
 
@@ -268,12 +266,12 @@ class TaskDecomposer:
         """Generate a simpler coding task that drills into a specific KG node.
 
         Args:
-            node: the target knowledge node as {"slug", "name", "description"}.
+            node: the target knowledge node as {"node_id", "name", "description"}.
             original_task: the task the candidate just answered.
             original_fraction: the candidate's 0..1 score on it (drives difficulty).
 
         Returns a task dict with keys id/skill/type/difficulty/prompt/max_score,
-        plus the bookkeeping keys ``generated`` and ``mvp_target_slug``. Falls
+        plus the bookkeeping keys ``generated`` and ``mvp_target_node_id``. Falls
         back to a deterministic re-scoped prompt when no API key is available.
         """
         task_id = f"remed_{uuid.uuid4().hex[:10]}"
@@ -306,7 +304,7 @@ class TaskDecomposer:
             model=self._model,
             contents=(
                 f"Original task:\n{original_task.get('prompt', '')}\n\n"
-                f"Target node slug: {node.get('slug')}\n"
+                f"Target node id: {node.get('node_id')}\n"
                 f"Target node name: {node.get('name')}\n"
                 f"Target node description: {node.get('description') or ''}"
             ),
@@ -331,13 +329,13 @@ class TaskDecomposer:
             "max_score": 5,
             "hints": [],
             "generated": True,
-            "mvp_target_slug": node.get("slug"),
+            "mvp_target_node_id": node.get("node_id"),
         }
 
     @staticmethod
     def _fallback_remediation_prompt(node: dict, original_task: dict) -> str:
         """Deterministic fallback: re-scope the original prompt to the node."""
-        node_name = node.get("name") or node.get("slug") or "this topic"
+        node_name = node.get("name") or "this topic"
         return (
             f"Working specifically on: {node_name}.\n"
             f"{node.get('description') or ''}\n"
@@ -356,7 +354,7 @@ class TaskDecomposer:
     ) -> dict:
         """Generate a similar, high-solvability variant drilling the same node.
 
-        Same shape as remediation tasks (``generated`` + ``mvp_target_slug``)
+        Same shape as remediation tasks (``generated`` + ``mvp_target_node_id``)
         but framed as consolidation, not repair: new surface story, same
         concept, difficulty pre-tuned by ``coach.solvability`` so P(solve)
         lands near 0.8. Falls back deterministically without an API key.
@@ -374,7 +372,7 @@ class TaskDecomposer:
                 model=self._model,
                 contents=(
                     f"Original task:\n{original_task.get('prompt', '')}\n\n"
-                    f"Target node slug: {node.get('slug')}\n"
+                    f"Target node id: {node.get('node_id')}\n"
                     f"Target node name: {node.get('name')}\n"
                     f"Target node description: {node.get('description') or ''}\n"
                     f"Desired difficulty (1-5): {difficulty}\n\n"
@@ -400,7 +398,7 @@ class TaskDecomposer:
 
     @staticmethod
     def _fallback_variant_prompt(node: dict, original_task: dict) -> str:
-        node_name = node.get("name") or node.get("slug") or "this topic"
+        node_name = node.get("name") or "this topic"
         return (
             f"Follow-up practice on: {node_name}.\n"
             f"{node.get('description') or ''}\n"

@@ -173,7 +173,7 @@ def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
             boot = engine.bootstrap_task(first_task)
             learner = {
                 "learner_id": str(engine.learner_id(candidate)),
-                "primary_node_slug": boot.get("primary_node_slug"),
+                "primary_node_id": boot.get("primary_node_id"),
             }
     except Exception:
         # Never let learner integration break session startup.

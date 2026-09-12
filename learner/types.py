@@ -45,12 +45,12 @@ class KnowledgeGraphError(Exception):
     """Base class for all knowledge-graph domain errors."""
 
 
-class DuplicateSlugError(KnowledgeGraphError):
-    """A node with the same slug already exists."""
+class DuplicateNodeError(KnowledgeGraphError):
+    """A node with the same identity already exists."""
 
-    def __init__(self, slug: str) -> None:
-        super().__init__(f"a node with slug {slug!r} already exists")
-        self.slug = slug
+    def __init__(self, node_id: object) -> None:
+        super().__init__(f"a node with id {node_id!r} already exists")
+        self.node_id = node_id
 
 
 class NodeNotFoundError(KnowledgeGraphError):
