@@ -148,7 +148,8 @@ tr:hover td { background: var(--bg3); }
     <div class="tab" data-tab="misconceptions">Misconceptions</div>
     <div class="tab" data-tab="evidence">Evidence</div>
     <div class="tab" data-tab="skillstates">SkillState</div>
-    <div class="tab" data-tab="manage">Manage</div>
+    <div class="tab" data-tab="sessions">Sessions</div>
+    <div class="tab" data-tab="questions">Questions</div>
   </div>
   <div style="padding:12px 16px;">
     <div id="tab-graph" class="tab-content active">
@@ -157,19 +158,29 @@ tr:hover td { background: var(--bg3); }
         <span id="graph-info" style="font-size:11px;color:var(--text-muted)"></span>
       </div>
       <div id="graph-json"><div class="empty"><p>No frozen task graphs yet</p></div></div>
+      <h3 style="font-size:12px;margin:16px 0 8px">Index status</h3>
+      <div id="manage-graph-summary"><div class="empty"><p>Loading graph rows…</p></div></div>
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button id="manage-graph-rebuild-btn" class="primary" onclick="rebuildGraph()">Rebuild index</button>
+      </div>
+      <div class="meta" style="margin-top:4px">Graphs live on the questions themselves (frozen at creation). The node/edge index is derived — rebuild re-mirrors every frozen graph without touching learner rows. Admin-only.</div>
     </div>
     <div id="tab-states" class="tab-content"></div>
     <div id="tab-frontier" class="tab-content"></div>
     <div id="tab-misconceptions" class="tab-content"></div>
     <div id="tab-evidence" class="tab-content"></div>
     <div id="tab-skillstates" class="tab-content"></div>
-    <div id="tab-manage" class="tab-content">
+    <div id="tab-sessions" class="tab-content">
         <div class="panel-body">
           <h3 style="font-size:12px;margin-bottom:8px">Candidate data</h3>
           <div id="manage-summary"><div class="empty"><p>Select a candidate to preview their stored rows</p></div></div>
           <button id="manage-wipe-btn" class="danger" onclick="wipeCandidate()" style="margin-top:8px" disabled>Wipe candidate data</button>
           <div class="meta" style="margin-top:4px">Deletes sessions, learner rows, attempts, skill beliefs and owned questions. Back up <span style="font-family:inherit">data/coach.db</span> first — this cannot be undone.</div>
-          <h3 style="font-size:12px;margin:16px 0 8px">Questions</h3>
+        </div>
+    </div>
+    <div id="tab-questions" class="tab-content">
+        <div class="panel-body">
+          <h3 style="font-size:12px;margin-bottom:8px">Questions</h3>
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
             <input id="manage-q" placeholder="search prompt…" style="flex:2;min-width:140px">
             <input id="manage-owner" placeholder="owner email…" style="flex:1;min-width:120px">
@@ -177,14 +188,8 @@ tr:hover td { background: var(--bg3); }
             <button onclick="loadManageTasks()">Search</button>
           </div>
           <div id="manage-tasks"><div class="empty"><p>Loading questions…</p></div></div>
-          <h3 style="font-size:12px;margin:16px 0 8px">Task graphs</h3>
-          <div id="manage-graph-summary"><div class="empty"><p>Loading graph rows…</p></div></div>
-          <div style="display:flex;gap:6px;margin-top:8px">
-            <button id="manage-graph-rebuild-btn" class="primary" onclick="rebuildGraph()">Rebuild index</button>
-          </div>
-          <div class="meta" style="margin-top:4px">Graphs live on the questions themselves (frozen at creation). The node/edge index is derived — rebuild re-mirrors every frozen graph without touching learner rows. Admin-only.</div>
         </div>
-      </div>
+    </div>
     </div>
 </div>
 
