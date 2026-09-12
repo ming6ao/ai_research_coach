@@ -69,10 +69,12 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Create .env with your Gemini API key:
-echo 'GOOGLE_API_KEY="YOUR_API_KEY"' > .env
+# Create .env from the committed template (never commit .env itself):
+cp .env.example .env
+# Then set GOOGLE_API_KEY=... in .env (required). In production, prefer
+# real env vars / your platform's secret manager over a .env file.
 
-# Optional: Google login
+# Optional: Google login (set BOTH or NEITHER)
 # GOOGLE_CLIENT_ID=...
 # GOOGLE_CLIENT_SECRET=...
 
@@ -156,15 +158,26 @@ via `parent_task_id`/`target_text`. Each task optionally carries
 
 ## Environment variables
 
+See the committed `.env.example` for the full template. Local dev uses a
+gitignored `.env`; production should use real env vars / a secret manager.
+The backend logs warnings for partial OAuth config or bad numerics on
+startup, and fails fast when `APP_ENV=production` and required config is
+missing (see `coach/env_config.py`).
+
 ```bash
 GOOGLE_API_KEY=...              # Required
 EVAL_MODEL=gemini-3.5-flash-lite   # Judge/coach + decomposition model
 EVAL_RETRY_ATTEMPTS=5           # Retry attempts (all layers)
 EVAL_RETRY_INITIAL_DELAY=1.0    # Initial backoff (seconds)
 EVAL_RETRY_MAX_DELAY=30.0       # Max backoff (seconds)
-GOOGLE_CLIENT_ID=...            # Google login (optional)
-GOOGLE_CLIENT_SECRET=...        # Google login (optional)
+GOOGLE_CLIENT_ID=...            # Google login (optional, set BOTH or NEITHER)
+GOOGLE_CLIENT_SECRET=...        # Google login (optional, set BOTH or NEITHER)
+GOOGLE_REDIRECT_URI=...         # OAuth callback (default localhost:8001/...)
+FRONTEND_URL=...                # Public frontend URL (+ CORS allowlist)
+CORS_ORIGINS=...                # Extra comma-separated CORS origins (no '*')
 ADMIN_EMAILS=you@example.com    # Admin allowlist for /admin deletes (comma-separated)
+LEARNING_PARTNER_DB_URL=...     # Optional SQLite URL override (default data/coach.db)
+APP_ENV=development             # Set to `production` to fail fast on bad config
 ```
 
 ## Resilience & retry

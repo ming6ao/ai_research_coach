@@ -13,9 +13,13 @@ _root = Path(__file__).resolve().parent.parent
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
-# Load environment variables from .env
+# Load environment variables from .env (real env vars take precedence)
 from dotenv import load_dotenv
 load_dotenv(_root / ".env")
+
+from coach.env_config import ensure_env_checked
+
+ensure_env_checked()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

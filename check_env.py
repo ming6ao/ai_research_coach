@@ -8,13 +8,17 @@ load_dotenv(override=True)
 REQUIRED = ["GOOGLE_API_KEY"]
 GOOGLE_OAUTH = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]
 from coach.config import MODEL
+from coach.env_config import validate_env
 
 
 def check_env_vars():
+    status = validate_env()
+    for warning in status.warnings:
+        print(f"[WARN] {warning}")
     missing = [k for k in REQUIRED if not os.getenv(k)]
     if missing:
         print(f"[FAIL] Missing environment variable(s): {', '.join(missing)}")
-        print("       Add them to your .env file (see README).")
+        print("       Copy .env.example to .env and fill in real values (see README).")
         return False
     print(f"[OK]   GOOGLE_API_KEY is set ({len(os.getenv('GOOGLE_API_KEY'))} chars).")
 
