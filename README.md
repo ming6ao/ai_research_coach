@@ -4,8 +4,8 @@ A coaching app that probes and teaches AI/ML coding skills. It asks adaptive
 coding questions (Bayesian expected-information-gain selection), judges each
 answer with an LLM, and coaches the candidate through their gaps step by step.
 There is **no summative score, report, or verdict** — the app keeps a live
-per-skill belief and a per-knowledge-node learner model, and shows the
-candidate's progress as confidence + misconceptions + next actions.
+per-skill belief and shows the candidate's progress as skill confidence plus
+the judge's gap notes on answered questions.
 
 It is a single FastAPI + Vite app (no ADK agent). Questions live in the
 `tasks` DB table (not a YAML file) — users enter their own via
@@ -24,23 +24,18 @@ FastAPI (backend/main.py, backend/routes.py)
         │   ├── picker.py       EIG bank-task selection
         │   ├── hints.py        requestable hints + score penalty
         │   ├── session.py      tasks/results/skill_states (no mode)
-        │   ├── remediation.py  frontier remediation + consolidation successors
+        │   ├── selection.py    hybrid next-task selection
+        │   ├── remediation.py  judge-driven follow-up tasks
         │   ├── solvability.py  P(solve) estimate + adaptive difficulty ladder
         │   ├── tasks.py        DB task bank + attempts + skill beliefs
-        │   ├── task_decomposer.py  LLM: task → KG nodes; remediation/variant tasks
+        │   ├── task_decomposer.py  LLM: plain-English context + follow-up tasks
         │   ├── judge.py        LLM judge (score + rationale + coaching)
         │   └── db.py           single SQLite connection + schema
-        │
-        └── learner/            learner model (one module per topic)
-            ├── engine.py       LearnerEngine facade + hybrid pick_next_task
-            ├── graph/states/evidence/update
-            ├── misconception/frontier/policy/orchestrator
-            └── traversal/types/interfaces/container  (numeric, deterministic)
 ```
+(no `learner/` package — per-skill beliefs are the only mastery model)
 
 LLM calls live in exactly two places: `coach/judge.py` (judge + coach) and
-`coach/task_decomposer.py` (decomposition + remediation generation). Everything
-in the learner model is deterministic.
+`coach/task_decomposer.py` (context notes + follow-up generation).
 
 ## Project structure
 
@@ -56,23 +51,13 @@ ai_research_coach/
 ├── coach/
 │   ├── score.py / picker.py / hints.py   # Bayesian probing engine
 │   ├── session.py         # candidate session state
-│   ├── remediation.py     # remediation + consolidation planner
+│   ├── selection.py       # hybrid next-task selection
+│   ├── remediation.py     # judge-driven follow-up planner
 │   ├── solvability.py     # P(solve) + difficulty ladder
 │   ├── tasks.py           # DB task bank (tasks/task_attempts/user_skill_beliefs)
-│   ├── task_decomposer.py # LLM decomposition + remediation/variant generation
+│   ├── task_decomposer.py # LLM context notes + follow-up generation
 │   ├── judge.py           # LLM judge (score + rationale + coaching response)
 │   └── db.py              # single connection module (data/coach.db)
-├── learner/               # learner model, one module per topic
-│   ├── engine.py          # LearnerEngine facade + hybrid pick_next_task
-│   ├── graph.py           # knowledge nodes/edges + traversal + SQL tables
-│   ├── states.py          # learners + mastery states + SQL tables
-│   ├── evidence.py        # immutable observation records + SQL table
-│   ├── update.py          # Bayesian mastery/uncertainty engine
-│   ├── misconception.py   # detection/tracking + SQL table
-│   ├── frontier.py        # readiness computation + SQL table
-│   ├── policy.py          # next-action selection
-│   ├── orchestrator.py    # evidence assessors + assess→update loop
-│   └── traversal.py / types.py / interfaces.py / container.py
 ├── frontend/              # React 19 + TypeScript + Vite + Tailwind v4
 ```
 
@@ -106,16 +91,14 @@ python check_env.py          # verify env + model connectivity
    shown; the candidate clicks **Next question** to continue. The next task is
    chosen by the hybrid `pick_next_task`:
 1. a pending generated task surfaces first,
-2. otherwise the learner model's frontier drives remediation (a *simpler*
-   generated task drills the highest-information-gain node),
-3. otherwise a consolidation successor fires after a strong answer with
-   residual uncertainty (a *similar* task tuned to ~80% P(solve)),
-4. otherwise the EIG bank picker selects the informative task,
-5. `None` when the bank is exhausted and no remediation remains.
+2. otherwise a judge-driven follow-up fires after a weak answer or a named
+   gap (a *simpler* generated task drills the judge's gap text),
+3. otherwise the EIG bank picker selects the informative task,
+4. `None` when the bank is exhausted and no follow-up remains.
 4. **Progress** — when `next_task` is `null`, the candidate is done.
-   `POST /api/complete` returns the progress snapshot (per-skill confidence +
-   per-node states, misconceptions, next action). Sessions stay in
-   `active_sessions` for resume/history; "done" is derived from the session.
+   `POST /api/complete` returns the progress snapshot (per-skill confidence).
+   Sessions stay in `active_sessions` for resume/history; "done" is derived
+   from the session.
 
 ## Question selection
 
@@ -123,68 +106,50 @@ python check_env.py          # verify env + model connectivity
   `N(mean, variance)` per skill, updated by the judge score minus the hint
   penalty. The bank picker maximizes `EIG · coverage / expected_time`
   and the session ends when the task bank is exhausted.
-- **Remediation** (`coach/remediation.py` + `learner/`): per-node
-  mastery/uncertainty drives the frontier/policy; incorrect/partial answers,
-  active misconceptions, and high-uncertainty nodes generate a simpler drill task.
+- **Follow-ups** (`coach/remediation.py`): the judge's gap text
+  (misconception/feedback) drives one simpler drill task on weak answers;
+  clean solves generate nothing. Budget caps keep the loop finite.
 
 ## API surface
 
 | Endpoint | Purpose |
 |----------|---------|
-| `POST /api/start` `{initial_question?, task_ids?, skill?}` | New session → `{session_id, candidate, message, first_task, learner}` |
-| `POST /api/tasks` `{prompt, skill?, scaffold?, difficulty?, hints?, is_public?}` | Create a user question → `{task}` |
+| `POST /api/start` `{initial_question?, task_ids?, skill?}` | New session → `{session_id, candidate, message, first_task}` |
+| `POST /api/tasks` `{prompt, skill?, scaffold?, difficulty?, hints?, is_public?, context_notes?}` | Create a user question → `{task}` |
 | `GET /api/tasks?skill=` | List visible tasks |
 | `GET /api/tasks/{id}` | Task detail |
-| `POST /api/submit` `{session_id, task_id, answer, hints_used}` | Score + coach + `next_task` + `skill_update` + `learner_update` |
-| `POST /api/complete` `{session_id}` | Progress snapshot `{done, skill_states, learner}` |
-| `POST /api/session/open` `{id}` | Resume a session → `{current_task, results, skill_states, learner}` |
+| `POST /api/submit` `{session_id, task_id, answer, hints_used}` | Score + coach + `next_task` + `skill_update` |
+| `POST /api/complete` `{session_id}` | Progress snapshot `{done, skill_states}` |
+| `POST /api/session/open` `{id}` | Resume a session → `{current_task, results, skill_states}` |
 | `GET /api/sessions` | Candidate's sessions with a `done` flag |
 | `DELETE /api/sessions/active/{id}` | Delete an active session (ownership-guarded) |
-| `DELETE /api/sessions/clear/{candidate}` | Delete sessions + learner rows + attempts + beliefs + owned tasks |
+| `DELETE /api/sessions/clear/{candidate}` | Delete sessions + attempts + beliefs + owned tasks |
 | `/api/auth/*` | Google login / me / logout |
-| `/admin/*` | Debug endpoints (graph, learner detail, stats, SkillState) + Manage endpoints below |
+| `/admin/*` | Debug endpoints (candidates, skill states, stats) + Manage endpoints below |
 | `GET /admin/tasks?owner=&skill=&q=` | List questions with attempt counts |
+| `PATCH /admin/tasks/{id}` `{context_notes}` | Edit a question's plain-English context (owner or admin) |
 | `GET /admin/candidate/{candidate}/summary` | Per-table row counts preview (owner or admin) |
 | `DELETE /admin/candidate/{candidate}` | Full candidate wipe (owner or admin) |
 | `DELETE /admin/tasks/{id}` | Delete a question + its attempts (owner or admin; system rows admin-only) |
 
 ## Persistence
 
-Single SQLite file `data/coach.db` (gitignored, created on first run) with 13
-tables: `users`, `auth_tokens`, `active_sessions`, `knowledge_nodes`,
-`knowledge_edges`, `learners`, `learner_knowledge_states`, `evidence`,
-`learner_misconceptions`,
-`learner_frontier`, plus `tasks`, `task_attempts`, `user_skill_beliefs`.
-`coach/db.py` is the single connection module. The learner
-state is **derived** from the append-only `evidence` table, so history is always
-recomputable. Per-task progress lives in `task_attempts`; per-skill mastery
-persists across sessions in `user_skill_beliefs`. Task→node mapping is ephemeral (derived from the decomposer at
-submit time).
-
-## Learner model (flat `learner/`)
-
-- The learner package (one module per topic — models, services, and SQL
-  persistence for that topic live together) keeps per-node mastery/uncertainty
-  beliefs that drive the frontier/policy/remediation.
-- `learner/engine.py` (`LearnerEngine`) is the single facade:
-  `ensure_learner`, `bootstrap_task`, `bootstrap_generated_task`,
-  `record_submission`, `learner_snapshot`, plus the hybrid `pick_next_task` and
-  `clear_learner_data(candidate)`.
-- Candidate identity lives on the `learners.candidate` column (UNIQUE).
-- CLI inspector:
-
-```bash
-python -m learner.engine --demo          # canned learner, no API key
-python -m learner.engine alice@example.com
-```
+Single SQLite file `data/coach.db` (gitignored, created on first run) with 6
+tables: `users`, `auth_tokens`, `active_sessions`, `tasks`, `task_attempts`,
+`user_skill_beliefs`. `coach/db.py` is the single connection module (it drops
+the removed knowledge-graph/learner tables on startup so old databases
+converge). Per-task progress lives in `task_attempts`; per-skill mastery
+persists across sessions in `user_skill_beliefs`. Generated follow-ups link
+via `parent_task_id`/`target_text`. Each task optionally carries
+`context_notes` (plain-English prerequisites/confusions).
 
 ## How to extend (no code changes)
 
 - **Add a question**: `POST /api/tasks` with `prompt`, `skill`, and optional
-  `scaffold`/`difficulty`/`hints`. Or pass `initial_question` to
+  `scaffold`/`difficulty`/`hints`/`context_notes`. Or pass `initial_question` to
   `/api/start`. The `skill` tag is a free-form id — a new tag starts a fresh
   per-skill belief. User rows are private by default (guests create public
-  rows); generated follow-ups link via `parent_task_id`/`mvp_target_node_id`.
+  rows); generated follow-ups link via `parent_task_id`/`target_text`.
 - **Change the model**: set `EVAL_MODEL` in `.env` (e.g. `gemini-3.5-flash-lite`).
 
 ## Environment variables
@@ -195,7 +160,6 @@ EVAL_MODEL=gemini-3.5-flash-lite   # Judge/coach + decomposition model
 EVAL_RETRY_ATTEMPTS=5           # Retry attempts (all layers)
 EVAL_RETRY_INITIAL_DELAY=1.0    # Initial backoff (seconds)
 EVAL_RETRY_MAX_DELAY=30.0       # Max backoff (seconds)
-LEARNING_PARTNER_DB_URL=sqlite:///data/coach.db  # learner tables (optional; defaults to coach.db)
 GOOGLE_CLIENT_ID=...            # Google login (optional)
 GOOGLE_CLIENT_SECRET=...        # Google login (optional)
 ADMIN_EMAILS=you@example.com    # Admin allowlist for /admin deletes (comma-separated)

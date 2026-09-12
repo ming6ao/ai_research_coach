@@ -52,7 +52,7 @@ export function WelcomeView() {
 
   const handleClearAll = async () => {
     if (!user) return;
-    if (!window.confirm('Delete ALL sessions and learner data for your account? This cannot be undone.')) return;
+    if (!window.confirm('Delete ALL sessions and data for your account? This cannot be undone.')) return;
     try {
       await apiClient.clearCandidateData(user.email);
       setSessions([]);

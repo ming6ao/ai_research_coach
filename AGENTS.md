@@ -33,16 +33,16 @@ python check_env.py
 
 - **Entry point**: FastAPI app in `backend/main.py` (`backend/routes.py` + admin routes). No ADK agent.
 - **DB task bank**: Questions live in the `tasks` table (`coach/tasks.py`) — users add their own via `POST /api/tasks` or `initial_question` on `/api/start`; each task's `skill` tag is a free-form id that keys a per-skill belief
-- **Bayesian probing**: `coach/score.py` + `coach/picker.py` keep a Gaussian belief `N(mean, variance)` per skill; `pick_next_task` (in `learner/engine.py`) selects questions to maximize expected information gain (EIG) per unit of expected time, weighted by skill coverage
-- **Hybrid question selection**: `learner/engine.py:pick_next_task` — (1) pending generated task, (2) frontier-driven remediation (`coach/remediation.py` + knowledge-graph learner model), (2b) consolidation successor (similar task tuned to ~80% P(solve) via `coach/solvability.py`), (3) EIG bank picker, (4) `None` when done
-- **Learner model**: the flat `learner/` package (one module per topic: `engine`, `graph`, `states`, `evidence`, `update`, `misconception`, `frontier`, `policy`, `orchestrator`, `traversal`) keeps per-node mastery/uncertainty beliefs that drive the frontier/policy/remediation math
+- **Bayesian probing**: `coach/score.py` + `coach/picker.py` keep a Gaussian belief `N(mean, variance)` per skill; `pick_next_task` (in `coach/selection.py`) selects questions to maximize expected information gain (EIG) per unit of expected time, weighted by skill coverage
+- **Hybrid question selection**: `coach/selection.py:pick_next_task` — (1) pending generated task, (2) judge-driven follow-up (`coach/remediation.py`: a simpler task drilled from the judge's misconception/feedback text, difficulty tuned to ~80% P(solve) via `coach/solvability.py`), (3) EIG bank picker, (4) `None` when done
+- **No knowledge graph**: there are no nodes/edges. Each task optionally carries `context_notes` (2–4 plain-English sentences, e.g. "A is a prerequisite of B, often confused with C"), generated once at creation by `coach/task_decomposer.py:describe_task` and editable via `PATCH /admin/tasks/{id}`
 - **Hints**: `coach/hints.py` — tasks declare ordered hints; weak candidates get them pre-revealed, others request them on demand; viewed hints reduce effective mastery
 - **Code eval**: `coach/judge.py` evaluates candidate code via a single structured LLM call (score + rationale + coaching response)
 - **Coaching**: The judge's coaching response (in `coach/judge.py` as `CoachContent`) identifies the candidate's misconception/gap and walks them step-by-step to the correct solution with code examples — no separate feedback step
 - **Teaching pause**: After a submit the UI does **not** auto-advance. The coaching response is shown and the candidate advances manually (`Next question`); the picked task is held until then
-- **No summative product**: there is no `assessments` table, report, verdict, or raw-score UI. The app probes and teaches; the progress view shows per-skill confidence + per-node status/misconceptions/next actions
-- **Persistence**: single SQLite file `data/coach.db` (gitignored) with 13 tables (`users`, `auth_tokens`, `active_sessions`, `knowledge_nodes`, `knowledge_edges`, `learners`, `learner_knowledge_states`, `evidence`, `learner_misconceptions`, `learner_frontier`, `tasks`, `task_attempts`, `user_skill_beliefs`). Task→node mapping is ephemeral (derived at submit time). `coach/db.py` is the single connection module
-- **Models**: `EVAL_MODEL` (judge/coach + decomposer) defaults to `gemini-3.5-flash-lite`
+- **No summative product**: there is no `assessments` table, report, verdict, or raw-score UI. The app probes and teaches; the progress view shows per-skill confidence + answered questions with the judge's gap text
+- **Persistence**: single SQLite file `data/coach.db` (gitignored) with 6 tables (`users`, `auth_tokens`, `active_sessions`, `tasks`, `task_attempts`, `user_skill_beliefs`). `coach/db.py` is the single connection module; `create_schema()` drops the removed knowledge-graph/learner tables so old DBs converge to the fresh design
+- **Models**: `EVAL_MODEL` (judge/coach + context/follow-up generation) defaults to `gemini-3.5-flash-lite`
 
 ## Extending Without Code Changes
 
@@ -67,13 +67,10 @@ Optional per task: `hints` (ordered list with `id`, `text`, `weight` 0..1, and `
 
 ## Learner Model (flat `learner/`)
 
-- The learner package lives in-repo at `learner/` (one module per topic — models, services, and SQL persistence for that topic live together; SQLAlchemy `Base`/engine/converters live in `coach/db.py`). No install step needed.
-- `learner/engine.py` (`LearnerEngine`) is the single facade: `ensure_learner(candidate)`, `bootstrap_task(task)`, `bootstrap_generated_task(task)`, `record_submission(candidate, task, result, coach, viewed)`, `learner_snapshot(candidate)`, plus the hybrid `pick_next_task` and `clear_learner_data(candidate)`.
-- Candidate identity lives on the `learners.candidate` column (UNIQUE) — no separate binding table.
-- `coach/task_decomposer.py` decomposes a task/interview question into knowledge nodes+edges+primary via an LLM; falls back to a deterministic skill+problem graph when no `GOOGLE_API_KEY` (keeps tests and startup hermetic).
-- Hooks: `/api/start` and `/api/session/open` call `ensure_learner` + `bootstrap_task`; `/api/submit` calls `record_submission`; `/api/complete` and `/api/session/open` attach a `learner` block via `learner_snapshot`.
-- The learner model is LLM-free; all LLM work lives in `coach/judge.py` and `coach/task_decomposer.py`. The parent's Bayesian `SkillState` scoring runs in parallel.
-- CLI inspector: `python -m learner.engine --demo` (canned learner, no API key) or `python -m learner.engine <candidate>` to print states/frontier/misconceptions/next action. Backend-only (no UI surface).
+- Removed. There is no `learner/` package, no nodes/edges, no frontier/policy.
+- Per-skill mastery is the Gaussian belief in `coach/score.py` + `user_skill_beliefs`.
+- Follow-ups are judge-driven: `coach/remediation.py` drills the judge's gap text.
+- `coach/task_decomposer.py` has two LLM helpers only: `describe_task` (context notes) and `generate_followup_task` (simpler drill task), both with deterministic no-API-key fallbacks.
 
 ## Environment Variables
 
@@ -83,7 +80,6 @@ EVAL_MODEL=gemini-3.5-flash-lite   # Judge/coach + decomposition model
 EVAL_RETRY_ATTEMPTS=5           # Retry attempts (all layers)
 EVAL_RETRY_INITIAL_DELAY=1.0    # Initial backoff (seconds)
 EVAL_RETRY_MAX_DELAY=30.0       # Max backoff (seconds)
-LEARNING_PARTNER_DB_URL=sqlite:///data/coach.db  # learner tables (optional; defaults to coach.db)
 ```
 
 ## Retry / Resilience
@@ -96,7 +92,7 @@ LEARNING_PARTNER_DB_URL=sqlite:///data/coach.db  # learner tables (optional; def
 - React 19 + TypeScript + Vite + Tailwind v4
 - Chat-style UI: `ChatView`/`WelcomeView` in `frontend/src/components/Chat/` render the session as coach/user bubbles; the active task embeds Monaco via `CodeEditor`; submitted results render the judge's coaching (`CoachingBubble`: verdict chip + misconception + numbered steps with code examples)
 - Single unified behavior for guests and signed-in users (no practice/assessment split). Guests keep their in-progress session in `localStorage`; signed-in users (bearer token in `localStorage`) get per-account history
-- Progress view: `frontend/src/components/Progress/LearnerProgressView.tsx` shows per-skill confidence and per-node status + misconceptions + next actions after `/api/complete` or on resume of a done session
+- Progress view: `frontend/src/components/Progress/LearnerProgressView.tsx` shows per-skill confidence + answered questions with the judge's gap text after `/api/complete` or on resume of a done session
 - Auth backend: `backend/auth.py` (bearer tokens, `get_current_user` FastAPI dependency) + `backend/google_auth.py` (Google OAuth authorization-code flow, stdlib only). Login is Google-only — `/auth/google/url` + `/auth/google/callback` exchange a code for a local user (keyed by email) and redirect to `FRONTEND_URL/?token=...`. Requires `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` in `.env`
 - Linting: `oxlint` (config in `frontend/.oxlintrc.json`)
 - Typecheck: `tsc -b` (project references: `tsconfig.app.json`, `tsconfig.node.json`)

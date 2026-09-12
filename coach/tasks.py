@@ -1,7 +1,11 @@
 """DB-backed task bank: user-created questions + seeded tasks + attempt log.
 
-Replaces ``config/tasks.yaml``. Tasks live in the shared SQLite file
-(``data/coach.db``) via the SQLAlchemy ``Base`` in ``coach.db``.
+Tasks live in the shared SQLite file (``data/coach.db``) via the SQLAlchemy
+``Base`` in ``coach.db``.
+
+Each task optionally carries ``context_notes``: 2-4 plain-English sentences
+(e.g. "A is a prerequisite of B, which is often confused with C") generated
+once at creation time. There is no knowledge graph, no nodes/edges.
 
 Visibility: a candidate sees system seed rows (``owner='system'``,
 ``is_public=1``), their own rows, and any public rows. Guests create
@@ -55,11 +59,11 @@ class TaskModel(Base):
     difficulty: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
     max_score: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     hints_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
-    graph_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    context_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
     expected_time_min: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     parent_task_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    target_node_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    target_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_public: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
@@ -103,12 +107,6 @@ def task_to_dict(model: TaskModel) -> dict:
         hints = json.loads(model.hints_json or "[]")
     except Exception:
         hints = []
-    try:
-        graph = json.loads(getattr(model, "graph_json", None) or "{}")
-        if not isinstance(graph, dict):
-            graph = {}
-    except Exception:
-        graph = {}
     d: dict[str, Any] = {
         "id": model.id,
         "skill": model.skill,
@@ -116,7 +114,7 @@ def task_to_dict(model: TaskModel) -> dict:
         "difficulty": model.difficulty,
         "max_score": model.max_score,
         "hints": hints,
-        "graph": graph,
+        "context_notes": getattr(model, "context_notes", "") or "",
         "source": model.source,
         "is_public": bool(model.is_public),
         "owner": model.owner,
@@ -127,8 +125,8 @@ def task_to_dict(model: TaskModel) -> dict:
         d["expected_time_min"] = model.expected_time_min
     if model.parent_task_id:
         d["parent_task_id"] = model.parent_task_id
-    if model.target_node_id:
-        d["mvp_target_node_id"] = model.target_node_id
+    if model.target_text:
+        d["target_text"] = model.target_text
         d["generated"] = True
     elif model.source == "generated":
         d["generated"] = True
@@ -146,25 +144,16 @@ def create_task(
     expected_time_min: Optional[float] = None,
     source: str = "user",
     parent_task_id: Optional[str] = None,
-    target_node_id: Optional[str] = None,
+    target_text: Optional[str] = None,
     is_public: bool = False,
     task_id: Optional[str] = None,
-    graph: Optional[Any] = None,
-    graph_yaml: Optional[str] = None,
+    context_notes: Optional[str] = None,
 ) -> dict:
-    """Persist a task row and return its dict form.
-
-    ``graph`` is a frozen per-task knowledge graph (``TaskGraph``, mapping,
-    or JSON string); ``graph_yaml`` is YAML accepted once at the write
-    boundary and canonicalized to JSON. Either may be omitted (``{}``),
-    in which case the caller is expected to freeze via
-    ``ensure_task_graph``/backfill.
-    """
+    """Persist a task row and return its dict form."""
     from coach.db import create_schema
 
     create_schema()
     tid = task_id or f"task_{uuid.uuid4().hex[:10]}"
-    graph_json = _coerce_graph_json(graph, graph_yaml)
     session = learner_session()
     try:
         model = TaskModel(
@@ -176,11 +165,11 @@ def create_task(
             difficulty=max(1, min(5, int(difficulty or 2))),
             max_score=max_score or 5,
             hints_json=json.dumps(hints or []),
-            graph_json=graph_json,
+            context_notes=(context_notes or "").strip()[:2000],
             expected_time_min=expected_time_min,
             source=source,
             parent_task_id=parent_task_id,
-            target_node_id=target_node_id,
+            target_text=target_text,
             is_public=1 if is_public else 0,
             created_at=_utcnow_naive(),
         )
@@ -191,36 +180,17 @@ def create_task(
         session.close()
 
 
-def _coerce_graph_json(graph: Optional[Any], graph_yaml: Optional[str] = None) -> str:
-    """Validate caller graph input once; return canonical JSON (``{}`` if absent)."""
-    from coach.task_graph import TaskGraph, coerce_graph_payload
-
-    if graph is None and graph_yaml is None:
-        return "{}"
-    if isinstance(graph, str) and graph_yaml is None:
-        # Raw JSON string passes through validation.
-        validated = TaskGraph.from_json(graph)
-        return validated.to_json()
-    validated = coerce_graph_payload(graph, graph_yaml)
-    if validated is None:
-        return "{}"
-    if isinstance(validated, TaskGraph):
-        return validated.to_json()
-    return json.dumps(validated)
-
-
-def set_task_graph(task_id: str, graph: Optional[Any], graph_yaml: Optional[str] = None) -> Optional[dict]:
-    """Validate and overwrite a task's frozen graph (admin regenerate path)."""
+def update_task_context(task_id: str, context_notes: str) -> Optional[dict]:
+    """Overwrite a task's plain-English context notes (admin edit path)."""
     from coach.db import create_schema
 
     create_schema()
-    graph_json = _coerce_graph_json(graph, graph_yaml)
     session = learner_session()
     try:
         model = session.get(TaskModel, task_id)
         if model is None:
             return None
-        model.graph_json = graph_json
+        model.context_notes = (context_notes or "").strip()[:2000]
         session.commit()
         return task_to_dict(model)
     finally:

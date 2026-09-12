@@ -15,7 +15,8 @@ export interface Task {
   difficulty: number;
   scaffold?: string;
   hints?: Hint[];
-  remediation?: { node_id?: string };
+  context_notes?: string;
+  remediation?: { focus?: string };
 }
 
 export interface EvaluationResult {
@@ -46,54 +47,12 @@ export interface SkillUpdate {
   hints_used?: string[];
 }
 
-export interface LearnerState {
-  name: string;
-  mastery: number;
-  uncertainty: number;
-  status: string;
-  evidence_count: number;
-}
-
-export interface LearnerFrontierEntry {
-  node_id: string;
-  name: string | null;
-  description: string | null;
-  priority: number;
-  reason: string;
-  status: string;
-}
-
-export interface LearnerMisconception {
-  node_id: string;
-  name: string | null;
-  status: string;
-  confidence: number;
-}
-
-export interface LearnerAction {
-  action_type: string;
-  target_node_id: string;
-  name: string | null;
-  description: string | null;
-  total_score: number;
-  rationale: string;
-}
-
-export interface LearnerSnapshot {
-  learner_id: string | null;
-  states: Record<string, LearnerState>;
-  frontier_top: LearnerFrontierEntry[];
-  misconceptions: LearnerMisconception[];
-  next_action: LearnerAction | null;
-}
-
 export interface StartResponse {
   session_id: string;
   candidate: string;
   message: string;
   total_tasks: number;
   first_task: Task | null;
-  learner?: { learner_id: string; primary_node_id?: string | null } | null;
 }
 
 export interface SubmitResponse {
@@ -103,14 +62,12 @@ export interface SubmitResponse {
   next_task: Task | null;
   remaining: number;
   skill_update?: SkillUpdate;
-  learner_update?: Record<string, unknown> | null;
   note?: string;
 }
 
 export interface CompleteResponse {
   done: boolean;
   skill_states: Record<string, { score: number; confidence: number; questions_answered: number }>;
-  learner: LearnerSnapshot | null;
 }
 
 export interface ResumeResponse {
@@ -121,7 +78,6 @@ export interface ResumeResponse {
   current_task: Task | null;
   results: FeedbackEntry[];
   skill_states: Record<string, { score: number; confidence: number; questions_answered: number }>;
-  learner: LearnerSnapshot | null;
 }
 
 export interface FeedbackEntry {
@@ -200,91 +156,8 @@ async function api<T>(path: string, body?: unknown, method?: string): Promise<T>
   return res.json();
 }
 
-export interface AdminLearner {
-  candidate: string | null;
-  learner_id: string;
-  created_at: string | null;
-  metadata: Record<string, unknown>;
-}
-
-export interface AdminGraphNode {
-  id: string;
-  type: string;
-  name: string;
-  description: string | null;
-  importance: number;
-  status: string;
-}
-
-export interface AdminGraphEdge {
-  id: string;
-  source: string;
-  target: string;
-  edge_type: string;
-  weight: number;
-}
-
-export interface AdminLearnerState {
-  node_id: string;
-  node_name: string;
-  node_type: string;
-  mastery: number;
-  uncertainty: number;
-  status: string;
-  evidence_count: number;
-  conceptual: number;
-  procedural: number;
-  implementation: number;
-  transfer: number;
-  fluency: number;
-  self_confidence: number;
-  reasoning: number;
-}
-
-export interface AdminFrontierEntry {
-  node_id: string;
-  node_name: string;
-  priority: number;
-  reason: string;
-  status: string;
-}
-
-export interface AdminMisconception {
-  id: string;
-  node_id: string;
-  node_name: string;
-  description: string;
-  confidence: number;
-  status: string;
-  first_detected_at: string | null;
-  last_observed_at: string | null;
-}
-
-export interface AdminEvidence {
-  id: string;
-  node_id: string;
-  node_name: string;
-  evidence_type: string;
-  observation_status: string;
-  correctness: number | null;
-  assessor_explanation: string | null;
-  created_at: string | null;
-}
-
-export interface AdminLearnerDetail {
-  learner_id: string;
+export interface AdminCandidate {
   candidate: string;
-  states: AdminLearnerState[];
-  frontier: AdminFrontierEntry[];
-  misconceptions: AdminMisconception[];
-  evidence: AdminEvidence[];
-  next_action: {
-    action_type: string;
-    target_node_id: string;
-    node_name: string;
-    total_score: number;
-    rationale: string;
-  } | null;
 }
 
 export interface AdminSkillStates {
@@ -299,12 +172,10 @@ export interface AdminSkillStates {
 }
 
 export interface AdminStats {
-  knowledge_nodes: number;
-  knowledge_edges: number;
-  learners: number;
-  knowledge_states: number;
-  evidence_records: number;
-  misconceptions: number;
+  tasks_total: number;
+  task_attempts: number;
+  skill_beliefs: number;
+  active_sessions: number;
 }
 
 export const apiClient = {
@@ -348,17 +219,8 @@ export const apiClient = {
     api<{ user: AuthUser }>('/auth/me'),
 
   // Admin endpoints
-  adminLearners: () =>
-    api<{ learners: AdminLearner[] }>('/learners', undefined, 'GET'),
-
-  adminGraph: () =>
-    api<{ nodes: AdminGraphNode[]; edges: AdminGraphEdge[] }>('/graph', undefined, 'GET'),
-
-  adminGraphNode: (nodeId: string) =>
-    api<{ node: AdminGraphNode; outgoing_edges: unknown[]; incoming_edges: unknown[]; related_nodes: unknown[] }>(`/graph/${encodeURIComponent(nodeId)}`, undefined, 'GET'),
-
-  adminLearnerDetail: (candidate: string) =>
-    api<AdminLearnerDetail>(`/learner/${encodeURIComponent(candidate)}`, undefined, 'GET'),
+  adminCandidates: () =>
+    api<{ learners: AdminCandidate[] }>('/learners', undefined, 'GET'),
 
   adminSkillStates: (candidate: string) =>
     api<AdminSkillStates>(`/skill-states/${encodeURIComponent(candidate)}`, undefined, 'GET'),

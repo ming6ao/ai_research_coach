@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { apiClient } from '../api/client';
-import type { Task, EvaluationResult, FeedbackEntry, ResumeResponse, CoachContent, LearnerSnapshot } from '../api/client';
+import type { Task, EvaluationResult, FeedbackEntry, ResumeResponse, CoachContent } from '../api/client';
 
 export interface LogEntry {
   id: number;
@@ -28,7 +28,6 @@ interface AssessmentState {
   totalTasks: number;
   results: ResultWithFeedback[];
   skillStates: Record<string, { score: number; confidence: number; questions_answered: number }>;
-  learnerSnapshot: LearnerSnapshot | null;
   progressView: boolean;
   chatLog: LogEntry[];
   loading: boolean;
@@ -74,7 +73,6 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
   totalTasks: 0,
   results: [],
   skillStates: {},
-  learnerSnapshot: null,
   progressView: false,
   chatLog: [],
   loading: false,
@@ -102,7 +100,6 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       totalTasks: res.total_tasks,
       results,
       skillStates: res.skill_states,
-      learnerSnapshot: res.learner,
       progressView: done,
       submitted: false,
     });
@@ -128,7 +125,6 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         totalTasks: res.total_tasks,
         results: [],
         skillStates: {},
-        learnerSnapshot: null,
         progressView: false,
         submitted: false,
         initialQuestion: initialQuestion?.trim() || null,
@@ -203,7 +199,6 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       const res = await apiClient.complete(sessionId);
       set({
         skillStates: res.skill_states,
-        learnerSnapshot: res.learner,
         progressView: true,
       });
       get().addLog('Progress summary ready.');
@@ -226,7 +221,6 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       totalTasks: 0,
       results: [],
       skillStates: {},
-      learnerSnapshot: null,
       progressView: false,
       chatLog: [],
       error: null,

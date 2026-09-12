@@ -31,13 +31,10 @@ def _seed_candidate(candidate):
     """Seed one row per candidate-scoped table; return owned task id."""
     from backend.dependencies import get_store
     from coach.tasks import create_task, record_attempt, save_skill_belief
-    from learner.engine import LearnerEngine
 
     store = get_store()
     sid = store.create(candidate)
     store.save(sid, {"session": {"candidate": candidate}})
-
-    LearnerEngine().ensure_learner(candidate)
 
     task = create_task(prompt="Owned question?", skill="s", owner=candidate)
     record_attempt(candidate, task["id"], 0.8, 4, 5, [])
@@ -67,15 +64,14 @@ def test_owner_can_wipe_self(client):
 
     summary = client.get("/admin/candidate/alice@x.com/summary", headers=_h(token)).json()
     assert summary["active_sessions"] == 1
-    assert summary["learners"] == 1
     assert summary["task_attempts"] == 1
     assert summary["skill_beliefs"] == 1
     assert summary["owned_tasks"] == 1
-    assert summary["total"] == 5
+    assert summary["total"] == 4
 
     res = client.delete("/admin/candidate/alice@x.com", headers=_h(token))
     assert res.status_code == 200
-    assert res.json()["deleted"]["total"] == 5
+    assert res.json()["deleted"]["total"] == 4
 
     again = client.get("/admin/candidate/alice@x.com/summary", headers=_h(token)).json()
     assert again["total"] == 0
@@ -127,3 +123,27 @@ def test_task_owner_delete_cascades_attempts(client):
     assert get_task(task["id"]) is None
 
     assert client.delete("/admin/tasks/does-not-exist", headers=_h(token)).status_code == 404
+
+
+def test_task_owner_can_edit_context_notes(client):
+    from coach.tasks import create_task, get_task
+
+    token = _login("dave@x.com")
+    stranger = _login("mallory@x.com")
+    task = create_task(prompt="Dave's question?", skill="s", owner="dave@x.com")
+
+    res = client.patch(
+        f"/admin/tasks/{task['id']}",
+        json={"context_notes": "A is a prerequisite of B, often confused with C."},
+        headers=_h(token),
+    )
+    assert res.status_code == 200
+    assert res.json()["task"]["context_notes"].startswith("A is a prerequisite")
+    assert get_task(task["id"])["context_notes"].startswith("A is a prerequisite")
+
+    assert client.patch(
+        f"/admin/tasks/{task['id']}",
+        json={"context_notes": "hijacked"},
+        headers=_h(stranger),
+    ).status_code == 403
+    assert client.patch("/admin/tasks/does-not-exist", json={"context_notes": "x"}, headers=_h(token)).status_code == 404

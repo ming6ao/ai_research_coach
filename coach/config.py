@@ -1,7 +1,5 @@
 import os
-from pathlib import Path
 
-CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 MODEL = os.getenv("EVAL_MODEL", "gemini-3.5-flash-lite")
 
 RETRYABLE_STATUS = (408, 429, 500, 502, 503, 504)
@@ -21,10 +19,3 @@ def http_retry_options():
         jitter=1.0,
         http_status_codes=list(RETRYABLE_STATUS),
     )
-
-
-def load_yaml(name):
-    import yaml
-
-    with open(CONFIG_DIR / name) as f:
-        return yaml.safe_load(f)

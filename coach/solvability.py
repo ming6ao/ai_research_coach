@@ -1,9 +1,10 @@
 """Solve-probability estimate used to target "similar but solvable" follow-ups.
 
-P(solve) blends three signals already in the system:
+P(solve) blends signals already in the system:
 
 - skill belief mean (Gaussian ``SkillState.score``),
-- node mastery / uncertainty from the learner snapshot,
+- optional node mastery / uncertainty overrides (accepted for compatibility,
+  pass None to use the skill belief alone),
 - task difficulty mismatch (same noise model as ``coach.score``).
 
 Pure function, no DB access: callers pass beliefs in.

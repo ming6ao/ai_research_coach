@@ -1,19 +1,23 @@
-"""Admin/debug API routes for inspecting per-task graphs and the learner model.
+"""Admin/debug API routes (graph-free).
 
-Knowledge graphs are per-task: each task row carries its own frozen graph
-(``tasks.graph_json``). ``knowledge_nodes``/``knowledge_edges`` are only the
-derived state index that learner rows FK to (see ``coach.admin``).
+Tasks carry plain-English ``context_notes``; there are no knowledge graphs,
+nodes, edges, or learner-model rows. Remaining endpoints cover candidate
+management, question management, skill states, and DB stats.
 """
 
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
 
 from backend.auth import get_current_user, is_admin
 from backend.dependencies import get_store
-from learner.engine import LearnerEngine
 
 admin_router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+class TaskContextUpdate(BaseModel):
+    context_notes: str = ""
 
 
 def _require_user(user: dict = Depends(get_current_user)):
@@ -30,303 +34,12 @@ def _require_owner_or_admin(candidate: str, user: dict) -> dict:
     raise HTTPException(status_code=403, detail="Not authorized for this candidate.")
 
 
-def _require_admin(user: dict = Depends(_require_user)) -> dict:
-    """Admin-only: index-wide operations need ADMIN_EMAILS membership."""
-    if not is_admin(user):
-        raise HTTPException(status_code=403, detail="Admin access required.")
-    return user
-
-
 @admin_router.get("/learners")
 def list_learners(user: dict = Depends(_require_user)):
-    """List all learners (candidate → learner_id on the learners row)."""
-    from sqlalchemy import select
+    """List known candidates (derived from sessions/attempts/tasks)."""
+    from coach.admin import list_candidates
 
-    from learner.states import LearnerModel
-
-    engine = LearnerEngine()
-    session = engine._session()
-    try:
-        rows = session.scalars(
-            select(LearnerModel).order_by(LearnerModel.created_at.desc())
-        ).all()
-    finally:
-        session.close()
-
-    learners = []
-    for m in rows:
-        meta = dict(m.meta or {})
-        learners.append({
-            "candidate": m.candidate,
-            "learner_id": m.id,
-            "created_at": m.created_at.isoformat() if m.created_at else None,
-            "metadata": meta,
-        })
-
-    return {"learners": learners}
-
-
-@admin_router.get("/graphs")
-def list_task_graphs(user: dict = Depends(_require_user)):
-    """List frozen per-task graphs (one entry per task with a stored graph)."""
-    from coach.tasks import list_tasks_for_admin
-
-    graphs = []
-    for t in list_tasks_for_admin(limit=500):
-        raw = (t.get("graph") or {})
-        nodes = raw.get("nodes") or []
-        if not nodes:
-            continue
-        graphs.append({
-            "task_id": t["id"],
-            "skill": t.get("skill"),
-            "owner": t.get("owner"),
-            "primary_node_key": raw.get("primary_node_key"),
-            "node_count": len(nodes),
-            "edge_count": len(raw.get("edges") or []),
-            "version": raw.get("version", 1),
-        })
-    return {"graphs": graphs}
-
-
-@admin_router.get("/tasks/{task_id}/graph")
-def get_task_graph(task_id: str, user: dict = Depends(_require_user)):
-    """Return a task's frozen graph plus its mirrored index node ids."""
-    from coach.tasks import get_task
-
-    task = get_task(task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail="Task not found.")
-    raw = (task.get("graph") or {})
-    if not (isinstance(raw, dict) and raw.get("nodes")):
-        return {
-            "task_id": task_id,
-            "skill": task.get("skill"),
-            "frozen": False,
-            "graph": None,
-            "node_ids": {},
-        }
-    try:
-        from coach.task_graph import TaskGraph
-        from learner.graph import task_node_id_for
-
-        graph = TaskGraph.from_dict(raw)
-    except ValueError as exc:
-        return {
-            "task_id": task_id,
-            "skill": task.get("skill"),
-            "frozen": False,
-            "graph": None,
-            "node_ids": {},
-            "error": f"Stored graph is invalid: {exc}",
-        }
-    return {
-        "task_id": task_id,
-        "skill": task.get("skill"),
-        "frozen": True,
-        "graph": graph.to_dict(),
-        "node_ids": {n.key: str(task_node_id_for(task_id, n.key)) for n in graph.nodes},
-    }
-
-
-@admin_router.post("/tasks/{task_id}/graph/regenerate")
-def regenerate_task_graph_endpoint(task_id: str, user: dict = Depends(_require_user)):
-    """Re-decompose a task and overwrite its frozen graph, then re-mirror.
-
-    Allowed for the task owner or an ADMIN_EMAILS admin.
-    """
-    from coach.admin import regenerate_task_graph
-    from coach.tasks import get_task
-
-    task = get_task(task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail="Task not found.")
-    email = (user.get("email") or "").strip().lower()
-    if (task.get("owner") or "") != email and not is_admin(user):
-        raise HTTPException(status_code=403, detail="Not authorized to regenerate this task's graph.")
-    updated = regenerate_task_graph(task_id)
-    if updated is None:
-        raise HTTPException(status_code=404, detail="Task not found.")
-    return {"ok": True, "task": updated}
-
-
-@admin_router.get("/graph/summary")
-def graph_summary_endpoint(user: dict = Depends(_require_user)):
-    """Dry-run preview: per-task graph coverage + index and learner rows."""
-    from coach.admin import task_graph_summary
-
-    return task_graph_summary()
-
-
-@admin_router.post("/graph/rebuild")
-def rebuild_graph_endpoint(user: dict = Depends(_require_admin)):
-    """Re-mirror every frozen task graph into the state index (non-destructive)."""
-    from coach.admin import rebuild_graph_index
-
-    return {"ok": True, **rebuild_graph_index()}
-
-
-@admin_router.get("/graph/{node_id}")
-def get_node_detail(node_id: str, user: dict = Depends(_require_user)):
-    """Return a single state-index node with its connections."""
-    import uuid as _uuid
-    engine = LearnerEngine()
-    session = engine._session()
-    try:
-        container = engine._container(session)
-        nid = _uuid.UUID(node_id)
-        node = container.knowledge_repository.get_node(nid)
-        if node is None:
-            raise HTTPException(status_code=404, detail="Node not found.")
-
-        outgoing = container.knowledge_repository.get_outgoing_edges(nid)
-        incoming = container.knowledge_repository.get_incoming_edges(nid)
-        related = container.knowledge_repository.get_related_nodes(nid)
-
-        return {
-            "node": {
-                "id": str(node.id),
-                "type": node.type.value if hasattr(node.type, 'value') else str(node.type),
-                "name": node.name,
-                "description": node.description,
-                "importance": node.metadata.get("importance", 0.7),
-                "status": node.status.value if hasattr(node.status, 'value') else str(node.status),
-            },
-            "outgoing_edges": [
-                {
-                    "id": str(e.id),
-                    "target": str(e.target_node_id),
-                    "edge_type": e.edge_type.value if hasattr(e.edge_type, 'value') else str(e.edge_type),
-                    "weight": e.weight,
-                }
-                for e in outgoing
-            ],
-            "incoming_edges": [
-                {
-                    "id": str(e.id),
-                    "source": str(e.source_node_id),
-                    "edge_type": e.edge_type.value if hasattr(e.edge_type, 'value') else str(e.edge_type),
-                    "weight": e.weight,
-                }
-                for e in incoming
-            ],
-            "related_nodes": [
-                {
-                    "id": str(n.id),
-                    "type": n.type.value if hasattr(n.type, 'value') else str(n.type),
-                    "name": n.name,
-                }
-                for n in related
-            ],
-        }
-    finally:
-        session.close()
-
-
-@admin_router.get("/learner/{candidate}")
-def get_learner_detail(candidate: str, user: dict = Depends(_require_user)):
-    """Return full learner model data for a candidate."""
-    engine = LearnerEngine()
-    learner_id = engine.learner_id(candidate)
-    if learner_id is None:
-        raise HTTPException(status_code=404, detail="No learner found for this candidate.")
-
-    session = engine._session()
-    try:
-        container = engine._container(session)
-        import uuid as _uuid
-
-        # Knowledge states
-        states = []
-        for s in container.learner_service.list_learner_states(learner_id):
-            node = container.knowledge_repository.get_node(s.node_id)
-            states.append({
-                "node_id": str(s.node_id),
-                "node_name": node.name if node else str(s.node_id),
-                "node_type": (node.type.value if hasattr(node.type, 'value') else str(node.type)) if node else "unknown",
-                "mastery": s.mastery,
-                "uncertainty": s.uncertainty,
-                "status": s.status.value if hasattr(s.status, 'value') else str(s.status),
-                "evidence_count": s.evidence_count,
-                "conceptual": s.conceptual,
-                "procedural": s.procedural,
-                "implementation": s.implementation,
-                "transfer": s.transfer,
-                "fluency": s.fluency,
-                "self_confidence": s.self_confidence,
-                "reasoning": s.reasoning,
-            })
-
-        # Frontier
-        frontier = []
-        for f in container.frontier_service.list_frontier(learner_id):
-            node = container.knowledge_repository.get_node(f.node_id)
-            frontier.append({
-                "node_id": str(f.node_id),
-                "node_name": node.name if node else str(f.node_id),
-                "priority": f.priority,
-                "reason": f.reason,
-                "status": f.status.value if hasattr(f.status, 'value') else str(f.status),
-            })
-
-        # Misconceptions
-        misconceptions = []
-        for mc in container.misconception_service.list_all(learner_id):
-            if not mc.is_active:
-                continue
-            node = container.knowledge_repository.get_node(mc.misconception_node_id)
-            misconceptions.append({
-                "id": str(mc.id),
-                "node_id": str(mc.misconception_node_id),
-                "node_name": node.name if node else "",
-                "description": node.description if node else "",
-                "confidence": mc.confidence,
-                "status": mc.status.value if hasattr(mc.status, 'value') else str(mc.status),
-                "first_detected_at": mc.first_detected_at.isoformat() if mc.first_detected_at else None,
-                "last_observed_at": mc.last_observed_at.isoformat() if mc.last_observed_at else None,
-            })
-
-        # Evidence
-        evidence = []
-        for ev in container.evidence_repository.list_evidence_for_learner(learner_id):
-            node = container.knowledge_repository.get_node(ev.node_id)
-            evidence.append({
-                "id": str(ev.id),
-                "node_id": str(ev.node_id),
-                "node_name": node.name if node else str(ev.node_id),
-                "evidence_type": ev.evidence_type.value if hasattr(ev.evidence_type, 'value') else str(ev.evidence_type),
-                "observation_status": ev.observation_status.value if hasattr(ev.observation_status, 'value') else str(ev.observation_status),
-                "correctness": ev.correctness,
-                "assessor_explanation": ev.assessor_explanation,
-                "created_at": ev.created_at.isoformat() if ev.created_at else None,
-            })
-
-        # Next action
-        frontier_entries = container.frontier_service.list_frontier(learner_id)
-        actions = container.policy_engine.generate(learner_id, frontier_entries)
-        next_action = None
-        if actions:
-            a = actions[0]
-            node = container.knowledge_repository.get_node(a.target_node_id)
-            next_action = {
-                "action_type": a.action_type.value if hasattr(a.action_type, 'value') else str(a.action_type),
-                "target_node_id": str(a.target_node_id),
-                "node_name": node.name if node else str(a.target_node_id),
-                "total_score": a.total_score,
-                "rationale": a.rationale,
-            }
-
-        return {
-            "learner_id": str(learner_id),
-            "candidate": candidate,
-            "states": states,
-            "frontier": frontier,
-            "misconceptions": misconceptions,
-            "evidence": evidence,
-            "next_action": next_action,
-        }
-    finally:
-        session.close()
+    return {"learners": [{"candidate": c["candidate"]} for c in list_candidates()]}
 
 
 @admin_router.get("/skill-states/{candidate}")
@@ -359,35 +72,10 @@ def get_skill_states(candidate: str, user: dict = Depends(_require_user)):
 
 @admin_router.get("/stats")
 def get_stats(user: dict = Depends(_require_user)):
-    """Return summary counts: task-graph coverage, index rows, learner rows."""
-    engine = LearnerEngine()
-    session = engine._session()
-    try:
-        from coach.admin import task_graph_summary
+    """Return summary counts: tasks, attempts, beliefs, sessions."""
+    from coach.admin import stats_summary
 
-        summary = task_graph_summary()
-        learner_count = 0
-        try:
-            from learner.states import LearnerModel
-            from sqlalchemy import func, select
-
-            learner_count = session.scalar(select(func.count(LearnerModel.id))) or 0
-        except Exception:
-            pass
-
-        return {
-            "tasks_total": summary["tasks_total"],
-            "tasks_frozen": summary["tasks_frozen"],
-            "tasks_unfrozen": summary["tasks_unfrozen"],
-            "index_nodes": summary["index_nodes"],
-            "index_edges": summary["index_edges"],
-            "learners": learner_count,
-            "knowledge_states": summary["knowledge_states"],
-            "evidence_records": summary["evidence"],
-            "misconceptions": summary["misconceptions"],
-        }
-    finally:
-        session.close()
+    return stats_summary()
 
 
 @admin_router.get("/tasks")
@@ -405,6 +93,21 @@ def list_tasks_admin(
     return {"tasks": tasks}
 
 
+@admin_router.patch("/tasks/{task_id}")
+def update_task_endpoint(task_id: str, body: TaskContextUpdate, user: dict = Depends(_require_user)):
+    """Edit a question's plain-English context notes (owner or admin)."""
+    from coach.tasks import get_task, update_task_context
+
+    task = get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    email = (user.get("email") or "").strip().lower()
+    if (task.get("owner") or "") != email and not is_admin(user):
+        raise HTTPException(status_code=403, detail="Not authorized to edit this task.")
+    updated = update_task_context(task_id, body.context_notes or "")
+    return {"ok": True, "task": updated}
+
+
 @admin_router.get("/candidate/{candidate}/summary")
 def candidate_summary_endpoint(candidate: str, user: dict = Depends(_require_user)):
     """Dry-run preview: per-table row counts for a candidate (owner or admin)."""
@@ -416,7 +119,7 @@ def candidate_summary_endpoint(candidate: str, user: dict = Depends(_require_use
 
 @admin_router.delete("/candidate/{candidate}")
 def delete_candidate_endpoint(candidate: str, user: dict = Depends(_require_user)):
-    """Full candidate wipe: sessions + learner rows + attempts + beliefs + owned tasks."""
+    """Full candidate wipe: sessions + attempts + beliefs + owned tasks."""
     from coach.admin import clear_candidate_everything
 
     _require_owner_or_admin(candidate, user)

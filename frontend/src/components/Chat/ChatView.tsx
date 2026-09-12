@@ -114,7 +114,7 @@ function TaskPromptBubble({ prompt, skill, remediation }: { prompt: string; skil
         </p>
         {remediation && (
           <p className="inline-flex items-center gap-1 rounded-full border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-2.5 py-0.5 text-[11px] font-semibold text-[var(--color-accent)]">
-            Warm-up{remediation.node_id ? ` · focus: ${remediation.node_id.slice(0, 8)}` : ''}
+            Warm-up{remediation.focus ? ` · focus: ${remediation.focus.slice(0, 80)}` : ''}
           </p>
         )}
         <Markdown text={prompt} />

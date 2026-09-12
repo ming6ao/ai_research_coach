@@ -64,30 +64,42 @@ def test_solvability_ladder_targets_80pct():
     assert p_solve(0.8, 0.7, 0.3, d) >= 0.7
 
 
-def test_consolidation_fires_after_strong_answer():
-    from coach.remediation import plan_consolidation
+def test_followup_fires_after_weak_answer_with_gap():
+    from coach.remediation import plan_followup
     from coach.session import Session
 
     session = Session("c", tasks=[_task(0, "s", 3)])
     task = session.tasks[0]
-    result = type("R", (), {"score": 5, "max_score": 5})()
-    learner_update = {
-        "fraction": 1.0,
-        "frontier": [{"node_id": "n", "name": "N", "description": "d", "priority": 0.9, "reason": "uncertain", "status": "uncertain"}],
-        "next_action": {"action_type": "code", "target_node_id": "n", "name": "N", "description": "d", "total_score": 1.0, "rationale": "gap"},
-    }
-    snapshot = {"states": {"n": {"name": "N", "mastery": 0.65, "uncertainty": 0.5, "status": "uncertain", "evidence_count": 1}}, "misconceptions": []}
-    gen = plan_consolidation(session, task, result, learner_update, snapshot, bridge=None)
-    # Bridge=None builds a real engine (fallback decomposer, no API key) — hermetic.
+    result = type("R", (), {"score": 1, "max_score": 5})()
+    coach = type("C", (), {"misconception": "confused X with Y", "feedback": "weak"})()
+    gen = plan_followup(session, task, result, coach)
+    # No API key in tests -> deterministic fallback follow-up.
     assert gen is None or gen["difficulty"] <= task["difficulty"]
 
 
-def test_consolidation_skipped_on_weak_answer():
-    from coach.remediation import plan_consolidation
+def test_followup_skipped_on_clean_solve():
+    from coach.remediation import plan_followup
     from coach.session import Session
 
     session = Session("c2", tasks=[_task(0, "s", 3)])
     task = session.tasks[0]
-    result = type("R", (), {"score": 1, "max_score": 5})()
-    learner_update = {"fraction": 0.2, "frontier": [], "next_action": None}
-    assert plan_consolidation(session, task, result, learner_update, {}) is None
+    result = type("R", (), {"score": 5, "max_score": 5})()
+    coach = type("C", (), {"misconception": "", "feedback": ""})()
+    assert plan_followup(session, task, result, coach) is None
+
+
+def test_context_notes_round_trip(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "ctx.db")
+    from coach.tasks import create_task, get_task, update_task_context
+
+    task = create_task(
+        prompt="Explain caching.",
+        skill="s",
+        owner="a@x.com",
+        context_notes="Eviction is a prerequisite of caching, often confused with invalidation.",
+    )
+    assert task["context_notes"].startswith("Eviction")
+    assert get_task(task["id"])["context_notes"] == task["context_notes"]
+
+    updated = update_task_context(task["id"], "New notes.")
+    assert updated["context_notes"] == "New notes."

@@ -123,8 +123,7 @@ def test_submit_returns_coaching_and_next_task(client):
     assert data["coach"]["steps"][0]["title"]
     assert "next_task" in data, "the picked task is still returned (gated by the UI)"
     assert data["feedback"] == "Great job!"
-    assert data["learner_update"] is not None
-    assert data["learner_update"]["learner_id"]
+    assert "learner_update" not in data
 
 
 def test_complete_returns_progress_snapshot(client):
@@ -141,7 +140,7 @@ def test_complete_returns_progress_snapshot(client):
     data = res.json()
     assert data["done"] is True
     assert "skill_states" in data
-    assert "learner" in data
+    assert "learner" not in data
     assert "verdict" not in data
     assert "overall_score" not in data
 

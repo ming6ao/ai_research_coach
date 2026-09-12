@@ -1,13 +1,12 @@
 """Single database module for the whole app.
 
-One SQLite file (``data/coach.db``) holds both the coach's small raw-sqlite
-tables (``users``, ``auth_tokens``, ``active_sessions``) and the learner
-model's SQLAlchemy tables. ``sqlite_conn()`` owns the raw-sqlite DDL and is
-used by ``backend/auth.py`` and ``backend/dependencies.py``; ``Base`` /
-``create_session_factory()`` own the SQLAlchemy side (engine, declarative
-base, ORM converters) and are used by the ``learner`` package, whose table
-models live next to their repositories. ``create_schema()`` /
-``learner_engine()`` / ``learner_session()`` bridge the two worlds.
+One SQLite file (``data/coach.db``) holds the raw-sqlite tables (``users``,
+``auth_tokens``, ``active_sessions``) and the SQLAlchemy tables (``tasks``,
+``task_attempts``, ``user_skill_beliefs``). ``sqlite_conn()`` owns the
+raw-sqlite DDL and is used by ``backend/auth.py`` and
+``backend/dependencies.py``; ``Base`` / ``create_session_factory()`` own the
+SQLAlchemy side. ``create_schema()`` drops the removed knowledge-graph /
+learner tables so old databases converge to the fresh 6-table design.
 """
 
 from __future__ import annotations
@@ -50,6 +49,25 @@ CREATE TABLE IF NOT EXISTS active_sessions (
 CREATE INDEX IF NOT EXISTS idx_active_sessions_candidate ON active_sessions (candidate);
 """
 
+# Tables from the removed knowledge-graph / learner model. Dropped on
+# startup so databases created before the removal converge to the fresh
+# design (no data is preserved — see the removal plan).
+_DROPPED_TABLES = (
+    "knowledge_nodes",
+    "knowledge_edges",
+    "learners",
+    "learner_knowledge_states",
+    "evidence",
+    "learner_misconceptions",
+    "learner_frontier",
+    "assessment_targets",
+    "assessment_tasks",
+)
+
+# Columns from the removed per-task frozen graph. Best-effort DROP COLUMN;
+# failures are swallowed so startup never breaks.
+_DROPPED_TASK_COLUMNS = ("graph_json", "target_node_id", "target_node_slug")
+
 
 def sqlite_conn() -> sqlite3.Connection:
     """Open the shared raw-sqlite connection (WAL, idempotent DDL)."""
@@ -61,12 +79,12 @@ def sqlite_conn() -> sqlite3.Connection:
 
 
 def learner_db_url() -> str:
-    """URL for the learner model's SQLAlchemy engine (one shared file)."""
+    """URL for the SQLAlchemy engine (one shared file)."""
     return os.environ.get("LEARNING_PARTNER_DB_URL") or f"sqlite:///{DB_PATH}"
 
 
 class Base(DeclarativeBase):
-    """Declarative base for all learner ORM models."""
+    """Declarative base for all ORM models."""
 
 
 def create_session_factory(url: Optional[str] = None):
@@ -108,107 +126,42 @@ def uid(value: uuid.UUID | str) -> str:
 
 
 def learner_engine():
-    """SQLAlchemy engine for the learner model tables."""
+    """SQLAlchemy engine for the app tables."""
     _, engine = create_session_factory(learner_db_url())
     return engine
 
 
 def create_schema():
-    """Create all learner tables (idempotent). Returns the engine."""
-    # Imported lazily: the table models live in the learner topic modules,
-    # which import Base/converters from this module at load time.
-    from learner import (  # noqa: F401  (register tables)
-        evidence,
-        frontier,
-        graph,
-        misconception,
-        states,
-    )
+    """Create all tables (idempotent) and drop removed ones. Returns engine."""
     from coach import tasks as _tasks  # noqa: F401  (register task tables)
 
     engine = learner_engine()
     Base.metadata.create_all(engine)
-    # Cleanup legacy tables from before assessment_* persistence removal.
     with engine.begin() as conn:
-        conn.exec_driver_sql("DROP TABLE IF EXISTS assessment_targets")
-        conn.exec_driver_sql("DROP TABLE IF EXISTS assessment_tasks")
-        _migrate_slug_removal(conn)
-        _migrate_task_graph_column(conn)
-    return engine
-
-
-def _migrate_task_graph_column(conn) -> None:
-    """Best-effort migration for the per-task frozen graph refactor.
-
-    Adds ``tasks.graph_json`` (canonical JSON, ``{}`` when not yet frozen)
-    to databases created before the column existed. All failures are
-    swallowed so startup never breaks.
-    """
-    try:
-        cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(tasks)").fetchall()]
-        if "graph_json" not in cols:
+        for table in _DROPPED_TABLES:
             try:
-                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN graph_json TEXT DEFAULT '{}'")
+                conn.exec_driver_sql(f"DROP TABLE IF EXISTS {table}")
             except Exception:
                 pass
-        # Backfill NULLs left by the ADD COLUMN on old rows.
         try:
-            conn.exec_driver_sql("UPDATE tasks SET graph_json='{}' WHERE graph_json IS NULL")
+            cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(tasks)").fetchall()]
+        except Exception:
+            cols = []
+        for col in _DROPPED_TASK_COLUMNS:
+            if col in cols:
+                try:
+                    conn.exec_driver_sql(f"ALTER TABLE tasks DROP COLUMN {col}")
+                except Exception:
+                    pass
+        try:
+            cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(tasks)").fetchall()]
+            if "context_notes" not in cols:
+                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN context_notes TEXT DEFAULT ''")
+            if "target_text" not in cols:
+                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN target_text TEXT")
         except Exception:
             pass
-    except Exception:
-        pass
-
-
-def _migrate_slug_removal(conn) -> None:
-    """Best-effort migration for the slug-removal refactor.
-
-    Old databases have ``knowledge_nodes.slug`` (NOT NULL) and
-    ``tasks.target_node_slug``. New code no longer reads or writes them, but
-    a bare ``create_all`` won't drop NOT NULL columns, which would break new
-    inserts. This drops the obsolete column and adds the replacement column
-    when present; all failures are swallowed so startup never breaks.
-    """
-    try:
-        cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(knowledge_nodes)").fetchall()]
-        if "slug" in cols:
-            # DROP COLUMN fails on this table (legacy UNIQUE index on slug),
-            # so rebuild without the column, preserving existing rows.
-            conn.exec_driver_sql(
-                "CREATE TABLE IF NOT EXISTS knowledge_nodes_new ("
-                "id VARCHAR(36) NOT NULL PRIMARY KEY, "
-                "type VARCHAR(32) NOT NULL, "
-                "name VARCHAR(255) NOT NULL, "
-                "description TEXT, "
-                "metadata JSON NOT NULL DEFAULT '{}', "
-                "status VARCHAR(32) NOT NULL DEFAULT 'active', "
-                "created_at DATETIME NOT NULL, "
-                "updated_at DATETIME NOT NULL)"
-            )
-            conn.exec_driver_sql(
-                "INSERT OR IGNORE INTO knowledge_nodes_new "
-                "(id, type, name, description, metadata, status, created_at, updated_at) "
-                "SELECT id, type, name, description, metadata, status, created_at, updated_at "
-                "FROM knowledge_nodes"
-            )
-            conn.exec_driver_sql("DROP TABLE knowledge_nodes")
-            conn.exec_driver_sql("ALTER TABLE knowledge_nodes_new RENAME TO knowledge_nodes")
-    except Exception:
-        pass
-    try:
-        cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(tasks)").fetchall()]
-        if "target_node_id" not in cols:
-            try:
-                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN target_node_id STRING(36)")
-            except Exception:
-                pass
-        if "target_node_slug" in cols:
-            try:
-                conn.exec_driver_sql("ALTER TABLE tasks DROP COLUMN target_node_slug")
-            except Exception:
-                pass
-    except Exception:
-        pass
+    return engine
 
 
 def learner_session() -> Session:

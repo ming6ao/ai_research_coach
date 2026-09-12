@@ -40,8 +40,7 @@ class TaskCreateRequest(BaseModel):
     hints: Optional[list] = None
     expected_time_min: Optional[float] = None
     is_public: Optional[bool] = False
-    graph: Optional[dict] = None
-    graph_yaml: Optional[str] = None
+    context_notes: Optional[str] = None
 
 
 class SubmitRequest(BaseModel):
@@ -74,6 +73,18 @@ def _skill_states_dict(session) -> dict:
         }
         for k, v in session.skill_states.items()
     }
+
+
+def _describe_context(prompt: str, skill: str, explicit: Optional[str] = None) -> str:
+    """Author-supplied notes win; otherwise one best-effort LLM description."""
+    if explicit is not None and explicit.strip():
+        return explicit.strip()[:2000]
+    try:
+        from coach.task_decomposer import TaskDecomposer
+
+        return TaskDecomposer().describe_task(prompt, skill) or ""
+    except Exception:
+        return ""
 
 
 @router.get("/auth/google/url")
@@ -124,7 +135,7 @@ def me(user: dict = Depends(get_current_user)):
 @router.post("/start")
 def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
     from coach.session import Session, task_view
-    from learner.engine import LearnerEngine, pick_next_task
+    from coach.selection import pick_next_task
 
     store = get_store()
     candidate = _candidate_for(user)
@@ -144,26 +155,15 @@ def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
     session = Session(candidate, tasks=scoped_tasks or [])
 
     # If the user typed a custom question, persist it as a task row first.
-    # The knowledge graph is frozen once here and reused verbatim afterwards.
     custom_task = None
     if req.initial_question and req.initial_question.strip():
         from coach.tasks import create_task as _create_task
 
-        _draft = {
-            "id": f"task_pending_{uuid.uuid4().hex[:8]}",
-            "skill": req.skill or "general",
-            "prompt": req.initial_question.strip(),
-        }
-        _frozen_graph: Optional[dict] = None
-        try:
-            from coach.task_graph import freeze_graph_for_task
-
-            _frozen_graph = freeze_graph_for_task(_draft)
-        except Exception:
-            _frozen_graph = None
+        prompt = req.initial_question.strip()
+        skill = req.skill or "general"
         custom_task = _create_task(
-            prompt=req.initial_question.strip(),
-            skill=req.skill or "general",
+            prompt=prompt,
+            skill=skill,
             owner=candidate,
             difficulty=2,
             max_score=5,
@@ -171,7 +171,7 @@ def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
             source="user",
             # Guests create globally-visible rows; users default to private.
             is_public=is_guest,
-            graph=_frozen_graph,
+            context_notes=_describe_context(prompt, skill),
         )
         session.tasks.insert(0, custom_task)
 
@@ -179,21 +179,6 @@ def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
         first_task = task_view(custom_task, session)
     else:
         first_task = pick_next_task(candidate, session)
-
-    # Bootstrap the learner knowledge graph from the picked task.
-    learner = None
-    try:
-        engine = LearnerEngine()
-        engine.ensure_learner(candidate)
-        if first_task is not None:
-            boot = engine.bootstrap_task(first_task)
-            learner = {
-                "learner_id": str(engine.learner_id(candidate)),
-                "primary_node_id": boot.get("primary_node_id"),
-            }
-    except Exception:
-        # Never let learner integration break session startup.
-        learner = None
 
     store.save(session_id, {"session": session.to_dict()})
 
@@ -203,7 +188,6 @@ def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
         "message": f"Session started for {session.candidate}.",
         "total_tasks": len(session.tasks),
         "first_task": first_task,
-        "learner": learner,
     }
 
 
@@ -213,7 +197,7 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
     from coach.score import bayesian_update, effective_score, measurement_variance
     from coach.hints import hint_penalty
     from coach.judge import LLMJudge
-    from learner.engine import LearnerEngine, pick_next_task
+    from coach.selection import pick_next_task
 
     store = get_store()
     state = store.get(req.session_id)
@@ -310,34 +294,14 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
         "hints_used": viewed,
     }
 
-    # Feed the judge result into the learner model (evidence -> state ->
-    # frontier -> policy). Never allowed to break the response.
-    engine = LearnerEngine()
-    learner_update = None
-    snapshot = None
-    try:
-        learner_update = engine.record_submission(
-            session.candidate, task, result, coach, viewed_hints=viewed
-        )
-        snapshot = engine.learner_snapshot(session.candidate)
-    except Exception:
-        learner_update = None
-        snapshot = None
-
-    # Hybrid next-task selection: pending generated task, then frontier
-    # remediation, then the EIG bank picker.
+    # Hybrid next-task selection: pending generated task, then judge-driven
+    # follow-up, then the EIG bank picker.
     next_task = None
     try:
         next_task = pick_next_task(
             session.candidate,
             session,
-            last_submission={
-                "task": task,
-                "result": result,
-                "learner_update": learner_update,
-                "learner_snapshot": snapshot,
-            },
-            engine=engine,
+            last_submission={"task": task, "result": result, "coach": coach},
         )
     except Exception:
         from coach.picker import next_task as next_task_bank
@@ -354,7 +318,6 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
         "next_task": next_task,
         "remaining": len(session.tasks) - session.index,
         "skill_update": skill_update,
-        "learner_update": learner_update,
     }
 
 
@@ -366,27 +329,6 @@ def create_task_endpoint(req: TaskCreateRequest, user: dict = Depends(get_curren
         raise HTTPException(status_code=400, detail="Prompt is required.")
     candidate = _candidate_for(user)
     is_guest = candidate.startswith("guest-")
-    # Caller-supplied graphs are validated once here; otherwise freeze by
-    # decomposing once now so the row is created with its graph attached.
-    frozen_graph: Optional[dict] = None
-    try:
-        from coach.task_graph import coerce_graph_payload, freeze_graph_for_task
-
-        coerced = coerce_graph_payload(req.graph, req.graph_yaml)
-        if coerced is not None:
-            frozen_graph = coerced.to_dict()
-        else:
-            frozen_graph = freeze_graph_for_task(
-                {
-                    "id": f"task_pending_{uuid.uuid4().hex[:8]}",
-                    "skill": req.skill or "general",
-                    "prompt": req.prompt.strip(),
-                }
-            )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid graph: {exc}")
-    except Exception:
-        frozen_graph = None
     task = _create_task(
         prompt=req.prompt.strip(),
         skill=req.skill or "general",
@@ -398,17 +340,8 @@ def create_task_endpoint(req: TaskCreateRequest, user: dict = Depends(get_curren
         expected_time_min=req.expected_time_min,
         source="user",
         is_public=bool(req.is_public or is_guest),
-        graph=frozen_graph,
+        context_notes=_describe_context(req.prompt.strip(), req.skill or "general", req.context_notes),
     )
-    # Decompose eagerly so the knowledge graph knows the new question.
-    try:
-        from learner.engine import LearnerEngine
-
-        engine = LearnerEngine()
-        engine.ensure_learner(candidate)
-        engine.bootstrap_task(task)
-    except Exception:
-        pass
     return {"task": task}
 
 
@@ -440,7 +373,6 @@ def get_task_endpoint(task_id: str, user: dict = Depends(get_current_user)):
 @router.post("/complete")
 def complete_session(req: CompleteRequest, user: dict = Depends(get_current_user)):
     from coach.session import Session
-    from learner.engine import LearnerEngine
 
     store = get_store()
     state = store.get(req.session_id)
@@ -451,25 +383,18 @@ def complete_session(req: CompleteRequest, user: dict = Depends(get_current_user
     if user is not None and session.candidate != user["email"]:
         raise HTTPException(status_code=403, detail="Not your session.")
 
-    learner = None
-    try:
-        learner = LearnerEngine().learner_snapshot(session.candidate)
-    except Exception:
-        learner = None
-
     # The session row stays in active_sessions for history/resume; "done" is
     # derived from the session JSON (pick_next_task returns None).
     return {
         "done": True,
         "skill_states": _skill_states_dict(session),
-        "learner": learner,
     }
 
 
 @router.post("/session/open")
 def open_session(req: SessionOpenRequest, user: dict = Depends(get_current_user)):
     from coach.session import Session
-    from learner.engine import LearnerEngine, pick_next_task
+    from coach.selection import pick_next_task
 
     store = get_store()
     state = store.get(req.id)
@@ -489,12 +414,6 @@ def open_session(req: SessionOpenRequest, user: dict = Depends(get_current_user)
 
     task = pick_next_task(session.candidate, session)
 
-    learner = None
-    try:
-        learner = LearnerEngine().learner_snapshot(session.candidate)
-    except Exception:
-        learner = None
-
     return {
         "session_id": req.id,
         "candidate": session.candidate,
@@ -503,14 +422,13 @@ def open_session(req: SessionOpenRequest, user: dict = Depends(get_current_user)
         "current_task": task,
         "results": feedback_list,
         "skill_states": _skill_states_dict(session),
-        "learner": learner,
     }
 
 
 @router.get("/sessions")
 def list_sessions(user: dict = Depends(get_current_user)):
     from coach.session import Session
-    from learner.engine import pick_next_task
+    from coach.selection import pick_next_task
 
     store = get_store()
     if user is None:
