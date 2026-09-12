@@ -9,9 +9,12 @@ keep the loop finite and hermetic-friendly.
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from coach.task_decomposer import TaskDecomposer
+
+logger = logging.getLogger(__name__)
 
 # --- Budget guards -----------------------------------------------------------
 MAX_PER_SESSION = 4
@@ -133,8 +136,10 @@ def plan_followup(
     """Full post-submit follow-up: decide, generate, persist.
 
     Returns the generated task dict (already appended to ``session.tasks``)
-    or None when no follow-up is warranted. Non-fatal: returns None on any
-    error so the main response is never broken.
+    or None when no follow-up is warranted or generation fails. Failures
+    are logged (including the raw model response, see
+    ``TaskDecomposer.generate_followup_task``) and skipped so the main
+    response is never broken — the session falls through to the bank picker.
     """
     try:
         planner = planner or RemediationPlanner()
@@ -144,7 +149,11 @@ def plan_followup(
         session.add_generated_task(generated)
         _persist_generated_task(session, generated, task)
         return generated
-    except Exception:
+    except Exception as exc:
+        logger.exception(
+            "[followup] plan_followup failed for task=%s (%s: %s)",
+            (task or {}).get("id"), type(exc).__name__, exc,
+        )
         return None
 
 

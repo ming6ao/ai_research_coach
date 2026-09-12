@@ -13,7 +13,7 @@ from coach.session import Session
 
 
 class FakeDecomposer:
-    """Records calls; returns a deterministic generated task (fallback-style)."""
+    """Records calls; returns a deterministic generated task (no LLM)."""
 
     def __init__(self):
         self.calls = []
@@ -150,11 +150,12 @@ class TestBudgetGuards:
 
         monkeypatch.setattr(db, "DB_PATH", tmp_path / "remed.db")
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        from coach.remediation import plan_followup
+        from coach.remediation import RemediationPlanner, plan_followup
 
+        planner = RemediationPlanner(decomposer=FakeDecomposer())
         session = _session()
         session.tasks = [_base_task()]
-        gen = plan_followup(session, _base_task(), _result(1, 5), _coach("eviction gap"))
+        gen = plan_followup(session, _base_task(), _result(1, 5), _coach("eviction gap"), planner=planner)
         assert gen is not None
         assert gen in session.tasks
         from coach.tasks import get_task
