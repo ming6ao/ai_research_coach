@@ -165,7 +165,7 @@ export function ChatView() {
   const taskId = currentTask?.id ?? null;
   useEffect(() => {
     setCode(currentTask?.scaffold ?? '');
-    setViewed(new Set((currentTask?.hints ?? []).filter((h) => h.pre_revealed).map((h) => h.id)));
+    setViewed(new Set((currentTask?.hints ?? []).filter((h) => h.pre_revealed).slice(0, 1).map((h) => h.id)));
     setSubmittedTaskId(null);
   }, [taskId, currentTask?.scaffold, currentTask?.hints]);
 
