@@ -27,9 +27,15 @@ from sqlalchemy.orm import Session
 
 from coach.db import learner_db_url
 from coach.task_decomposer import TaskDecomposer
+from coach.task_graph import ensure_task_graph, load_frozen_graph
 from learner.container import build_container
 from learner.evidence import Evidence, EvidenceType, ObservationStatus
-from learner.graph import KnowledgeEdge, KnowledgeNode, node_id_for
+from learner.graph import (
+    KnowledgeEdge,
+    KnowledgeNode,
+    task_misconception_id_for,
+    task_node_id_for,
+)
 from learner.states import Learner
 from learner.types import NodeType
 from coach.db import Base, create_session_factory
@@ -61,10 +67,11 @@ class LearnerEngine:
             # Migrate pre-slug-removal databases (drops the obsolete slug column
             # so new inserts don't hit NOT NULL constraints).
             try:
-                from coach.db import _migrate_slug_removal
+                from coach.db import _migrate_slug_removal, _migrate_task_graph_column
 
                 with self._engine.begin() as conn:
                     _migrate_slug_removal(conn)
+                    _migrate_task_graph_column(conn)
             except Exception:
                 pass
             self._schema_ready = True
@@ -105,20 +112,35 @@ class LearnerEngine:
 
     # -- bootstrap -----------------------------------------------------------------
 
-    def bootstrap_task(self, task: dict) -> dict:
-        """Decompose a picked task and register it in the knowledge graph.
+    def _frozen_knowledge(self, task: dict):
+        """Return the task's frozen graph as ``TaskKnowledge``.
 
-        Idempotent: node ids are deterministic UUID5s of (type, name), so
-        re-decomposing reuses rows. Task->node mapping is ephemeral (derived
-        from ``TaskKnowledge`` at submit time); nothing task-like is persisted.
+        Prefers the ``graph`` embedded on the task dict (canonical storage is
+        ``tasks.graph_json``); legacy rows carrying ``{}`` are frozen once via
+        ``ensure_task_graph`` (decompose + persist) so later submits reuse the
+        same copy verbatim. Never re-decomposes a frozen task.
+        """
+        frozen = load_frozen_graph(task)
+        if frozen is None:
+            frozen = ensure_task_graph(task, decomposer=self.decomposer)
+        return frozen.to_task_knowledge(task.get("id", ""), task.get("skill", "general"))
+
+    def bootstrap_task(self, task: dict) -> dict:
+        """Mirror a task's frozen graph into the knowledge-graph index.
+
+        Idempotent: node ids are task-namespaced UUID5s of
+        ``(task_id, local key)``, so re-bootstrapping reuses rows. The
+        canonical graph lives on the task row (``tasks.graph_json``);
+        ``knowledge_nodes``/``knowledge_edges`` are the state index that
+        evidence/states/frontier FK to.
         Returns {"primary_node_id"}.
         """
-        knowledge = self.decomposer.decompose(task)
+        knowledge = self._frozen_knowledge(task)
         session = self._session()
         try:
             container = self._container(session)
-            node_ids = self._ensure_graph(
-                container, knowledge, task.get("skill", "general")
+            node_ids = self._ensure_task_graph(
+                container, task.get("id", ""), knowledge, task.get("skill", "general")
             )
             primary_id = node_ids[knowledge.primary_node_key]
             return {
@@ -128,12 +150,12 @@ class LearnerEngine:
             session.close()
 
     @staticmethod
-    def _ensure_graph(container, knowledge, skill: str) -> dict[str, uuid.UUID]:
-        """Upsert decomposed nodes/edges; return key -> node id."""
+    def _ensure_task_graph(container, task_id: str, knowledge, skill: str) -> dict[str, uuid.UUID]:
+        """Mirror a frozen per-task graph; return key -> namespaced node id."""
         kg = container.knowledge_service
         node_ids: dict[str, uuid.UUID] = {}
         for node in knowledge.nodes:
-            nid = node_id_for(node.type, node.name)
+            nid = task_node_id_for(task_id, node.key)
             if kg.get_node(nid) is None:
                 kg.create_node(
                     KnowledgeNode(
@@ -141,7 +163,12 @@ class LearnerEngine:
                         type=node.type,
                         name=node.name,
                         description=node.description,
-                        metadata={"importance": node.importance, "skill": skill},
+                        metadata={
+                            "importance": node.importance,
+                            "skill": skill,
+                            "task_id": task_id,
+                            "local_key": node.key,
+                        },
                     )
                 )
             node_ids[node.key] = nid
@@ -178,6 +205,11 @@ class LearnerEngine:
         Args:
             task: a generated task dict carrying ``mvp_target_node_id``.
 
+        Generated tasks carry their own frozen graph (persisted by
+        ``coach.remediation``); the target node lives in the parent task's
+        namespace and must already be mirrored. A missing node raises so
+        ``plan_remediation``/``plan_consolidation`` fail soft (return None).
+
         Returns {"target_node_id"}.
         """
         target_id_raw = task.get("mvp_target_node_id")
@@ -193,10 +225,6 @@ class LearnerEngine:
             except ValueError:
                 raise ValueError(f"target node not found for id {target_id_raw!r}")
             node = kg.get_node(target_id)
-            if node is None:
-                # Node vanished: fall back to the skill node (deterministic id).
-                skill_name = (task.get("skill", "general") or "general").strip() or "general"
-                node = kg.get_node(node_id_for(NodeType.SKILL, skill_name.title()))
             if node is None:
                 raise ValueError(f"target node not found for id {target_id_raw!r}")
 
@@ -218,12 +246,12 @@ class LearnerEngine:
     ) -> dict:
         """Convert a judge result into evidence and run the learning loop."""
         learner_id = self.ensure_learner(candidate)
-        knowledge = self.decomposer.decompose(task)
+        knowledge = self._frozen_knowledge(task)
         session = self._session()
         try:
             container = self._container(session)
-            node_ids = self._ensure_graph(
-                container, knowledge, task.get("skill", "general")
+            node_ids = self._ensure_task_graph(
+                container, task.get("id", ""), knowledge, task.get("skill", "general")
             )
             targets = self._ephemeral_targets(knowledge, node_ids)
 
@@ -288,10 +316,11 @@ class LearnerEngine:
         text = (coach.misconception if coach else "") or ""
         if not text.strip() or fraction >= MISCONCEPTION_SCORE_MAX:
             return None
-        # Deterministic identity from the misconception text: same text reuses
-        # one node across submissions.
-        mc_id = node_id_for(NodeType.MISCONCEPTION, text.strip()[:120])
-        metadata = {}
+        # Per-task identity from the misconception text: same text in the same
+        # task reuses one node; other tasks get their own node (no sharing).
+        task_id = (task or {}).get("id", "")
+        mc_id = task_misconception_id_for(task_id, text.strip()[:120])
+        metadata = {"task_id": task_id}
         if skill_node_id is not None:
             metadata["skill_node_id"] = str(skill_node_id)
         node = container.knowledge_service.get_node(mc_id)
@@ -352,12 +381,15 @@ class LearnerEngine:
             for s in container.learner_service.list_learner_states(learner_id):
                 node = container.knowledge_repository.get_node(s.node_id)
                 key = str(s.node_id)
+                meta = dict(getattr(node, "metadata", None) or {})
                 states[key] = {
                     "name": node.name if node else key,
                     "mastery": s.mastery,
                     "uncertainty": s.uncertainty,
                     "status": s.status.value,
                     "evidence_count": s.evidence_count,
+                    "task_id": meta.get("task_id"),
+                    "node_key": meta.get("local_key"),
                 }
 
             frontier = container.frontier_service.list_frontier(learner_id)[:limit]

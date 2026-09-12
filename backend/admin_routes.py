@@ -1,4 +1,9 @@
-"""Admin/debug API routes for inspecting the knowledge graph and learner model."""
+"""Admin/debug API routes for inspecting per-task graphs and the learner model.
+
+Knowledge graphs are per-task: each task row carries its own frozen graph
+(``tasks.graph_json``). ``knowledge_nodes``/``knowledge_edges`` are only the
+derived state index that learner rows FK to (see ``coach.admin``).
+"""
 
 from typing import Optional
 
@@ -26,7 +31,7 @@ def _require_owner_or_admin(candidate: str, user: dict) -> dict:
 
 
 def _require_admin(user: dict = Depends(_require_user)) -> dict:
-    """Admin-only: the knowledge graph is global, so only ADMIN_EMAILS may wipe it."""
+    """Admin-only: index-wide operations need ADMIN_EMAILS membership."""
     if not is_admin(user):
         raise HTTPException(status_code=403, detail="Admin access required.")
     return user
@@ -61,95 +66,109 @@ def list_learners(user: dict = Depends(_require_user)):
     return {"learners": learners}
 
 
-@admin_router.get("/graph")
-def get_graph(user: dict = Depends(_require_user)):
-    """Return all knowledge graph nodes and edges."""
-    engine = LearnerEngine()
-    session = engine._session()
+@admin_router.get("/graphs")
+def list_task_graphs(user: dict = Depends(_require_user)):
+    """List frozen per-task graphs (one entry per task with a stored graph)."""
+    from coach.tasks import list_tasks_for_admin
+
+    graphs = []
+    for t in list_tasks_for_admin(limit=500):
+        raw = (t.get("graph") or {})
+        nodes = raw.get("nodes") or []
+        if not nodes:
+            continue
+        graphs.append({
+            "task_id": t["id"],
+            "skill": t.get("skill"),
+            "owner": t.get("owner"),
+            "primary_node_key": raw.get("primary_node_key"),
+            "node_count": len(nodes),
+            "edge_count": len(raw.get("edges") or []),
+            "version": raw.get("version", 1),
+        })
+    return {"graphs": graphs}
+
+
+@admin_router.get("/tasks/{task_id}/graph")
+def get_task_graph(task_id: str, user: dict = Depends(_require_user)):
+    """Return a task's frozen graph plus its mirrored index node ids."""
+    from coach.tasks import get_task
+
+    task = get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    raw = (task.get("graph") or {})
+    if not (isinstance(raw, dict) and raw.get("nodes")):
+        return {
+            "task_id": task_id,
+            "skill": task.get("skill"),
+            "frozen": False,
+            "graph": None,
+            "node_ids": {},
+        }
     try:
-        container = engine._container(session)
-        nodes_raw = container.knowledge_repository.list_all_nodes() if hasattr(container.knowledge_repository, 'list_all_nodes') else []
-        if not nodes_raw:
-            from learner.graph import KnowledgeNodeModel, KnowledgeEdgeModel
-            from sqlalchemy import select
-            node_models = session.scalars(select(KnowledgeNodeModel)).all()
-            edge_models = session.scalars(select(KnowledgeEdgeModel)).all()
+        from coach.task_graph import TaskGraph
+        from learner.graph import task_node_id_for
 
-            nodes = []
-            node_id_set = set()
-            for m in node_models:
-                node_id_set.add(m.id)
-                nodes.append({
-                    "id": m.id,
-                    "type": m.type,
-                    "name": m.name,
-                    "description": m.description,
-                    "importance": (m.meta or {}).get("importance", 0.7),
-                    "status": m.status,
-                })
+        graph = TaskGraph.from_dict(raw)
+    except ValueError as exc:
+        return {
+            "task_id": task_id,
+            "skill": task.get("skill"),
+            "frozen": False,
+            "graph": None,
+            "node_ids": {},
+            "error": f"Stored graph is invalid: {exc}",
+        }
+    return {
+        "task_id": task_id,
+        "skill": task.get("skill"),
+        "frozen": True,
+        "graph": graph.to_dict(),
+        "node_ids": {n.key: str(task_node_id_for(task_id, n.key)) for n in graph.nodes},
+    }
 
-            edges = []
-            for m in edge_models:
-                edges.append({
-                    "id": m.id,
-                    "source": m.source_node_id,
-                    "target": m.target_node_id,
-                    "edge_type": m.edge_type,
-                    "weight": m.weight,
-                })
-        else:
-            nodes = [
-                {
-                    "id": str(n.id),
-                    "type": n.type.value if hasattr(n.type, 'value') else str(n.type),
-                    "name": n.name,
-                    "description": n.description,
-                    "importance": n.metadata.get("importance", 0.7),
-                    "status": n.status.value if hasattr(n.status, 'value') else str(n.status),
-                }
-                for n in nodes_raw
-            ]
-            edges_raw = []
-            for n in nodes_raw:
-                edges_raw.extend(container.knowledge_repository.get_outgoing_edges(n.id))
-            seen = set()
-            edges = []
-            for e in edges_raw:
-                key = (str(e.source_node_id), str(e.target_node_id), str(e.edge_type))
-                if key not in seen:
-                    seen.add(key)
-                    edges.append({
-                        "id": str(e.id),
-                        "source": str(e.source_node_id),
-                        "target": str(e.target_node_id),
-                        "edge_type": e.edge_type.value if hasattr(e.edge_type, 'value') else str(e.edge_type),
-                        "weight": e.weight,
-                    })
 
-        return {"nodes": nodes, "edges": edges}
-    finally:
-        session.close()
+@admin_router.post("/tasks/{task_id}/graph/regenerate")
+def regenerate_task_graph_endpoint(task_id: str, user: dict = Depends(_require_user)):
+    """Re-decompose a task and overwrite its frozen graph, then re-mirror.
+
+    Allowed for the task owner or an ADMIN_EMAILS admin.
+    """
+    from coach.admin import regenerate_task_graph
+    from coach.tasks import get_task
+
+    task = get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    email = (user.get("email") or "").strip().lower()
+    if (task.get("owner") or "") != email and not is_admin(user):
+        raise HTTPException(status_code=403, detail="Not authorized to regenerate this task's graph.")
+    updated = regenerate_task_graph(task_id)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    return {"ok": True, "task": updated}
 
 
 @admin_router.get("/graph/summary")
 def graph_summary_endpoint(user: dict = Depends(_require_user)):
-    """Dry-run preview: global graph row counts + dependent learner rows."""
-    from coach.admin import graph_summary
+    """Dry-run preview: per-task graph coverage + index and learner rows."""
+    from coach.admin import task_graph_summary
 
-    return graph_summary()
+    return task_graph_summary()
 
 
-@admin_router.delete("/graph")
-def delete_graph_endpoint(user: dict = Depends(_require_admin)):
-    """Full reset: delete global graph nodes/edges + dependent learner rows."""
-    from coach.admin import clear_knowledge_graph
+@admin_router.post("/graph/rebuild")
+def rebuild_graph_endpoint(user: dict = Depends(_require_admin)):
+    """Re-mirror every frozen task graph into the state index (non-destructive)."""
+    from coach.admin import rebuild_graph_index
 
-    return {"ok": True, **clear_knowledge_graph()}
+    return {"ok": True, **rebuild_graph_index()}
 
 
 @admin_router.get("/graph/{node_id}")
 def get_node_detail(node_id: str, user: dict = Depends(_require_user)):
-    """Return a single node with its connections."""
+    """Return a single state-index node with its connections."""
     import uuid as _uuid
     engine = LearnerEngine()
     session = engine._session()
@@ -340,30 +359,32 @@ def get_skill_states(candidate: str, user: dict = Depends(_require_user)):
 
 @admin_router.get("/stats")
 def get_stats(user: dict = Depends(_require_user)):
-    """Return summary counts across both databases."""
+    """Return summary counts: task-graph coverage, index rows, learner rows."""
     engine = LearnerEngine()
     session = engine._session()
     try:
-        from learner.graph import KnowledgeNodeModel, KnowledgeEdgeModel
-        from learner.evidence import EvidenceModel
-        from learner.states import LearnerModel, LearnerKnowledgeStateModel
-        from learner.misconception import LearnerMisconceptionModel
-        from sqlalchemy import func, select
+        from coach.admin import task_graph_summary
 
-        node_count = session.scalar(select(func.count(KnowledgeNodeModel.id))) or 0
-        edge_count = session.scalar(select(func.count(KnowledgeEdgeModel.id))) or 0
-        learner_count = session.scalar(select(func.count(LearnerModel.id))) or 0
-        state_count = session.scalar(select(func.count(LearnerKnowledgeStateModel.id))) or 0
-        evidence_count = session.scalar(select(func.count(EvidenceModel.id))) or 0
-        misconception_count = session.scalar(select(func.count(LearnerMisconceptionModel.id))) or 0
+        summary = task_graph_summary()
+        learner_count = 0
+        try:
+            from learner.states import LearnerModel
+            from sqlalchemy import func, select
+
+            learner_count = session.scalar(select(func.count(LearnerModel.id))) or 0
+        except Exception:
+            pass
 
         return {
-            "knowledge_nodes": node_count,
-            "knowledge_edges": edge_count,
+            "tasks_total": summary["tasks_total"],
+            "tasks_frozen": summary["tasks_frozen"],
+            "tasks_unfrozen": summary["tasks_unfrozen"],
+            "index_nodes": summary["index_nodes"],
+            "index_edges": summary["index_edges"],
             "learners": learner_count,
-            "knowledge_states": state_count,
-            "evidence_records": evidence_count,
-            "misconceptions": misconception_count,
+            "knowledge_states": summary["knowledge_states"],
+            "evidence_records": summary["evidence"],
+            "misconceptions": summary["misconceptions"],
         }
     finally:
         session.close()

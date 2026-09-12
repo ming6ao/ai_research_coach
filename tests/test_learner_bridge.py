@@ -15,7 +15,7 @@ import pytest
 # Point the MVP at a per-test DB before importing the bridge (module reads env at init).
 from coach.judge import CoachContent, EvaluationResult
 from coach.task_decomposer import DecomposedEdge, DecomposedNode, TaskKnowledge
-from learner.graph import node_id_for
+from learner.graph import task_misconception_id_for, task_node_id_for
 from learner.types import EdgeType, NodeType
 
 
@@ -86,14 +86,14 @@ class TestLearnerIdentity:
 class TestBootstrap:
     def test_bootstrap_creates_nodes(self, bridge):
         boot = bridge.bootstrap_task(_task())
-        expected_id = str(node_id_for(NodeType.SKILL, "ml_systems".title()))
+        expected_id = str(task_node_id_for("mi_sys_cache", "n0"))
         assert boot == {"primary_node_id": expected_id}
 
         session = bridge._session()
         try:
             c = bridge._container(session)
             assert c.knowledge_repository.get_node(uuid.UUID(boot["primary_node_id"])) is not None
-            basics_id = node_id_for(NodeType.CONCEPT, "ml_systems basics")
+            basics_id = task_node_id_for("mi_sys_cache", "n1")
             assert c.knowledge_repository.get_node(basics_id) is not None
         finally:
             session.close()
@@ -104,10 +104,15 @@ class TestBootstrap:
         assert b1["primary_node_id"] == b2["primary_node_id"]
         assert set(b1.keys()) == {"primary_node_id"}
 
+    def test_same_concept_in_different_tasks_does_not_share_nodes(self, bridge):
+        first = bridge.bootstrap_task(_task(task_id="task_one"))
+        second = bridge.bootstrap_task(_task(task_id="task_two"))
+        assert first["primary_node_id"] != second["primary_node_id"]
+
     def test_custom_question_bootstraps_via_general(self, bridge):
         task = _task(task_id="custom_abc", skill="general", score=5)
         boot = bridge.bootstrap_task(task)
-        assert boot["primary_node_id"] == str(node_id_for(NodeType.SKILL, "General"))
+        assert boot["primary_node_id"] == str(task_node_id_for("custom_abc", "n0"))
 
 
 class TestSubmission:
@@ -119,7 +124,7 @@ class TestSubmission:
 
         bridge.record_submission("carol@example.com", task, result, coach)
         snap = bridge.learner_snapshot("carol@example.com")
-        skill_id = str(node_id_for(NodeType.SKILL, "ml_systems".title()))
+        skill_id = str(task_node_id_for("mi_sys_cache", "n0"))
         state = snap["states"][skill_id]
         assert state["mastery"] > 0.5
         assert state["status"] in ("uncertain", "developing", "proficient")
@@ -132,7 +137,7 @@ class TestSubmission:
 
         bridge.record_submission("dave@example.com", task, result, coach)
         snap = bridge.learner_snapshot("dave@example.com")
-        skill_id = str(node_id_for(NodeType.SKILL, "ml_systems".title()))
+        skill_id = str(task_node_id_for("mi_sys_cache", "n0"))
         assert snap["states"][skill_id]["mastery"] < 0.5
 
     def test_evidence_is_append_only(self, bridge):
@@ -173,7 +178,7 @@ class TestSubmission:
 
         out = bridge.record_submission("grace@example.com", task, result, coach)
         assert out["misconception"] is not None
-        expected_mc_id = str(node_id_for(NodeType.MISCONCEPTION, text.strip()[:120]))
+        expected_mc_id = str(task_misconception_id_for("mi_sys_cache", text))
         assert out["misconception"]["misconception_node_id"] == expected_mc_id
         assert "slug" not in out["misconception"]
         snap = bridge.learner_snapshot("grace@example.com")
@@ -255,7 +260,7 @@ class TestGeneratedTask:
         task = _task()
         bridge.bootstrap_task(task)
         bridge.ensure_learner("gen@example.com")
-        skill_node_id = str(node_id_for(NodeType.SKILL, "ml_systems".title()))
+        skill_node_id = str(task_node_id_for("mi_sys_cache", "n0"))
 
         generated = {
             "id": "remed_abc123",
@@ -271,7 +276,9 @@ class TestGeneratedTask:
         boot = bridge.bootstrap_generated_task(generated)
         assert boot == {"target_node_id": skill_node_id}
 
-        # Scoring the generated task updates the primary node.
+        # Scoring the generated task updates the generated task's own
+        # namespaced nodes (strictly per-task: no cross-task sharing with the
+        # parent task's skill node).
         from coach.judge import CoachContent, EvaluationResult
 
         coach = CoachContent(feedback="ok", misconception="", steps=[])
@@ -280,7 +287,9 @@ class TestGeneratedTask:
         assert out["observation_status"] == "correct"
 
         snap = bridge.learner_snapshot("gen@example.com")
-        assert snap["states"][skill_node_id]["mastery"] > 0.5
+        child_skill_id = str(task_node_id_for("remed_abc123", "n0"))
+        assert snap["states"][child_skill_id]["mastery"] > 0.5
+        assert snap["states"][child_skill_id]["task_id"] == "remed_abc123"
 
     def test_generated_task_nodes_are_tagged_with_skill(self, bridge):
         task = _task()
@@ -290,7 +299,7 @@ class TestGeneratedTask:
         try:
             c = bridge._container(session)
             node = c.knowledge_repository.get_node(
-                node_id_for(NodeType.SKILL, "ml_systems".title())
+                task_node_id_for("mi_sys_cache", "n0")
             )
             assert node.metadata.get("skill") == "ml_systems"
         finally:
@@ -310,7 +319,7 @@ class TestNotObserved:
             from learner.evidence import Evidence, EvidenceType, ObservationStatus
 
             node = c.knowledge_repository.get_node(
-                node_id_for(NodeType.SKILL, "ml_systems".title())
+                task_node_id_for("mi_sys_cache", "n0")
             )
             c.evidence_service.add_evidence(
                 Evidence(
@@ -339,7 +348,7 @@ class TestSnapshot:
         result, coach = _result(task, 1)
         bridge.record_submission("kim@example.com", task, result, coach)
         snap = bridge.learner_snapshot("kim@example.com")
-        skill_id = str(node_id_for(NodeType.SKILL, "ml_systems".title()))
+        skill_id = str(task_node_id_for("mi_sys_cache", "n0"))
         assert skill_id in snap["states"]
         assert snap["states"][skill_id]["name"] == "ml_systems".title()
         assert isinstance(snap["frontier_top"], list)

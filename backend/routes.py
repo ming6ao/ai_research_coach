@@ -40,6 +40,8 @@ class TaskCreateRequest(BaseModel):
     hints: Optional[list] = None
     expected_time_min: Optional[float] = None
     is_public: Optional[bool] = False
+    graph: Optional[dict] = None
+    graph_yaml: Optional[str] = None
 
 
 class SubmitRequest(BaseModel):
@@ -142,10 +144,23 @@ def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
     session = Session(candidate, tasks=scoped_tasks or [])
 
     # If the user typed a custom question, persist it as a task row first.
+    # The knowledge graph is frozen once here and reused verbatim afterwards.
     custom_task = None
     if req.initial_question and req.initial_question.strip():
         from coach.tasks import create_task as _create_task
 
+        _draft = {
+            "id": f"task_pending_{uuid.uuid4().hex[:8]}",
+            "skill": req.skill or "general",
+            "prompt": req.initial_question.strip(),
+        }
+        _frozen_graph: Optional[dict] = None
+        try:
+            from coach.task_graph import freeze_graph_for_task
+
+            _frozen_graph = freeze_graph_for_task(_draft)
+        except Exception:
+            _frozen_graph = None
         custom_task = _create_task(
             prompt=req.initial_question.strip(),
             skill=req.skill or "general",
@@ -156,6 +171,7 @@ def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
             source="user",
             # Guests create globally-visible rows; users default to private.
             is_public=is_guest,
+            graph=_frozen_graph,
         )
         session.tasks.insert(0, custom_task)
 
@@ -350,6 +366,27 @@ def create_task_endpoint(req: TaskCreateRequest, user: dict = Depends(get_curren
         raise HTTPException(status_code=400, detail="Prompt is required.")
     candidate = _candidate_for(user)
     is_guest = candidate.startswith("guest-")
+    # Caller-supplied graphs are validated once here; otherwise freeze by
+    # decomposing once now so the row is created with its graph attached.
+    frozen_graph: Optional[dict] = None
+    try:
+        from coach.task_graph import coerce_graph_payload, freeze_graph_for_task
+
+        coerced = coerce_graph_payload(req.graph, req.graph_yaml)
+        if coerced is not None:
+            frozen_graph = coerced.to_dict()
+        else:
+            frozen_graph = freeze_graph_for_task(
+                {
+                    "id": f"task_pending_{uuid.uuid4().hex[:8]}",
+                    "skill": req.skill or "general",
+                    "prompt": req.prompt.strip(),
+                }
+            )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid graph: {exc}")
+    except Exception:
+        frozen_graph = None
     task = _create_task(
         prompt=req.prompt.strip(),
         skill=req.skill or "general",
@@ -361,6 +398,7 @@ def create_task_endpoint(req: TaskCreateRequest, user: dict = Depends(get_curren
         expected_time_min=req.expected_time_min,
         source="user",
         is_public=bool(req.is_public or is_guest),
+        graph=frozen_graph,
     )
     # Decompose eagerly so the knowledge graph knows the new question.
     try:

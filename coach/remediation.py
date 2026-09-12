@@ -107,6 +107,8 @@ class RemediationPlanner:
             self._fraction(learner_update),
         )
         generated["skill"] = skill_id
+        generated["_target_name"] = node.get("name")
+        generated["_target_description"] = node.get("description")
         return generated
 
     # -- target selection ------------------------------------------------------
@@ -266,12 +268,64 @@ def plan_remediation(
         return None
 
 
+def _child_graph_for_generated(generated: dict, node: dict) -> Optional[dict]:
+    """Build the generated task's own frozen graph (validated, JSON-ready).
+
+    The child drills one node: a skill node plus a concept node named after
+    the remediation target, with the concept as primary. Evidence on the
+    generated task accrues to these task-namespaced nodes; the parent's
+    ``mvp_target_node_id`` is kept separately for remediation planning.
+    Returns None when the target has no usable name (caller stores ``{}``).
+    """
+    try:
+        from coach.task_graph import TaskGraph
+
+        name = (node.get("name") or "").strip()[:255]
+        if not name:
+            return None
+        description = (node.get("description") or "").strip() or None
+        skill = (generated.get("skill", "general") or "general").strip() or "general"
+        graph = TaskGraph.from_dict(
+            {
+                "version": 1,
+                "primary_node_key": "n1",
+                "nodes": [
+                    {
+                        "key": "n0",
+                        "type": "skill",
+                        "name": skill.title(),
+                        "description": f"Skill exercised by {generated.get('id', '')}.",
+                        "importance": 0.9,
+                    },
+                    {
+                        "key": "n1",
+                        "type": "concept",
+                        "name": name,
+                        "description": description,
+                        "importance": 1.0,
+                    },
+                ],
+                "edges": [
+                    {"source_key": "n1", "target_key": "n0", "edge_type": "requires"},
+                ],
+            }
+        )
+        return graph.to_dict()
+    except Exception:
+        return None
+
+
 def _persist_generated_task(session, generated: dict, parent_task: dict | None) -> None:
     """Best-effort persistence of generated tasks to the task bank."""
     try:
         from coach.tasks import create_task
 
         candidate = getattr(session, "candidate", "system")
+        node = {
+            "name": generated.pop("_target_name", None),
+            "description": generated.pop("_target_description", None),
+        }
+        child_graph = _child_graph_for_generated(generated, node)
         create_task(
             prompt=generated.get("prompt", ""),
             skill=generated.get("skill", "general"),
@@ -284,6 +338,7 @@ def _persist_generated_task(session, generated: dict, parent_task: dict | None) 
             target_node_id=generated.get("mvp_target_node_id"),
             is_public=False,
             task_id=generated.get("id"),
+            graph=child_graph,
         )
     except Exception:
         pass
@@ -372,6 +427,8 @@ def plan_consolidation(
         node = RemediationPlanner._node_dict(target, states)
         generated = bridge.decomposer.generate_variant_task(node, task, difficulty)
         generated["skill"] = skill_id
+        generated["_target_name"] = node.get("name")
+        generated["_target_description"] = node.get("description")
         bridge.bootstrap_generated_task(generated)
         session.add_generated_task(generated)
         _persist_generated_task(session, generated, task)

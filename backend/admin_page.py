@@ -1,4 +1,4 @@
-"""Standalone admin/debug page for inspecting the knowledge graph and learner model.
+"""Standalone admin/debug page for inspecting per-task graphs and the learner model.
 
 Served at /admin as a self-contained HTML page with inline SVG graph visualization,
 learner model inspector, and SkillState comparison. Requires authentication.
@@ -49,9 +49,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 input { font-family: inherit; font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg3); color: var(--text); }
 .stats-bar { display: flex; gap: 16px; padding: 8px 20px; border-bottom: 1px solid var(--border); background: var(--bg2); font-size: 11px; color: var(--text-muted); }
 .stats-bar span b { color: var(--text); }
-.main { display: grid; grid-template-columns: 1fr 1fr; height: calc(100vh - 85px); }
-@media (max-width: 900px) { .main { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; } }
-.panel { border-right: 1px solid var(--border); overflow: auto; }
+.main { display: block; height: calc(100vh - 85px); overflow: auto; }
+.panel { border-right: none; overflow: visible; }
 .panel:last-child { border-right: none; }
 .panel-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--bg2); position: sticky; top: 0; z-index: 5; }
 .panel-header h2 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); }
@@ -99,16 +98,10 @@ tr:hover td { background: var(--bg3); }
 .badge-incorrect { background: #ef444420; color: var(--red); }
 .badge-partially_correct { background: #f59e0b20; color: var(--warning); }
 
-/* SVG graph */
-.graph-container { width: 100%; height: 100%; position: relative; overflow: hidden; background: var(--bg); }
-.graph-container svg { width: 100%; height: 100%; }
-.node-circle { cursor: grab; transition: r 0.15s; }
-.node-circle:hover { r: 14; }
-.node-circle.selected { stroke: var(--accent); stroke-width: 3; }
-.node-label { font-size: 10px; fill: var(--text); pointer-events: none; text-anchor: middle; dominant-baseline: central; font-family: inherit; }
-.edge-line { stroke: var(--border); stroke-width: 1.5; }
-.edge-label { font-size: 8px; fill: var(--text-muted); text-anchor: middle; }
-.edge-marker { fill: var(--border); }
+/* Task-graph JSON viewer */
+.json-view { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; overflow: auto; font-size: 12px; white-space: pre; max-height: 60vh; }
+.graph-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.graph-toolbar select { max-width: 320px; }
 
 /* Node detail panel */
 .node-detail { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
@@ -148,34 +141,29 @@ tr:hover td { background: var(--bg3); }
 <div class="stats-bar" id="stats-bar">Loading stats...</div>
 
 <div class="main">
-  <!-- Left: Knowledge Graph -->
-  <div class="panel">
-    <div class="panel-header">
-      <h2>Knowledge Graph</h2>
-      <span id="graph-info" style="font-size:11px;color:var(--text-muted)"></span>
-    </div>
-    <div class="graph-container" id="graph-container">
-      <svg id="graph-svg"></svg>
-    </div>
+  <div class="tabs" id="main-tabs">
+    <div class="tab active" data-tab="graph">Task Graph</div>
+    <div class="tab" data-tab="states">States</div>
+    <div class="tab" data-tab="frontier">Frontier</div>
+    <div class="tab" data-tab="misconceptions">Misconceptions</div>
+    <div class="tab" data-tab="evidence">Evidence</div>
+    <div class="tab" data-tab="skillstates">SkillState</div>
+    <div class="tab" data-tab="manage">Manage</div>
   </div>
-
-  <!-- Right: Learner Model -->
-  <div class="panel" style="display:flex;flex-direction:column;">
-    <div class="tabs" id="right-tabs">
-      <div class="tab active" data-tab="states">States</div>
-      <div class="tab" data-tab="frontier">Frontier</div>
-      <div class="tab" data-tab="misconceptions">Misconceptions</div>
-      <div class="tab" data-tab="evidence">Evidence</div>
-      <div class="tab" data-tab="skillstates">SkillState</div>
-      <div class="tab" data-tab="manage">Manage</div>
+  <div style="padding:12px 16px;">
+    <div id="tab-graph" class="tab-content active">
+      <div class="graph-toolbar">
+        <select id="graph-task-select"><option value="">Select question…</option></select>
+        <span id="graph-info" style="font-size:11px;color:var(--text-muted)"></span>
+      </div>
+      <div id="graph-json"><div class="empty"><p>No frozen task graphs yet</p></div></div>
     </div>
-    <div style="flex:1;overflow:auto;">
-      <div id="tab-states" class="tab-content active"></div>
-      <div id="tab-frontier" class="tab-content"></div>
-      <div id="tab-misconceptions" class="tab-content"></div>
-      <div id="tab-evidence" class="tab-content"></div>
-      <div id="tab-skillstates" class="tab-content"></div>
-      <div id="tab-manage" class="tab-content">
+    <div id="tab-states" class="tab-content"></div>
+    <div id="tab-frontier" class="tab-content"></div>
+    <div id="tab-misconceptions" class="tab-content"></div>
+    <div id="tab-evidence" class="tab-content"></div>
+    <div id="tab-skillstates" class="tab-content"></div>
+    <div id="tab-manage" class="tab-content">
         <div class="panel-body">
           <h3 style="font-size:12px;margin-bottom:8px">Candidate data</h3>
           <div id="manage-summary"><div class="empty"><p>Select a candidate to preview their stored rows</p></div></div>
@@ -189,14 +177,15 @@ tr:hover td { background: var(--bg3); }
             <button onclick="loadManageTasks()">Search</button>
           </div>
           <div id="manage-tasks"><div class="empty"><p>Loading questions…</p></div></div>
-          <h3 style="font-size:12px;margin:16px 0 8px">Knowledge graph</h3>
+          <h3 style="font-size:12px;margin:16px 0 8px">Task graphs</h3>
           <div id="manage-graph-summary"><div class="empty"><p>Loading graph rows…</p></div></div>
-          <button id="manage-graph-wipe-btn" class="danger" onclick="wipeGraph()" style="margin-top:8px" disabled>Clear knowledge graph</button>
-          <div class="meta" style="margin-top:4px">Admin-only. Deletes global nodes + edges and dependent learner rows (states, evidence, frontier, misconceptions) for ALL candidates. Back up <span style="font-family:inherit">data/coach.db</span> first — this cannot be undone.</div>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button id="manage-graph-rebuild-btn" class="primary" onclick="rebuildGraph()">Rebuild index</button>
+          </div>
+          <div class="meta" style="margin-top:4px">Graphs live on the questions themselves (frozen at creation). The node/edge index is derived — rebuild re-mirrors every frozen graph without touching learner rows. Admin-only.</div>
         </div>
       </div>
     </div>
-  </div>
 </div>
 
 <script>
@@ -233,31 +222,44 @@ async function apiDelete(path) {
   return res.json();
 }
 
+async function apiPost(path, body) {
+  const token = getToken();
+  const headers = {'Content-Type': 'application/json'};
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const res = await fetch('/admin' + path, { method: 'POST', headers, body: body ? JSON.stringify(body) : undefined });
+  if (res.status === 401) {
+    document.body.innerHTML = '<div class="empty" style="padding:80px"><h2>Authentication Required</h2><p>Please log in first, then return to this page.</p></div>';
+    throw new Error('Unauthorized');
+  }
+  if (!res.ok) {
+    let detail = 'API error ' + res.status;
+    try { detail = (await res.json()).detail || detail; } catch {}
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 // Tab switching
-document.querySelectorAll('#right-tabs .tab').forEach(tab => {
+document.querySelectorAll('#main-tabs .tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    document.querySelectorAll('#right-tabs .tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('#main-tabs .tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     tab.classList.add('active');
     document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
   });
 });
 
-let graphData = null;
-let learnerData = null;
-let selectedNodeId = null;
-
 // --- Stats ---
 async function loadStats() {
   try {
     const s = await api('/stats');
     document.getElementById('stats-bar').innerHTML =
-      '<span>Nodes: <b>' + s.knowledge_nodes + '</b></span>' +
-      '<span>Edges: <b>' + s.knowledge_edges + '</b></span>' +
+      '<span>Questions: <b>' + s.tasks_total + '</b> (' + s.tasks_frozen + ' frozen)</span>' +
+      '<span>Index: <b>' + s.index_nodes + '</b> nodes / <b>' + s.index_edges + '</b> edges</span>' +
       '<span>Learners: <b>' + s.learners + '</b></span>' +
       '<span>States: <b>' + s.knowledge_states + '</b></span>' +
       '<span>Evidence: <b>' + s.evidence_records + '</b></span>' +
@@ -280,171 +282,73 @@ async function loadCandidates() {
   } catch {}
 }
 
-// --- Graph ---
-const NODE_COLORS = {
-  concept: '#3b82f6', skill: '#22c55e', procedure: '#a855f7',
-  problem: '#f97316', strategy: '#14b8a6', misconception: '#ef4444', domain: '#6b7280'
-};
+// --- Task graph (JSON) ---
+let graphTaskId = null;
+let learnerData = null;
 
-let cachedPositions = new Map();
+async function loadGraphList() {
+  const sel = document.getElementById('graph-task-select');
+  try {
+    const data = await api('/graphs');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">Select question…</option>';
+    data.graphs.forEach(g => {
+      const opt = document.createElement('option');
+      opt.value = g.task_id;
+      opt.textContent = (g.skill || 'general') + ' · ' + g.task_id.slice(0, 18) + ' (' + g.node_count + 'n)';
+      sel.appendChild(opt);
+    });
+    if (data.graphs.some(g => g.task_id === prev)) sel.value = prev;
+    if (!sel.value && data.graphs.length) sel.value = data.graphs[0].task_id;
+  } catch {
+    sel.innerHTML = '<option value="">Failed to load</option>';
+  }
+}
 
 async function loadGraph() {
+  await loadGraphList();
+  const sel = document.getElementById('graph-task-select');
+  const taskId = sel.value;
+  const el = document.getElementById('graph-json');
+  const info = document.getElementById('graph-info');
+  if (!taskId) {
+    graphTaskId = null;
+    info.textContent = 'No frozen task graphs yet';
+    el.innerHTML = '<div class="empty"><p>No frozen task graphs yet — create a question or run backfill</p></div>';
+    return;
+  }
   try {
-    graphData = await api('/graph');
-    document.getElementById('graph-info').textContent =
-      graphData.nodes.length + ' nodes, ' + graphData.edges.length + ' edges';
-    renderGraph();
-  } catch { document.getElementById('graph-info').textContent = 'Failed to load'; }
+    const data = await api('/tasks/' + encodeURIComponent(taskId) + '/graph');
+    if (!data.frozen) {
+      graphTaskId = null;
+      info.textContent = 'Question has no frozen graph' + (data.error ? ': ' + data.error : '');
+      el.innerHTML = '<div class="empty"><p>No frozen graph for this question</p></div>';
+      return;
+    }
+    graphTaskId = data.task_id;
+    const g = data.graph;
+    info.textContent = taskId.slice(0, 24) + ' · ' + g.nodes.length + ' nodes, ' + (g.edges || []).length + ' edges · primary: ' + g.primary_node_key;
+    const payload = { task_id: data.task_id, skill: data.skill, version: g.version, primary_node_key: g.primary_node_key, nodes: g.nodes, edges: g.edges, node_ids: data.node_ids };
+    let html = '<div class="json-view">' + esc(JSON.stringify(payload, null, 2)) + '</div>';
+    html += '<table style="margin-top:10px"><thead><tr><th>Key</th><th>Type</th><th>Name</th><th>Importance</th><th>Index id</th></tr></thead><tbody>';
+    g.nodes.forEach(n => {
+      const star = n.key === g.primary_node_key ? ' ★' : '';
+      html += '<tr><td><b>' + esc(n.key) + '</b>' + star + '</td><td><span class="badge badge-' + esc(n.type) + '">' + esc(n.type) + '</span></td><td>' + esc(n.name) + '</td><td>' + n.importance + '</td><td style="color:var(--text-muted)">' + esc(((data.node_ids || {})[n.key]) || '—') + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch {
+    info.textContent = 'Failed to load';
+    el.innerHTML = '<div class="error-msg">Failed to load task graph</div>';
+  }
 }
 
-function renderGraph() {
-  if (!graphData) return;
-  const svg = document.getElementById('graph-svg');
-  const container = document.getElementById('graph-container');
-  const W = container.clientWidth || 600;
-  const H = container.clientHeight || 400;
-  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
-
-  const nodes = graphData.nodes.map((n, i) => {
-    const c = cachedPositions.get(n.id);
-    return {
-      ...n,
-      x: c ? c.x : W/2 + (Math.random()-0.5)*W*0.6,
-      y: c ? c.y : H/2 + (Math.random()-0.5)*H*0.6,
-      vx: 0, vy: 0, idx: i
-    };
-  });
-  const nodeMap = {};
-  nodes.forEach(n => nodeMap[n.id] = n);
-  const edges = graphData.edges.filter(e => nodeMap[e.source] && nodeMap[e.target]);
-
-  // Force simulation (skip if all positions already cached)
-  const needsLayout = nodes.some(n => !cachedPositions.has(n.id));
-  if (needsLayout) {
-    const REPULSION = 3000, ATTRACTION = 0.005, CENTER = 0.01, DAMPING = 0.85;
-    for (let iter = 0; iter < 200; iter++) {
-      nodes.forEach(a => { a.vx = 0; a.vy = 0; });
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i+1; j < nodes.length; j++) {
-          let dx = nodes[j].x - nodes[i].x, dy = nodes[j].y - nodes[i].y;
-          let d = Math.sqrt(dx*dx + dy*dy) || 1;
-          let f = REPULSION / (d*d);
-          nodes[i].vx -= dx/d*f; nodes[i].vy -= dy/d*f;
-          nodes[j].vx += dx/d*f; nodes[j].vy += dy/d*f;
-        }
-      }
-      edges.forEach(e => {
-        const a = nodeMap[e.source], b = nodeMap[e.target];
-        if (!a || !b) return;
-        let dx = b.x - a.x, dy = b.y - a.y;
-        let d = Math.sqrt(dx*dx + dy*dy) || 1;
-        let f = (d - 80) * ATTRACTION;
-        a.vx += dx/d*f; a.vy += dy/d*f;
-        b.vx -= dx/d*f; b.vy -= dy/d*f;
-      });
-      nodes.forEach(n => {
-        n.vx += (W/2 - n.x) * CENTER;
-        n.vy += (H/2 - n.y) * CENTER;
-        n.vx *= DAMPING; n.vy *= DAMPING;
-        n.x += n.vx; n.y += n.vy;
-        n.x = Math.max(30, Math.min(W-30, n.x));
-        n.y = Math.max(30, Math.min(H-30, n.y));
-      });
-    }
-    nodes.forEach(n => cachedPositions.set(n.id, { x: n.x, y: n.y }));
-  }
-
-  // Build SVG
-  let html = '<defs><marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="edge-marker"/></marker></defs>';
-
-  edges.forEach(e => {
-    const a = nodeMap[e.source], b = nodeMap[e.target];
-    if (!a || !b) return;
-    const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
-    const label = e.edge_type.replace(/_/g,' ').split(' ').map(w=>w[0]).join('');
-    html += '<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+'" class="edge-line" marker-end="url(#arrow)"/>';
-    html += '<text x="'+mx+'" y="'+(my-4)+'" class="edge-label">'+label+'</text>';
-  });
-
-  nodes.forEach(n => {
-    const r = 6 + (n.importance || 0.7) * 6;
-    const color = NODE_COLORS[n.type] || '#6b7280';
-    const sel = n.id === selectedNodeId ? ' selected' : '';
-    // Mastery overlay
-    let masteryR = 0;
-    if (learnerData) {
-      const st = learnerData.states.find(s => s.node_id === n.id);
-      if (st) masteryR = r * st.mastery;
-    }
-    if (masteryR > 0) {
-      html += '<circle cx="'+n.x+'" cy="'+n.y+'" r="'+masteryR+'" fill="'+color+'" opacity="0.3"/>';
-    }
-    html += '<circle cx="'+n.x+'" cy="'+n.y+'" r="'+r+'" fill="'+color+'" class="node-circle'+sel+'" data-id="'+n.id+'" opacity="0.85"/>';
-    html += '<text x="'+n.x+'" y="'+(n.y + r + 12)+'" class="node-label">'+(n.name||'').slice(0,16)+'</text>';
-  });
-
-  svg.innerHTML = html;
-
-  // Click handler
-  svg.querySelectorAll('.node-circle').forEach(c => {
-    c.addEventListener('click', () => {
-      selectedNodeId = c.dataset.id;
-      renderGraph();
-      showNodeDetail(c.dataset.id);
-    });
-  });
-}
-
-function showNodeDetail(nodeId) {
-  const node = graphData.nodes.find(n => n.id === nodeId);
-  if (!node) return;
-  const state = learnerData ? learnerData.states.find(s => s.node_id === node.id) : null;
-  const outgoing = graphData.edges.filter(e => e.source === nodeId);
-  const incoming = graphData.edges.filter(e => e.target === nodeId);
-  const color = NODE_COLORS[node.type] || '#6b7280';
-
-  let html = '<div class="node-detail">';
-  html += '<h3><span class="badge badge-'+node.type+'" style="background:'+color+'20;color:'+color+'">'+node.type+'</span> '+node.name+'</h3>';
-  html += '<div class="meta">id: '+node.id+'</div>';
-  if (node.description) html += '<div class="meta" style="margin-top:4px">'+node.description+'</div>';
-  html += '<div class="meta" style="margin-top:4px">importance: '+(node.importance||0.7).toFixed(2)+' · status: '+node.status+'</div>';
-  if (state) {
-    html += '<div style="margin-top:8px;font-size:11px">';
-    html += '<b>Mastery:</b> <span class="bar-wrap"><span class="bar-fill bar-mastery" style="width:'+(state.mastery*100)+'%"></span></span> '+(state.mastery*100).toFixed(1)+'%<br>';
-    html += '<b>Uncertainty:</b> <span class="bar-wrap"><span class="bar-fill bar-uncertainty" style="width:'+(state.uncertainty*100)+'%"></span></span> '+(state.uncertainty*100).toFixed(1)+'%<br>';
-    html += '<b>Status:</b> <span class="badge badge-'+state.status+'">'+state.status+'</span> · evidence: '+state.evidence_count;
-    html += '</div>';
-  }
-  if (outgoing.length) {
-    html += '<div class="connections"><b>Outgoing:</b><ul>';
-    outgoing.forEach(e => {
-      const target = graphData.nodes.find(n => n.id === e.target);
-      html += '<li>'+e.edge_type+' → '+(target ? target.name : e.target.slice(0,8))+'</li>';
-    });
-    html += '</ul></div>';
-  }
-  if (incoming.length) {
-    html += '<div class="connections"><b>Incoming:</b><ul>';
-    incoming.forEach(e => {
-      const source = graphData.nodes.find(n => n.id === e.source);
-      html += '<li>'+e.edge_type+' ← '+(source ? source.name : e.source.slice(0,8))+'</li>';
-    });
-    html += '</ul></div>';
-  }
-  html += '</div>';
-
-  const tabContent = document.getElementById('tab-states');
-  const existing = tabContent.querySelector('.node-detail');
-  if (existing) existing.remove();
-  tabContent.insertAdjacentHTML('afterbegin', html);
-}
 
 // --- Learner data ---
 async function loadLearner(candidate) {
   if (!candidate) { learnerData = null; renderTabs(); return; }
   try { learnerData = await api('/learner/' + encodeURIComponent(candidate)); } catch { learnerData = null; }
   renderTabs();
-  renderGraph();
 }
 
 function renderTabs() {
@@ -549,8 +453,11 @@ const SUMMARY_LABELS = [
 ];
 
 const GRAPH_SUMMARY_LABELS = [
-  ['knowledge_nodes', 'Nodes'],
-  ['knowledge_edges', 'Edges'],
+  ['tasks_total', 'Questions'],
+  ['tasks_frozen', 'Frozen graphs'],
+  ['tasks_unfrozen', 'Unfrozen'],
+  ['index_nodes', 'Index nodes'],
+  ['index_edges', 'Index edges'],
   ['knowledge_states', 'Knowledge states'],
   ['evidence', 'Evidence'],
   ['frontier', 'Frontier'],
@@ -601,7 +508,6 @@ async function wipeCandidate() {
 
 async function loadGraphSummary() {
   const el = document.getElementById('manage-graph-summary');
-  const btn = document.getElementById('manage-graph-wipe-btn');
   if (!el) return;
   try {
     const s = await api('/graph/summary');
@@ -611,28 +517,19 @@ async function loadGraphSummary() {
     });
     html += '<tr><td><b>Total</b></td><td><b>' + (s.total || 0) + '</b></td></tr></tbody></table>';
     el.innerHTML = html;
-    if (btn) btn.disabled = (s.total || 0) === 0;
   } catch (e) {
     el.innerHTML = '<div class="error-msg">' + esc(e.message) + '</div>';
-    if (btn) btn.disabled = true;
   }
 }
 
-async function wipeGraph() {
-  let total = '?';
+async function rebuildGraph() {
+  if (!confirm('Re-mirror every frozen task graph into the state index?\nNon-destructive: learner rows are untouched. Missing index rows are recreated.')) return;
   try {
-    const s = await api('/graph/summary');
-    total = s.total;
-  } catch {}
-  if (!confirm('Delete the GLOBAL knowledge graph plus ALL ' + total + ' dependent rows?\nNodes, edges, knowledge states, evidence, frontier and misconceptions for ALL candidates.\nThis cannot be undone.')) return;
-  try {
-    const r = await apiDelete('/graph');
-    alert('Cleared knowledge graph (' + (r.deleted && r.deleted.total != null ? r.deleted.total : '?') + ' rows).');
-    selectedNodeId = null;
-    cachedPositions = new Map();
+    const r = await apiPost('/graph/rebuild');
+    alert('Index rebuilt: mirrored ' + r.mirrored + ', skipped ' + r.skipped + '.');
     await refreshAll();
   } catch (e) {
-    alert('Wipe failed: ' + e.message);
+    alert('Rebuild failed: ' + e.message);
   }
 }
 
@@ -649,12 +546,18 @@ async function loadManageTasks() {
   try {
     const data = await api('/tasks?' + params.toString());
     if (!data.tasks.length) { el.innerHTML = '<div class="empty"><p>No questions match</p></div>'; return; }
-    let html = '<table><thead><tr><th>Prompt</th><th>Skill</th><th>Owner</th><th>Attempts</th><th></th></tr></thead><tbody>';
+    let html = '<table><thead><tr><th>Prompt</th><th>Skill</th><th>Owner</th><th>Attempts</th><th>Graph</th><th></th></tr></thead><tbody>';
     data.tasks.forEach(t => {
       const excerpt = esc((t.prompt || '').slice(0, 80)) + ((t.prompt || '').length > 80 ? '…' : '');
+      const g = t.graph || {};
+      const graphCell = (g.nodes && g.nodes.length)
+        ? '✓ ' + g.nodes.length + 'n/' + ((g.edges || []).length) + 'e'
+        : '<span style="color:var(--text-muted)">—</span>';
       html += '<tr><td title="' + esc(t.prompt || '') + '">' + excerpt + '<br><span style="color:var(--text-muted);font-size:10px">' + esc(t.id) + '</span></td>' +
         '<td>' + esc(t.skill || '') + '</td><td>' + esc(t.owner || '') + '</td><td>' + (t.attempt_count || 0) + '</td>' +
-        '<td><button class="danger" onclick="deleteTask(\'' + t.id.replace(/'/g, "\\'") + '\',' + (t.attempt_count || 0) + ')">Delete</button></td></tr>';
+        '<td style="white-space:nowrap">' + graphCell + '</td>' +
+        '<td style="white-space:nowrap"><button onclick="regenerateTask(\'' + t.id.replace(/'/g, "\\'") + '\')">Regen graph</button> ' +
+        '<button class="danger" onclick="deleteTask(\'' + t.id.replace(/'/g, "\\'") + '\',' + (t.attempt_count || 0) + ')">Delete</button></td></tr>';
     });
     html += '</tbody></table>';
     el.innerHTML = html;
@@ -674,6 +577,18 @@ async function deleteTask(taskId, attempts) {
   }
 }
 
+async function regenerateTask(taskId) {
+  if (!confirm('Re-decompose question ' + taskId + ' and overwrite its frozen graph?\nLearner rows that reference the old index nodes keep pointing at the old nodes.')) return;
+  try {
+    await apiPost('/tasks/' + encodeURIComponent(taskId) + '/graph/regenerate');
+    await loadManageTasks();
+    await loadGraph();
+    await loadGraphSummary();
+  } catch (e) {
+    alert('Regenerate failed: ' + e.message);
+  }
+}
+
 // --- Refresh ---
 async function refreshAll() {
   const candidate = document.getElementById('candidate-select').value;
@@ -683,6 +598,10 @@ async function refreshAll() {
 document.getElementById('candidate-select').addEventListener('change', (e) => {
   loadLearner(e.target.value);
   loadCandidateSummary();
+});
+
+document.getElementById('graph-task-select').addEventListener('change', () => {
+  loadGraph();
 });
 
 // Init

@@ -167,7 +167,11 @@ def build_code_stub(task: dict) -> str | None:
 
 
 def task_view(task: dict, session: Session) -> dict | None:
-    """Build the client-facing view of a task (hints pre-revealed by ability)."""
+    """Build the client-facing view of a task (hints pre-revealed by ability).
+
+    The frozen per-task graph stays server-side (it lives on the task row
+    and would only bloat the client payload); it is intentionally omitted.
+    """
     if task is None:
         return None
     ability = session.get_skill_state(task["skill"]).score

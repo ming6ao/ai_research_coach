@@ -90,13 +90,16 @@ class TestApiFlow:
         assert data["learner_update"]["learner_id"]
 
     def test_custom_question_bootstraps_general_skill(self, client):
-        from learner.graph import node_id_for
-        from learner.types import NodeType
+        from learner.graph import task_node_id_for
 
         started = client.post("/api/start", json={
             "initial_question": "Explain what a cache eviction policy is.",
         }).json()
-        assert started["learner"]["primary_node_id"] == str(node_id_for(NodeType.SKILL, "General"))
+        # Frozen at creation: the primary node is the custom task's own
+        # namespaced skill node (key n0), not a shared global node.
+        assert started["learner"]["primary_node_id"] == str(
+            task_node_id_for(started["first_task"]["id"], "n0")
+        )
 
     def test_complete_includes_learner_snapshot(self, client):
         started = client.post("/api/start", json={}).json()

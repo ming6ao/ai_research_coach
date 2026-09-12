@@ -133,7 +133,31 @@ def create_schema():
         conn.exec_driver_sql("DROP TABLE IF EXISTS assessment_targets")
         conn.exec_driver_sql("DROP TABLE IF EXISTS assessment_tasks")
         _migrate_slug_removal(conn)
+        _migrate_task_graph_column(conn)
     return engine
+
+
+def _migrate_task_graph_column(conn) -> None:
+    """Best-effort migration for the per-task frozen graph refactor.
+
+    Adds ``tasks.graph_json`` (canonical JSON, ``{}`` when not yet frozen)
+    to databases created before the column existed. All failures are
+    swallowed so startup never breaks.
+    """
+    try:
+        cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(tasks)").fetchall()]
+        if "graph_json" not in cols:
+            try:
+                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN graph_json TEXT DEFAULT '{}'")
+            except Exception:
+                pass
+        # Backfill NULLs left by the ADD COLUMN on old rows.
+        try:
+            conn.exec_driver_sql("UPDATE tasks SET graph_json='{}' WHERE graph_json IS NULL")
+        except Exception:
+            pass
+    except Exception:
+        pass
 
 
 def _migrate_slug_removal(conn) -> None:

@@ -46,6 +46,20 @@ def utcnow() -> datetime:
 # so cross-task decomposition dedups without a separate slug column.
 KNOWLEDGE_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "ai-research-coach/knowledge-node")
 
+# Per-task namespace: node ``key`` values (``n0``, ``n1``, ...) are scoped to
+# the owning task so frozen per-task graphs never share mastery across tasks.
+TASK_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "ai-research-coach/task-node")
+
+
+def task_node_id_for(task_id: str, key: str) -> uuid.UUID:
+    """Deterministic per-task node id for a frozen graph local key."""
+    return uuid.uuid5(TASK_NAMESPACE, f"{task_id}:{(key or '').strip()}")
+
+
+def task_misconception_id_for(task_id: str, text: str) -> uuid.UUID:
+    """Deterministic per-task id for a misconception text."""
+    return uuid.uuid5(TASK_NAMESPACE, f"{task_id}:mc:{normalize_name(text)[:120]}")
+
 
 def normalize_name(name: str) -> str:
     """Canonical form used for identity: casefolded, whitespace-collapsed."""

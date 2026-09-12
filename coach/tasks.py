@@ -55,6 +55,7 @@ class TaskModel(Base):
     difficulty: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
     max_score: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     hints_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    graph_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     expected_time_min: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     parent_task_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
@@ -102,6 +103,12 @@ def task_to_dict(model: TaskModel) -> dict:
         hints = json.loads(model.hints_json or "[]")
     except Exception:
         hints = []
+    try:
+        graph = json.loads(getattr(model, "graph_json", None) or "{}")
+        if not isinstance(graph, dict):
+            graph = {}
+    except Exception:
+        graph = {}
     d: dict[str, Any] = {
         "id": model.id,
         "skill": model.skill,
@@ -109,6 +116,7 @@ def task_to_dict(model: TaskModel) -> dict:
         "difficulty": model.difficulty,
         "max_score": model.max_score,
         "hints": hints,
+        "graph": graph,
         "source": model.source,
         "is_public": bool(model.is_public),
         "owner": model.owner,
@@ -141,12 +149,22 @@ def create_task(
     target_node_id: Optional[str] = None,
     is_public: bool = False,
     task_id: Optional[str] = None,
+    graph: Optional[Any] = None,
+    graph_yaml: Optional[str] = None,
 ) -> dict:
-    """Persist a task row and return its dict form."""
+    """Persist a task row and return its dict form.
+
+    ``graph`` is a frozen per-task knowledge graph (``TaskGraph``, mapping,
+    or JSON string); ``graph_yaml`` is YAML accepted once at the write
+    boundary and canonicalized to JSON. Either may be omitted (``{}``),
+    in which case the caller is expected to freeze via
+    ``ensure_task_graph``/backfill.
+    """
     from coach.db import create_schema
 
     create_schema()
     tid = task_id or f"task_{uuid.uuid4().hex[:10]}"
+    graph_json = _coerce_graph_json(graph, graph_yaml)
     session = learner_session()
     try:
         model = TaskModel(
@@ -158,6 +176,7 @@ def create_task(
             difficulty=max(1, min(5, int(difficulty or 2))),
             max_score=max_score or 5,
             hints_json=json.dumps(hints or []),
+            graph_json=graph_json,
             expected_time_min=expected_time_min,
             source=source,
             parent_task_id=parent_task_id,
@@ -166,6 +185,42 @@ def create_task(
             created_at=_utcnow_naive(),
         )
         session.add(model)
+        session.commit()
+        return task_to_dict(model)
+    finally:
+        session.close()
+
+
+def _coerce_graph_json(graph: Optional[Any], graph_yaml: Optional[str] = None) -> str:
+    """Validate caller graph input once; return canonical JSON (``{}`` if absent)."""
+    from coach.task_graph import TaskGraph, coerce_graph_payload
+
+    if graph is None and graph_yaml is None:
+        return "{}"
+    if isinstance(graph, str) and graph_yaml is None:
+        # Raw JSON string passes through validation.
+        validated = TaskGraph.from_json(graph)
+        return validated.to_json()
+    validated = coerce_graph_payload(graph, graph_yaml)
+    if validated is None:
+        return "{}"
+    if isinstance(validated, TaskGraph):
+        return validated.to_json()
+    return json.dumps(validated)
+
+
+def set_task_graph(task_id: str, graph: Optional[Any], graph_yaml: Optional[str] = None) -> Optional[dict]:
+    """Validate and overwrite a task's frozen graph (admin regenerate path)."""
+    from coach.db import create_schema
+
+    create_schema()
+    graph_json = _coerce_graph_json(graph, graph_yaml)
+    session = learner_session()
+    try:
+        model = session.get(TaskModel, task_id)
+        if model is None:
+            return None
+        model.graph_json = graph_json
         session.commit()
         return task_to_dict(model)
     finally:
