@@ -1,11 +1,15 @@
-"""Next-task selection (graph-free hybrid).
+"""Next-task selection (graph-free hybrid, open-ended).
 
 1. Pending generated task — an injected follow-up not yet asked surfaces first
    (generated tasks are excluded from the bank picker).
 2. Judge-driven follow-up — after a submission, ``plan_followup`` may inject
-   one simpler drill task from the judge's gap text.
+   an adaptive drill (simpler on failure; harder escalation or sibling
+   prerequisite pivot after a solved follow-up).
 3. EIG bank picker — ``coach.picker.next_task(session)``.
-4. Done — ``None`` when the bank is exhausted and no follow-up remains.
+4. Fresh challenge — when the bank is exhausted, mint an ability-matched
+   task via ``plan_challenge`` so the session keeps going indefinitely.
+   ``None`` is returned only when generation also fails; the session ends
+   explicitly when the user chooses Finish / View progress.
 """
 
 from __future__ import annotations
@@ -50,4 +54,17 @@ def pick_next_task(
 
     # 3. EIG bank picker.
     nxt = next_task_bank(session)
-    return task_view(nxt, session) if nxt else None
+    if nxt is not None:
+        return task_view(nxt, session)
+
+    # 4. Bank exhausted -> mint a fresh adaptive challenge so the session
+    # keeps going indefinitely (user exits explicitly via Finish).
+    try:
+        from coach.remediation import plan_challenge
+
+        challenge = plan_challenge(session)
+        if challenge is not None:
+            return task_view(challenge, session)
+    except Exception:
+        pass
+    return None

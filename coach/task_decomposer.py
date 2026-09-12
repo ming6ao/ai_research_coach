@@ -46,6 +46,61 @@ Return JSON with exactly three keys:
   "difficulty": an integer in [1, 5] strictly at or below the original task's
     difficulty, reflecting the reduced scope."""
 
+_ESCALATE_SYSTEM_PROMPT = """\
+You are a tutor for a learning system. The candidate just SOLVED a simpler \
+drill task. Create ONE follow-up coding task that raises the challenge back \
+toward the original task: same skill/gap family but a harder variant (more \
+general input, an extra edge case, or a removed simplification). Do not \
+repeat the solved drill verbatim and do not reveal the answer.
+
+Return JSON with exactly three keys:
+  "prompt": the new, harder coding task prompt (2-6 sentences, self-contained,
+    with a clear function signature or spec).
+  "scaffold": a Python code stub for the candidate to fill in (the exact
+    function signature from the prompt, with a TODO comment and a `pass`
+    body — never the solution).
+  "difficulty": an integer in [1, 5], at or above the drill's difficulty \
+(prefer one step harder unless that would exceed the root difficulty + 1)."""
+
+_PIVOT_SYSTEM_PROMPT = """\
+You are a tutor for a learning system. The candidate just solved the drill \
+and its harder variant. Create ONE follow-up coding task that drills a \
+DIFFERENT prerequisite or commonly-confused concept of the same root task \
+(see root context and the list of already-drilled gaps to avoid). Keep the \
+difficulty similar to the last solved task. Do not repeat prior drills and \
+do not reveal the answer.
+
+Return JSON with exactly three keys:
+  "prompt": the new coding task prompt (2-6 sentences, self-contained, with
+    a clear function signature or spec) isolating the new prerequisite.
+  "scaffold": a Python code stub for the candidate to fill in (the exact
+    function signature from the prompt, with a TODO comment and a `pass`
+    body — never the solution).
+  "difficulty": an integer in [1, 5], similar to the last solved task's \
+difficulty."""
+
+_CHALLENGE_SYSTEM_PROMPT = """\
+You are a tutor for a learning system. The candidate has worked through the \
+available question bank. Create ONE fresh coding task at the requested \
+difficulty that keeps the session going: pick an important AI/ML coding \
+skill the candidate has not just drilled (see recent gaps to avoid \
+repetition), self-contained with a clear function signature or spec.
+
+Return JSON with exactly three keys:
+  "prompt": the new coding task prompt (2-6 sentences, self-contained, with
+    a clear function signature or spec). Do not reveal the answer.
+  "scaffold": a Python code stub for the candidate to fill in (the exact
+    function signature from the prompt, with a TODO comment and a `pass`
+    body — never the solution).
+  "difficulty": an integer in [1, 5], near the requested difficulty."""
+
+_FOLLOWUP_PROMPTS = {
+    "remediate": _FOLLOWUP_SYSTEM_PROMPT,
+    "escalate": _ESCALATE_SYSTEM_PROMPT,
+    "pivot": _PIVOT_SYSTEM_PROMPT,
+    "challenge": _CHALLENGE_SYSTEM_PROMPT,
+}
+
 _FOLLOWUP_SCHEMA = types.Schema(
     type=types.Type.OBJECT,
     properties={
@@ -136,16 +191,25 @@ class TaskDecomposer:
         target_text: str,
         original_task: dict,
         difficulty: int,
+        mode: str = "remediate",
+        extra_context: str = "",
     ) -> dict:
-        """Generate a simpler coding task drilling a free-text gap.
+        """Generate an adaptive follow-up task drilling a free-text gap.
 
         Args:
             target_text: judge's gap description (misconception/feedback).
-            original_task: the task the candidate just answered.
-            difficulty: pre-tuned difficulty (already <= original).
+            original_task: the task the candidate just answered (may itself
+                be a generated drill; chain bookkeeping is preserved).
+            difficulty: pre-tuned difficulty (mode-aware bounds applied).
+            mode: ``remediate`` (simpler drill), ``escalate`` (harder variant
+                after a solved drill), or ``pivot`` (different prerequisite
+                of the same root task after a solved escalation).
+            extra_context: root prompt / context_notes / already-drilled gaps
+                so escalations don't repeat and pivots pick a new prerequisite.
 
         Returns a task dict with keys id/type/difficulty/prompt/scaffold/
-        max_score plus bookkeeping keys ``generated`` and ``target_text``.
+        max_score plus bookkeeping keys ``generated``, ``generated_kind``,
+        ``target_text``, ``parent_task_id`` and ``root_task_id``.
 
         Raises:
             RuntimeError: when ``GOOGLE_API_KEY`` is missing or the LLM call
@@ -157,32 +221,38 @@ class TaskDecomposer:
         """
         import os
 
+        mode = mode if mode in _FOLLOWUP_PROMPTS else "remediate"
         task_id = f"remed_{uuid.uuid4().hex[:10]}"
         difficulty = max(1, min(5, int(difficulty)))
         gap = (target_text or "").strip() or "the gap in the previous answer"
 
         if not os.getenv("GOOGLE_API_KEY"):
             reason = "missing GOOGLE_API_KEY"
-            logger.error("[followup] %s, cannot generate drill for gap=%r", reason, gap)
+            logger.error("[followup:%s] %s, cannot generate drill for gap=%r", mode, reason, gap)
             raise RuntimeError(f"Follow-up generation failed: {reason}")
 
         raw = ""
         try:
             client = self._client()
+            body = (
+                f"Original task:\n{original_task.get('prompt', '')}\n\n"
+                f"Gap to drill: {gap}\n"
+                f"Desired difficulty (1-5): {difficulty}\n"
+            )
+            if extra_context and extra_context.strip():
+                body += f"\nChain context (root task, prerequisites, already drilled — do not repeat):\n{extra_context.strip()[:2000]}\n"
+            body += (
+                "\nCreate ONE coding task per the system instruction, "
+                "self-contained with a clear function signature. Also "
+                "provide a 'scaffold' Python stub with that signature, "
+                "a TODO comment and a `pass` body (no solution). Do not "
+                "reveal the answer."
+            )
             resp = client.models.generate_content(
                 model=self._model,
-                contents=(
-                    f"Original task:\n{original_task.get('prompt', '')}\n\n"
-                    f"Gap to drill: {gap}\n"
-                    f"Desired difficulty (1-5): {difficulty}\n\n"
-                    "Create ONE simpler coding task drilling only that gap, "
-                    "self-contained with a clear function signature. Also "
-                    "provide a 'scaffold' Python stub with that signature, "
-                    "a TODO comment and a `pass` body (no solution). Do not "
-                    "reveal the answer."
-                ),
+                contents=body,
                 config={
-                    "system_instruction": _FOLLOWUP_SYSTEM_PROMPT,
+                    "system_instruction": _FOLLOWUP_PROMPTS[mode],
                     "response_mime_type": "application/json",
                     "response_schema": _FOLLOWUP_SCHEMA,
                 },
@@ -193,13 +263,26 @@ class TaskDecomposer:
             if not prompt:
                 raise ValueError(f"empty follow-up prompt in model response: {raw[:2000]!r}")
             llm_difficulty = int(payload.get("difficulty", difficulty))
-            difficulty = max(1, min(int(original_task.get("difficulty", difficulty)), llm_difficulty))
+            orig_diff = int((original_task or {}).get("difficulty", difficulty))
+            if mode == "remediate":
+                difficulty = max(1, min(orig_diff, llm_difficulty, difficulty))
+            elif mode == "escalate":
+                # Harder than the solved drill, capped near the root level.
+                root_cap = max(1, min(5, int((original_task or {}).get("root_difficulty", orig_diff + 1))))
+                difficulty = max(1, min(root_cap, max(difficulty, llm_difficulty)))
+            else:  # pivot: hold near the last solved level
+                difficulty = max(1, min(5, llm_difficulty or difficulty))
             scaffold = str(payload.get("scaffold") or "").strip() or _scaffold_for(prompt, original_task)
-            return self._build(task_id, difficulty, prompt, gap, scaffold)
+            return self._build(
+                task_id, difficulty, prompt, gap, scaffold,
+                kind=mode, parent_task_id=(original_task or {}).get("id"),
+                root_task_id=(original_task or {}).get("root_task_id") or (original_task or {}).get("id"),
+                root_difficulty=(original_task or {}).get("root_difficulty", orig_diff),
+            )
         except Exception as exc:
             logger.exception(
-                "[followup] LLM generation failed (%s: %s) for gap=%r",
-                type(exc).__name__, exc, gap,
+                "[followup:%s] LLM generation failed (%s: %s) for gap=%r",
+                mode, type(exc).__name__, exc, gap,
             )
             logger.error("[followup] raw model response: %r", raw[:2000])
             raise RuntimeError(
@@ -207,8 +290,73 @@ class TaskDecomposer:
                 f"raw response: {raw[:2000]!r}"
             ) from exc
 
+    def generate_challenge_task(self, difficulty: int, avoid_text: str = "") -> dict:
+        """Generate a fresh adaptive task keeping an open-ended session going.
+
+        Used when the task bank is exhausted: picks an important skill at the
+        requested difficulty, avoiding recently-drilled gaps in ``avoid_text``.
+        Same raise-on-failure contract as ``generate_followup_task``.
+        """
+        import os
+
+        task_id = f"remed_{uuid.uuid4().hex[:10]}"
+        difficulty = max(1, min(5, int(difficulty)))
+        if not os.getenv("GOOGLE_API_KEY"):
+            reason = "missing GOOGLE_API_KEY"
+            logger.error("[challenge] %s, cannot generate task", reason)
+            raise RuntimeError(f"Challenge generation failed: {reason}")
+        raw = ""
+        try:
+            client = self._client()
+            body = f"Desired difficulty (1-5): {difficulty}\n"
+            if avoid_text and avoid_text.strip():
+                body += f"\nRecently drilled gaps to avoid repeating:\n{avoid_text.strip()[:1500]}\n"
+            body += (
+                "\nCreate ONE coding task per the system instruction, "
+                "self-contained with a clear function signature, plus a "
+                "'scaffold' Python stub (TODO + pass, no solution). Do not "
+                "reveal the answer."
+            )
+            resp = client.models.generate_content(
+                model=self._model,
+                contents=body,
+                config={
+                    "system_instruction": _FOLLOWUP_PROMPTS["challenge"],
+                    "response_mime_type": "application/json",
+                    "response_schema": _FOLLOWUP_SCHEMA,
+                },
+            )
+            raw = getattr(resp, "text", "") or ""
+            payload = json.loads(raw)
+            prompt = str(payload.get("prompt") or "").strip()
+            if not prompt:
+                raise ValueError(f"empty challenge prompt in model response: {raw[:2000]!r}")
+            llm_difficulty = int(payload.get("difficulty", difficulty))
+            difficulty = max(1, min(5, llm_difficulty or difficulty))
+            scaffold = str(payload.get("scaffold") or "").strip() or _scaffold_for(prompt, None)
+            task = self._build(task_id, difficulty, prompt, "open-ended challenge", scaffold, kind="challenge")
+            task["target_text"] = ""
+            return task
+        except Exception as exc:
+            logger.exception("[challenge] LLM generation failed (%s: %s)", type(exc).__name__, exc)
+            logger.error("[challenge] raw model response: %r", raw[:2000])
+            raise RuntimeError(
+                f"Challenge generation failed: {type(exc).__name__}: {exc}; "
+                f"raw response: {raw[:2000]!r}"
+            ) from exc
+
     @staticmethod
-    def _build(task_id: str, difficulty: int, prompt: str, target_text: str, scaffold: str | None = None) -> dict:
+    def _build(
+        task_id: str,
+        difficulty: int,
+        prompt: str,
+        target_text: str,
+        scaffold: str | None = None,
+        kind: str = "remediate",
+        parent_task_id: str | None = None,
+        root_task_id: str | None = None,
+        root_difficulty: int | None = None,
+    ) -> dict:
         task: dict = {
             "id": task_id,
             "type": "code",
@@ -217,9 +365,16 @@ class TaskDecomposer:
             "max_score": 5,
             "hints": [],
             "generated": True,
+            "generated_kind": kind,
             "target_text": target_text,
             "context_notes": "",
         }
+        if parent_task_id:
+            task["parent_task_id"] = parent_task_id
+        if root_task_id:
+            task["root_task_id"] = root_task_id
+        if root_difficulty is not None:
+            task["root_difficulty"] = root_difficulty
         if scaffold:
             task["scaffold"] = scaffold
         return task

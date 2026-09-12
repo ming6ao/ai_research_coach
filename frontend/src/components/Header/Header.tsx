@@ -9,7 +9,7 @@ interface Props {
 }
 
 export function Header({ onOpenAuth, onOpenAdmin }: Props) {
-  const { taskIndex, totalTasks, reset } = useAssessmentStore();
+  const { sessionId, taskIndex, completeSession, loading, reset } = useAssessmentStore();
   const { user, logout } = useAuthStore();
   const [isAdmin, setIsAdmin] = useState(false);
 
@@ -47,10 +47,20 @@ export function Header({ onOpenAuth, onOpenAdmin }: Props) {
       </div>
 
       <div className="flex items-center gap-3">
-        {totalTasks > 0 && (
+        {sessionId && (
           <span className="rounded-full bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-xs text-[var(--color-text-muted)]">
-            Q {Math.min(taskIndex + 1, totalTasks)} / {totalTasks}
+            Q {taskIndex + 1}
           </span>
+        )}
+        {sessionId && (
+          <button
+            onClick={completeSession}
+            disabled={loading}
+            title="Finish the session and view your progress (the session otherwise keeps going)"
+            className="rounded-lg px-3 py-1.5 text-xs text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Finish
+          </button>
         )}
 
         {user ? (

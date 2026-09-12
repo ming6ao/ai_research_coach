@@ -213,5 +213,9 @@ def task_view(task: dict, session: Session) -> dict | None:
     if task.get("context_notes"):
         view["context_notes"] = task["context_notes"]
     if task.get("generated"):
-        view["remediation"] = {"focus": task.get("target_text")}
+        kind = str(task.get("generated_kind") or "remediate")
+        label = {"remediate": "drill", "escalate": "escalation", "pivot": "pivot"}.get(kind, kind)
+        view["remediation"] = {"focus": task.get("target_text"), "kind": label}
+        if task.get("root_task_id"):
+            view["remediation"]["root_task_id"] = task["root_task_id"]
     return view

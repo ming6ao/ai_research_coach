@@ -18,17 +18,36 @@ class FakeDecomposer:
     def __init__(self):
         self.calls = []
 
-    def generate_followup_task(self, target_text, original_task, difficulty):
-        self.calls.append((target_text, original_task, difficulty))
+    def generate_followup_task(self, target_text, original_task, difficulty, mode="remediate", extra_context=""):
+        self.calls.append((target_text, original_task, difficulty, mode))
         return {
             "id": f"remed_{uuid.uuid4().hex[:10]}",
             "type": "code",
             "difficulty": difficulty,
-            "prompt": f"Simpler task for: {target_text}.",
+            "prompt": f"{mode} task for: {target_text}.",
             "max_score": 5,
             "hints": [],
             "generated": True,
+            "generated_kind": mode,
             "target_text": target_text,
+            "context_notes": "",
+            "parent_task_id": (original_task or {}).get("id"),
+            "root_task_id": (original_task or {}).get("root_task_id") or (original_task or {}).get("id"),
+            "root_difficulty": (original_task or {}).get("root_difficulty", (original_task or {}).get("difficulty", 2)),
+        }
+
+    def generate_challenge_task(self, difficulty, avoid_text=""):
+        self.calls.append(("__challenge__", {}, difficulty, "challenge"))
+        return {
+            "id": f"remed_{uuid.uuid4().hex[:10]}",
+            "type": "code",
+            "difficulty": difficulty,
+            "prompt": "Fresh challenge task.",
+            "max_score": 5,
+            "hints": [],
+            "generated": True,
+            "generated_kind": "challenge",
+            "target_text": "",
             "context_notes": "",
         }
 
@@ -87,11 +106,13 @@ class TestPickNextTask:
         assert picked is not None
         assert picked["id"] == "mi_sys_cache"
 
-    def test_done_when_bank_exhausted(self):
+    def test_bank_exhausted_mints_challenge(self, monkeypatch):
         from coach.selection import pick_next_task
 
         session = _session(tasks=[_base_task()])
         session.asked_task_ids.add("mi_sys_cache")
+        # Hermetic: force challenge generation to fail -> session ends.
+        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
         assert pick_next_task(session.candidate, session) is None
 
 
@@ -164,3 +185,69 @@ class TestBudgetGuards:
         assert stored is not None
         assert stored["target_text"] == "eviction gap"
         assert stored["parent_task_id"] == "mi_sys_cache"
+
+
+class TestAdaptiveChain:
+    """Solved drill -> harder escalation -> sibling-prerequisite pivot."""
+
+    def _solved(self):
+        return _result(5, 5)
+
+    def test_solved_drill_escalates_harder(self):
+        decomposer = FakeDecomposer()
+        planner = RemediationPlanner(decomposer=decomposer)
+        session = _session(tasks=[_base_task(difficulty=3)])
+        drill = planner.decide(session, _base_task(difficulty=3), _result(1, 5), _coach("eviction gap"))
+        assert drill is not None
+        assert decomposer.calls[-1][3] == "remediate"
+        session.add_generated_task(drill)
+        # Solve the drill cleanly -> escalation at same-or-harder difficulty.
+        esc = planner.decide(session, drill, self._solved(), _coach("", ""))
+        assert esc is not None
+        assert decomposer.calls[-1][3] == "escalate"
+        assert esc["difficulty"] >= drill["difficulty"]
+        assert esc["root_task_id"] == "mi_sys_cache"
+
+    def test_solved_escalation_pivots(self):
+        decomposer = FakeDecomposer()
+        planner = RemediationPlanner(decomposer=decomposer)
+        session = _session(tasks=[_base_task(difficulty=3)])
+        drill = planner.decide(session, _base_task(difficulty=3), _result(1, 5), _coach("eviction gap"))
+        session.add_generated_task(drill)
+        esc = planner.decide(session, drill, self._solved(), _coach("", ""))
+        session.add_generated_task(esc)
+        pivot = planner.decide(session, esc, self._solved(), _coach("", ""))
+        assert pivot is not None
+        assert decomposer.calls[-1][3] == "pivot"
+
+    def test_failed_drill_drills_simpler_again(self):
+        decomposer = FakeDecomposer()
+        planner = RemediationPlanner(decomposer=decomposer)
+        session = _session(tasks=[_base_task(difficulty=3)])
+        drill = planner.decide(session, _base_task(difficulty=3), _result(1, 5), _coach("eviction gap"))
+        session.add_generated_task(drill)
+        again = planner.decide(session, drill, _result(1, 5), _coach("still confused"))
+        assert again is not None
+        assert decomposer.calls[-1][3] == "remediate"
+        assert again["difficulty"] <= drill["difficulty"]
+
+    def test_chain_cap_per_root(self):
+        decomposer = FakeDecomposer()
+        planner = RemediationPlanner(decomposer=decomposer, max_chain_per_root=1)
+        session = _session(tasks=[_base_task(difficulty=3)])
+        drill = planner.decide(session, _base_task(difficulty=3), _result(1, 5), _coach("gap"))
+        assert drill is not None
+        session.add_generated_task(drill)
+        assert planner.decide(session, drill, self._solved(), _coach("", "")) is None
+
+    def test_challenge_keeps_session_going(self):
+        from coach.remediation import plan_challenge
+
+        decomposer = FakeDecomposer()
+        planner = RemediationPlanner(decomposer=decomposer)
+        session = _session(tasks=[_base_task()])
+        session.asked_task_ids.add("mi_sys_cache")
+        gen = plan_challenge(session, planner=planner)
+        assert gen is not None
+        assert gen["generated_kind"] == "challenge"
+        assert gen in session.tasks

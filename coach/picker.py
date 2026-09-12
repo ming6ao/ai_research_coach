@@ -4,7 +4,9 @@ Selects the next question to maximize expected information gain (posterior
 variance reduction of the overall ability belief) per unit of expected
 assessment time.
 
-The assessment ends when the question bank is exhausted.
+The session is open-ended: when the bank is exhausted, ``coach.selection``
+mints a fresh adaptive challenge task instead of ending (the user exits
+explicitly via Finish / View progress).
 """
 
 from typing import Optional

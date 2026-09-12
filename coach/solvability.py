@@ -53,13 +53,21 @@ def tune_difficulty_for_target(
     node_uncertainty: float | None = None,
     base_difficulty: int = 2,
     target: float = TARGET_P_SOLVE,
+    max_allowed: int | None = None,
 ) -> int:
     """Pick the hardest difficulty whose P(solve) still >= target.
 
-    Walks down from ``base_difficulty`` so successors never get harder
-    than the task they follow.
+    By default walks down from ``base_difficulty`` so successors never get
+    harder than the task they follow. Pass ``max_allowed`` greater than
+    ``base_difficulty`` (e.g. for follow-up escalations) to allow tuning
+    upward; the search then covers 1..``max_allowed`` and still returns the
+    hardest level meeting ``target``.
     """
-    for d in range(max(1, min(5, base_difficulty)), 0, -1):
+    base = max(1, min(5, int(base_difficulty)))
+    cap = max(1, min(5, int(max_allowed))) if max_allowed is not None else base
+    # Search the full 1..cap range so upward moves are possible when allowed,
+    # but never exceed the caller's cap.
+    for d in range(cap, 0, -1):
         if p_solve(ability_mean, node_mastery, node_uncertainty, d) >= target:
             return d
     return 1

@@ -16,7 +16,7 @@ export interface Task {
   scaffold?: string;
   hints?: Hint[];
   context_notes?: string;
-  remediation?: { focus?: string };
+  remediation?: { focus?: string; kind?: string; root_task_id?: string };
 }
 
 export interface EvaluationResult {

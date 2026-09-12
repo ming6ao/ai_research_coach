@@ -102,16 +102,30 @@ function CoachingBubble({ r }: { r: ResultWithFeedback }) {
   );
 }
 
+function followUpLabel(remediation?: Task['remediation']): string | null {
+  if (!remediation) return null;
+  switch (remediation.kind) {
+    case 'escalation':
+      return 'Harder follow-up';
+    case 'pivot':
+      return 'Related follow-up';
+    case 'challenge':
+      return 'Fresh challenge';
+    default:
+      return 'Follow-up';
+  }
+}
+
 function TaskPromptBubble({ prompt, remediation }: { prompt: string; remediation?: Task['remediation'] }) {
-  const isFollowUp = Boolean(remediation);
+  const label = followUpLabel(remediation);
   return (
     <CoachBubble>
       <div className="space-y-1">
         <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
           Question
-          {isFollowUp && (
+          {label && (
             <span className="inline-flex items-center gap-1 rounded-full border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-2.5 py-0.5 text-[11px] font-semibold normal-case tracking-normal text-[var(--color-accent)]">
-              Follow-up
+              {label}
             </span>
           )}
         </p>
@@ -126,7 +140,7 @@ function DoneBubble() {
   return (
     <CoachBubble>
       <p className="mb-3 text-sm text-[var(--color-text-primary)]">
-        You've worked through all the questions. Nice work!
+        No further questions are available right now. You can review your progress or start a new session.
       </p>
       <button
         onClick={completeSession}
@@ -140,7 +154,7 @@ function DoneBubble() {
 }
 
 export function ChatView() {
-  const { results, currentTask, loading, initialQuestion } =
+  const { results, currentTask, loading, initialQuestion, completeSession } =
     useAssessmentStore();
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -224,6 +238,17 @@ export function ChatView() {
                 disabled={loading}
                 allowEmpty
               />
+              {results.length > 0 && (
+                <p className="text-center">
+                  <button
+                    onClick={completeSession}
+                    disabled={loading}
+                    className="text-xs text-[var(--color-text-muted)] underline-offset-2 transition-colors hover:text-[var(--color-text-secondary)] hover:underline disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Finish session and view progress
+                  </button>
+                </p>
+              )}
             </div>
           )}
 
