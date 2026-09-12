@@ -24,7 +24,6 @@ def client(tmp_path, monkeypatch):
 
     _seed_task(
         prompt="Seed task for auth tests. Signature: def f():",
-        skill="general",
         owner="system",
         difficulty=2,
         max_score=5,
@@ -70,7 +69,7 @@ def fake_judge(monkeypatch):
                 steps=[CoachStep("Done", "The solution is correct.", None)],
             )
             result = EvaluationResult(
-                task["id"], task["skill"], max_score, max_score, "Perfect.", coach.to_dict()
+                task["id"], max_score, max_score, "Perfect.", coach.to_dict()
             )
             return result, coach
 
@@ -246,7 +245,7 @@ def test_guest_submit_is_scored(client, fake_judge):
     assert res.status_code == 200
     data = res.json()["data"]
     assert data["coach"]["feedback"] == "Great job!"
-    assert data["skill_update"] is not None
+    assert data["ability_update"] is not None
 
 
 def test_authenticated_start_uses_account(client, google_env):

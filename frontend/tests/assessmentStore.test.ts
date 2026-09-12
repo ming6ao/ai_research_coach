@@ -22,7 +22,6 @@ test('submit auto-advances to the next task immediately', async () => {
 
   const task = {
     id: 't1',
-    skill: 'ml_modeling',
     type: 'code' as const,
     prompt: 'Implement foo',
     difficulty: 2,
@@ -30,7 +29,6 @@ test('submit auto-advances to the next task immediately', async () => {
   };
   const next = {
     id: 't2',
-    skill: 'ml_systems',
     type: 'code' as const,
     prompt: 'Implement bar',
     difficulty: 2,
@@ -48,11 +46,11 @@ test('submit auto-advances to the next task immediately', async () => {
   );
   const submit = mock.method(apiClient, 'submit', async () =>
     ({
-      result: { task_id: 't1', skill: 'ml_modeling', score: 5, max_score: 5, rationale: 'ok' },
+      result: { task_id: 't1', score: 5, max_score: 5, rationale: 'ok' },
       coach: { feedback: 'Great job!', misconception: 'none', steps: [] },
       next_task: next,
       remaining: 1,
-      skill_update: { skill: 'ml_modeling', new_score: 0.8, new_confidence: 0.5 },
+      ability_update: { new_score: 0.8, new_confidence: 0.5 },
       already_answered: false,
     }) as SubmitResponse,
   );
@@ -65,6 +63,7 @@ test('submit auto-advances to the next task immediately', async () => {
   assert.equal(after.currentTask?.id, 't2', 'current task auto-advances to next task');
   assert.equal(after.results.length, 1);
   assert.equal(after.results[0].coach?.misconception, 'none');
+  assert.equal(after.ability?.score, 0.8);
 
   assert.equal(start.mock.callCount(), 1);
   assert.equal(submit.mock.callCount(), 1);
@@ -77,7 +76,6 @@ test('submit with null next_task leaves no current task (done)', async () => {
 
   const task = {
     id: 't1',
-    skill: 'ml_modeling',
     type: 'code' as const,
     prompt: 'Implement foo',
     difficulty: 2,
@@ -95,11 +93,11 @@ test('submit with null next_task leaves no current task (done)', async () => {
   );
   const submit = mock.method(apiClient, 'submit', async () =>
     ({
-      result: { task_id: 't1', skill: 'ml_modeling', score: 5, max_score: 5, rationale: 'ok' },
+      result: { task_id: 't1', score: 5, max_score: 5, rationale: 'ok' },
       coach: { feedback: 'Great job!', misconception: 'none', steps: [] },
       next_task: null,
       remaining: 0,
-      skill_update: { skill: 'ml_modeling', new_score: 0.8, new_confidence: 0.5 },
+      ability_update: { new_score: 0.8, new_confidence: 0.5 },
       already_answered: false,
     }) as SubmitResponse,
   );

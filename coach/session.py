@@ -24,7 +24,7 @@ def _load_bank_tasks(candidate: str) -> list:
 
 @dataclass
 class SkillState:
-    """Gaussian belief over a single skill's mastery plus supporting metadata.
+    """Gaussian belief over the candidate's overall ability plus metadata.
 
     `score` is the posterior mean (mu) of mastery on [0, 1]; `variance` is the
     posterior uncertainty used by the question picker. `confidence` is derived
@@ -63,10 +63,10 @@ class SkillState:
 
 @dataclass
 class Session:
-    """A candidate's coaching session against the unified skill tree.
+    """A candidate's coaching session with a single overall ability belief.
 
     All candidates are coached the same way: every task in the bank is
-    eligible and the same skill tree is measured for everyone. ``candidate``
+    eligible and one overall ability is tracked for everyone. ``candidate``
     is the user email or a ``guest-<hex>`` id; it drives learner identity,
     resume ownership, and history scoping only (no behavioral difference
     between the two).
@@ -75,6 +75,7 @@ class Session:
     tasks: List[dict] = field(default_factory=list)
     index: int = 0
     results: List[EvaluationResult] = field(default_factory=list)
+    ability: SkillState = field(default_factory=SkillState)
     skill_states: Dict[str, SkillState] = field(default_factory=dict)
     asked_task_ids: Set[str] = field(default_factory=set)
     viewed_hints: Dict[str, List[str]] = field(default_factory=dict)
@@ -83,26 +84,53 @@ class Session:
     def __post_init__(self):
         if not self.tasks:
             self.tasks = _load_bank_tasks(self.candidate)
+        # Tolerate legacy sessions that stored per-skill dicts: collapse to
+        # the single overall ability (prefer the most-answered entry).
+        if self.skill_states and (
+            self.ability.questions_answered == 0
+            and self.ability.score == INITIAL_SCORE
+            and self.ability.variance == INITIAL_VARIANCE
+        ):
+            try:
+                best = max(
+                    self.skill_states.values(),
+                    key=lambda s: s.questions_answered,
+                )
+                self.ability = SkillState(
+                    score=best.score,
+                    variance=best.variance,
+                    questions_answered=best.questions_answered,
+                    evidence=list(best.evidence),
+                    hints_used=list(best.hints_used),
+                )
+            except Exception:
+                pass
+            self.skill_states = {}
 
-    def get_skill_state(self, skill_id: str) -> SkillState:
-        """Get the current state for a skill, initializing if needed."""
-        if skill_id not in self.skill_states:
-            restored = None
+    def get_skill_state(self, skill_id: str | None = None) -> SkillState:
+        """Return the candidate's overall ability belief (legacy name kept).
+
+        ``skill_id`` is accepted but ignored so old callers keep working.
+        """
+        restored = None
+        if self.ability.questions_answered == 0 and not self.ability.evidence:
             try:
                 from coach.tasks import get_skill_belief
 
-                restored = get_skill_belief(self.candidate, skill_id)
+                restored = get_skill_belief(self.candidate)
             except Exception:
                 restored = None
             if restored:
-                self.skill_states[skill_id] = SkillState(
+                self.ability = SkillState(
                     score=restored.get("mean", INITIAL_SCORE),
                     variance=restored.get("variance", INITIAL_VARIANCE),
                     questions_answered=restored.get("questions_answered", 0),
                 )
-            else:
-                self.skill_states[skill_id] = SkillState()
-        return self.skill_states[skill_id]
+        return self.ability
+
+    def get_ability(self) -> SkillState:
+        """Return the candidate's overall ability belief."""
+        return self.get_skill_state()
 
     def add_generated_task(self, task: dict) -> None:
         """Persist a generated remediation task in the session and track it."""
@@ -115,6 +143,7 @@ class Session:
             "tasks": self.tasks,
             "index": self.index,
             "results": [r.to_dict() for r in self.results],
+            "ability": self.ability.to_dict(),
             "skill_states": {k: v.to_dict() for k, v in self.skill_states.items()},
             "asked_task_ids": list(self.asked_task_ids),
             "viewed_hints": self.viewed_hints,
@@ -125,9 +154,27 @@ class Session:
     def from_dict(cls, d):
         s = cls(candidate=d["candidate"], tasks=d["tasks"], index=d["index"])
         s.results = [EvaluationResult.from_dict(r) for r in d["results"]]
+        if "ability" in d and isinstance(d["ability"], dict):
+            s.ability = SkillState.from_dict(d["ability"])
         s.skill_states = {
             k: SkillState.from_dict(v) for k, v in d.get("skill_states", {}).items()
         }
+        # Legacy sessions without an ability snapshot collapse skill_states.
+        if "ability" not in d and s.skill_states:
+            try:
+                best = max(
+                    s.skill_states.values(),
+                    key=lambda st: st.questions_answered,
+                )
+                s.ability = SkillState(
+                    score=best.score,
+                    variance=best.variance,
+                    questions_answered=best.questions_answered,
+                    evidence=list(best.evidence),
+                    hints_used=list(best.hints_used),
+                )
+            except Exception:
+                pass
         s.asked_task_ids = set(d.get("asked_task_ids", []))
         s.viewed_hints = dict(d.get("viewed_hints", {}))
         s.generated_task_ids = set(d.get("generated_task_ids", []))
@@ -154,10 +201,9 @@ def task_view(task: dict, session: Session) -> dict | None:
     """Build the client-facing view of a task (hints pre-revealed by ability)."""
     if task is None:
         return None
-    ability = session.get_skill_state(task["skill"]).score
+    ability = session.get_ability().score
     view = {
         "id": task["id"],
-        "skill": task["skill"],
         "type": "code",
         "prompt": task["prompt"],
         "difficulty": task.get("difficulty", 1),

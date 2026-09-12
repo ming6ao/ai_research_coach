@@ -1,7 +1,7 @@
 """Adaptive hint selection for coding tasks.
 
 Each task may declare an ordered list of hints. A hint is *pre-revealed* with
-the task when the candidate's estimated ability for that skill is below the
+the task when the candidate's estimated overall ability is below the
 hint's `reveal_threshold`; otherwise it stays hidden and can be requested on
 demand. Only hints the candidate actually views/requests reduce the effective
 score (see coach.score.effective_score).

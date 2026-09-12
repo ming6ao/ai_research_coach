@@ -35,10 +35,10 @@ def _seed(client_admin_headers):
     sid = store.create("alice@x.com")
     store.save(sid, {"session": {"candidate": "alice@x.com"}})
     for i in range(3):
-        create_task(prompt=f"Question {i} about fractions?", skill="math", owner="alice@x.com")
-    task = create_task(prompt="Bob's question?", skill="science", owner="bob@x.com")
+        create_task(prompt=f"Question {i} about fractions?", owner="alice@x.com")
+    task = create_task(prompt="Bob's question?", owner="bob@x.com")
     record_attempt("alice@x.com", task["id"], 0.8, 4, 5, [])
-    save_skill_belief("alice@x.com", "math", 0.6, 0.1, 2)
+    save_skill_belief("alice@x.com", 0.6, 0.1, 2)
     return task
 
 
@@ -96,7 +96,7 @@ def test_pagination_and_search(client):
 
     filtered = client.get("/admin/table/tasks?owner=bob@x.com", headers=headers).json()
     assert filtered["total"] == 1
-    assert filtered["rows"][0]["skill"] == "science"
+    assert filtered["rows"][0]["prompt"] == "Bob's question?"
 
     assert client.get("/admin/table/nope", headers=headers).status_code == 404
 
@@ -114,11 +114,11 @@ def test_row_detail_edit_and_validation(client):
 
     res = client.patch(
         f"/admin/table/tasks/{bob_task['id']}",
-        json={"skill": "physics", "difficulty": 4, "context_notes": "notes here"},
+        json={"difficulty": 4, "context_notes": "notes here"},
         headers=headers,
     )
     assert res.status_code == 200
-    assert get_task(bob_task["id"])["skill"] == "physics"
+    assert get_task(bob_task["id"])["difficulty"] == 4
 
     # Invalid difficulty is rejected.
     bad = client.patch(

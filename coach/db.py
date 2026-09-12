@@ -5,8 +5,9 @@ One SQLite file (``data/coach.db``) holds the raw-sqlite tables (``users``,
 ``task_attempts``, ``user_skill_beliefs``). ``sqlite_conn()`` owns the
 raw-sqlite DDL and is used by ``backend/auth.py`` and
 ``backend/dependencies.py``; ``Base`` / ``create_session_factory()`` own the
-SQLAlchemy side. ``create_schema()`` drops the removed knowledge-graph /
-learner tables so old databases converge to the fresh 7-table design.
+SQLAlchemy side. ``create_schema()`` drops removed columns/tables (skill tags,
+knowledge-graph / learner tables) and collapses legacy per-skill beliefs to a
+single overall-ability row per candidate so old databases converge.
 """
 
 from __future__ import annotations
@@ -70,9 +71,9 @@ _DROPPED_TABLES = (
     "assessment_tasks",
 )
 
-# Columns from the removed per-task frozen graph. Best-effort DROP COLUMN;
-# failures are swallowed so startup never breaks.
-_DROPPED_TASK_COLUMNS = ("graph_json", "target_node_id", "target_node_slug", "expected_time_min")
+# Columns from the removed per-task frozen graph and skill tags. Best-effort
+# DROP COLUMN; failures are swallowed so startup never breaks.
+_DROPPED_TASK_COLUMNS = ("graph_json", "target_node_id", "target_node_slug", "expected_time_min", "skill")
 
 
 # Process-local guard so per-request create_schema()/sqlite_conn() calls only
@@ -151,6 +152,45 @@ def learner_engine():
     return engine
 
 
+def _migrate_skill_beliefs_to_ability(conn) -> None:
+    """Collapse legacy per-skill belief rows to one overall-ability row.
+
+    Old DBs hold one ``user_skill_beliefs`` row per (candidate, skill).
+    The fresh design keeps a single row per candidate, so keep the row with
+    the most answered questions per candidate and delete the rest. Also
+    drops the ``skill`` column when present so fresh ORM writes converge.
+    Best-effort: failures are swallowed so startup never breaks.
+    """
+    try:
+        cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(user_skill_beliefs)").fetchall()]
+    except Exception:
+        return
+    if not cols:
+        return
+    if "skill" not in cols:
+        return
+    try:
+        rows = conn.exec_driver_sql(
+            "SELECT id, candidate FROM user_skill_beliefs ORDER BY questions_answered DESC"
+        ).fetchall()
+        seen: set[str] = set()
+        for row_id, candidate in rows:
+            if candidate in seen:
+                conn.exec_driver_sql(
+                    "DELETE FROM user_skill_beliefs WHERE id = ?", (row_id,)
+                )
+            else:
+                seen.add(candidate)
+        cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(user_skill_beliefs)").fetchall()]
+        if "skill" in cols:
+            try:
+                conn.exec_driver_sql("ALTER TABLE user_skill_beliefs DROP COLUMN skill")
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 def create_schema():
     """Create all tables (idempotent) and drop removed ones. Returns engine."""
     from coach import tasks as _tasks  # noqa: F401  (register task tables)
@@ -178,6 +218,11 @@ def create_schema():
                     conn.exec_driver_sql(f"ALTER TABLE tasks DROP COLUMN {col}")
                 except Exception:
                     pass
+        try:
+            conn.exec_driver_sql("DROP INDEX IF EXISTS ix_tasks_skill")
+        except Exception:
+            pass
+        _migrate_skill_beliefs_to_ability(conn)
         try:
             cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(tasks)").fetchall()]
             if "context_notes" not in cols:

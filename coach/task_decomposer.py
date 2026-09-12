@@ -19,7 +19,7 @@ from google.genai import types
 from coach.config import MODEL, http_retry_options
 
 _CONTEXT_SYSTEM_PROMPT = """\
-You are a curriculum assistant. Given a coding task and its skill tag, \
+You are a curriculum assistant. Given a coding task, \
 describe the background knowledge in 2-4 plain English sentences. \
 Name prerequisites ("X is a prerequisite of Y"), what builds on what, \
 and what learners often confuse ("Y is often confused with Z"). \
@@ -66,7 +66,7 @@ class TaskDecomposer:
 
     # -- plain-English context -------------------------------------------
 
-    def describe_task(self, prompt: str, skill: str = "general") -> str:
+    def describe_task(self, prompt: str) -> str:
         """Return 2-4 plain sentences of task context, or "" on any failure."""
         import os
 
@@ -75,7 +75,7 @@ class TaskDecomposer:
         try:
             resp = self._client().models.generate_content(
                 model=self._model,
-                contents=f"Skill: {skill}\n\nTask:\n{prompt}",
+                contents=f"Task:\n{prompt}",
                 config={"system_instruction": _CONTEXT_SYSTEM_PROMPT},
             )
             return (resp.text or "").strip()[:1000]
@@ -97,19 +97,18 @@ class TaskDecomposer:
             original_task: the task the candidate just answered.
             difficulty: pre-tuned difficulty (already <= original).
 
-        Returns a task dict with keys id/skill/type/difficulty/prompt/
+        Returns a task dict with keys id/type/difficulty/prompt/
         max_score plus bookkeeping keys ``generated`` and ``target_text``.
         Falls back deterministically without an API key.
         """
         import os
 
         task_id = f"remed_{uuid.uuid4().hex[:10]}"
-        skill = (original_task.get("skill") or "general").strip() or "general"
         difficulty = max(1, min(5, int(difficulty)))
         gap = (target_text or "").strip() or "the gap in the previous answer"
 
         if not os.getenv("GOOGLE_API_KEY"):
-            return self._build(task_id, skill, difficulty, self._fallback_prompt(gap, original_task), gap)
+            return self._build(task_id, difficulty, self._fallback_prompt(gap, original_task), gap)
 
         try:
             resp = self._client().models.generate_content(
@@ -134,15 +133,14 @@ class TaskDecomposer:
                 raise ValueError("empty follow-up prompt")
             llm_difficulty = int(payload.get("difficulty", difficulty))
             difficulty = max(1, min(int(original_task.get("difficulty", difficulty)), llm_difficulty))
-            return self._build(task_id, skill, difficulty, prompt, gap)
+            return self._build(task_id, difficulty, prompt, gap)
         except Exception:
-            return self._build(task_id, skill, difficulty, self._fallback_prompt(gap, original_task), gap)
+            return self._build(task_id, difficulty, self._fallback_prompt(gap, original_task), gap)
 
     @staticmethod
-    def _build(task_id: str, skill: str, difficulty: int, prompt: str, target_text: str) -> dict:
+    def _build(task_id: str, difficulty: int, prompt: str, target_text: str) -> dict:
         return {
             "id": task_id,
-            "skill": skill,
             "type": "code",
             "difficulty": difficulty,
             "prompt": prompt,

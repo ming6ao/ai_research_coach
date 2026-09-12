@@ -61,7 +61,7 @@ def candidate_summary(candidate: str) -> dict:
         "candidate": candidate,
         "active_sessions": sessions,
         "task_attempts": attempts,
-        "skill_beliefs": beliefs,
+        "ability_beliefs": beliefs,
         "owned_tasks": owned_tasks,
         "total": total,
     }
@@ -73,7 +73,7 @@ def clear_candidate_everything(candidate: str) -> dict:
     deleted: dict[str, int] = {
         "active_sessions": 0,
         "task_attempts": 0,
-        "skill_beliefs": 0,
+        "ability_beliefs": 0,
         "owned_tasks": 0,
     }
 
@@ -92,7 +92,7 @@ def clear_candidate_everything(candidate: str) -> dict:
             .filter(TaskAttemptModel.candidate == candidate)
             .delete(synchronize_session=False)
         )
-        deleted["skill_beliefs"] = (
+        deleted["ability_beliefs"] = (
             session.query(SkillBeliefModel)
             .filter(SkillBeliefModel.candidate == candidate)
             .delete(synchronize_session=False)
@@ -131,7 +131,7 @@ def stats_summary() -> dict:
     return {
         "tasks_total": tasks_total,
         "task_attempts": attempts,
-        "skill_beliefs": beliefs,
+        "ability_beliefs": beliefs,
         "active_sessions": sessions,
     }
 

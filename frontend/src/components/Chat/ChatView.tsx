@@ -70,7 +70,6 @@ function CoachingBubble({ r }: { r: ResultWithFeedback }) {
           {verdict && (
             <span className={`rounded-full px-2 py-0.5 text-[10px] ${verdict.cls}`}>{verdict.label}</span>
           )}
-          <span>{r.result.skill}</span>
         </p>
         {coach && (coach.misconception || coach.steps.length > 0) ? (
           <>
@@ -105,12 +104,12 @@ function CoachingBubble({ r }: { r: ResultWithFeedback }) {
   );
 }
 
-function TaskPromptBubble({ prompt, skill, remediation }: { prompt: string; skill: string; remediation?: Task['remediation'] }) {
+function TaskPromptBubble({ prompt, remediation }: { prompt: string; remediation?: Task['remediation'] }) {
   return (
     <CoachBubble>
       <div className="space-y-1">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-          Question · {skill}
+          Question
         </p>
         {remediation && (
           <p className="inline-flex items-center gap-1 rounded-full border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-2.5 py-0.5 text-[11px] font-semibold text-[var(--color-accent)]">
@@ -189,14 +188,14 @@ export function ChatView() {
 
           {results.map((r, i) => (
             <Fragment key={`res-${i}`}>
-              <TaskPromptBubble prompt={r.prompt} skill={r.skill} />
+              <TaskPromptBubble prompt={r.prompt} />
               <UserCodeBubble answer={r.userAnswer} />
               <CoachingBubble r={r} />
             </Fragment>
           ))}
 
           {!waiting && currentTask && (
-            <TaskPromptBubble prompt={currentTask.prompt} skill={currentTask.skill} remediation={currentTask.remediation} />
+            <TaskPromptBubble prompt={currentTask.prompt} remediation={currentTask.remediation} />
           )}
 
           {!waiting && currentTask && (currentTask.hints?.length ?? 0) > 0 && (

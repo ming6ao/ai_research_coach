@@ -18,7 +18,6 @@ class PageMeta(BaseModel):
 class SessionCreateRequest(BaseModel):
     initial_question: Optional[str] = Field(default=None, max_length=8000)
     task_ids: Optional[list[str]] = Field(default=None, max_length=100)
-    skill: Optional[str] = Field(default=None, max_length=120)
 
 
 class AnswerSubmitRequest(BaseModel):
@@ -29,7 +28,6 @@ class AnswerSubmitRequest(BaseModel):
 
 class TaskCreateRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=8000)
-    skill: str = Field(default="general", max_length=120)
     scaffold: Optional[str] = Field(default=None, max_length=16000)
     difficulty: int = Field(default=2, ge=1, le=5)
     max_score: int = Field(default=5, ge=1, le=100)
@@ -40,7 +38,6 @@ class TaskCreateRequest(BaseModel):
 
 class TaskPatchRequest(BaseModel):
     prompt: Optional[str] = Field(default=None, min_length=1, max_length=8000)
-    skill: Optional[str] = Field(default=None, max_length=120)
     scaffold: Optional[str] = Field(default=None, max_length=16000)
     difficulty: Optional[int] = Field(default=None, ge=1, le=5)
     max_score: Optional[int] = Field(default=None, ge=1, le=100)

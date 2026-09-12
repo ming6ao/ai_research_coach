@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 
-from coach.remediation import RemediationPlanner, MAX_PER_SKILL, MAX_PER_SESSION
+from coach.remediation import RemediationPlanner, MAX_PER_SESSION
 from coach.session import Session
 
 
@@ -22,7 +22,6 @@ class FakeDecomposer:
         self.calls.append((target_text, original_task, difficulty))
         return {
             "id": f"remed_{uuid.uuid4().hex[:10]}",
-            "skill": original_task.get("skill", "general"),
             "type": "code",
             "difficulty": difficulty,
             "prompt": f"Simpler task for: {target_text}.",
@@ -39,10 +38,9 @@ def _session(**kwargs):
     return s
 
 
-def _base_task(skill="ml_systems", difficulty=3):
+def _base_task(difficulty=3):
     return {
         "id": "mi_sys_cache",
-        "skill": skill,
         "type": "code",
         "difficulty": difficulty,
         "prompt": "Design a cache.",
@@ -67,7 +65,6 @@ class TestPickNextTask:
         session = _session(tasks=[_base_task()])
         generated = {
             "id": "remed_pending",
-            "skill": "ml_systems",
             "type": "code",
             "difficulty": 2,
             "prompt": "Simpler warm-up.",
@@ -137,24 +134,13 @@ class TestTrigger:
 
 
 class TestBudgetGuards:
-    def test_per_skill_cap(self):
-        decomposer = FakeDecomposer()
-        planner = RemediationPlanner(decomposer=decomposer, max_per_skill=1, max_per_session=10)
-        session = _session()
-        for _ in range(2):
-            gen = planner.decide(session, _base_task(), _result(1, 5), _coach("gap"))
-            if gen is not None:
-                session.add_generated_task(gen)
-        # Only one generated task for this skill despite two opportunities.
-        assert sum(1 for t in session.tasks if t.get("generated")) == 1
-        assert len(decomposer.calls) == 1  # second call was refused before generating
-
     def test_per_session_cap(self):
         decomposer = FakeDecomposer()
-        planner = RemediationPlanner(decomposer=decomposer, max_per_skill=10, max_per_session=1)
+        planner = RemediationPlanner(decomposer=decomposer, max_per_session=1)
         session = _session()
         gen = planner.decide(session, _base_task(), _result(1, 5), _coach("gap"))
         assert gen is not None
+        assert "skill" not in gen
         session.add_generated_task(gen)
         # Second attempt blocked by session cap.
         assert planner.decide(session, _base_task(), _result(1, 5), _coach("gap")) is None

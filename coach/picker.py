@@ -1,8 +1,8 @@
 """Information-efficient adaptive question selection.
 
 Selects the next question to maximize expected information gain (posterior
-variance reduction of the per-skill ability belief) per unit of expected
-assessment time, weighted by skill coverage.
+variance reduction of the overall ability belief) per unit of expected
+assessment time.
 
 The assessment ends when the question bank is exhausted.
 """
@@ -18,10 +18,6 @@ TIME_BASE_MIN = 4.0
 TIME_PER_DIFFICULTY = 1.2
 TIME_PER_100_WORDS = 1.0
 TIME_NO_SCAFFOLD_EXTRA = 0.5
-
-# Coverage boost applied to skills that have never been probed, so every
-# skill in the bank is measured instead of only the cheapest/earliest ones.
-COVERAGE_BONUS = 3.0
 
 
 def next_task(session: Session) -> Optional[dict]:
@@ -46,17 +42,15 @@ def next_task(session: Session) -> Optional[dict]:
 
 
 def _utility(task: dict, session: Session) -> float:
-    """Utility = (expected variance reduction * coverage) / cost."""
-    skill_id = task["skill"]
-    state = session.get_skill_state(skill_id)
+    """Utility = expected variance reduction / cost."""
+    state = session.get_ability()
 
     obs_variance = measurement_variance(task.get("difficulty", 1), state.score)
     information = expected_variance_reduction(state.variance, obs_variance)
 
-    coverage = COVERAGE_BONUS if state.questions_answered == 0 else 1.0
     cost = expected_time(task)
 
-    return (information * coverage) / cost
+    return information / cost
 
 
 def expected_time(task: dict) -> float:

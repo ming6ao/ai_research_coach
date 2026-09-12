@@ -6,10 +6,9 @@ import coach.db as db
 from coach.solvability import p_solve, tune_difficulty_for_target
 
 
-def _task(i, skill="general", difficulty=2):
+def _task(i, difficulty=2):
     return {
         "id": f"t{i}",
-        "skill": skill,
         "difficulty": difficulty,
         "prompt": f"Prompt {i}",
         "max_score": 5,
@@ -27,16 +26,16 @@ def test_create_and_list_tasks_endpoint():
     judge_mod.LLMJudge = type(
         "J",
         (),
-        {"evaluate": lambda self, task, ans: (__import__("coach.judge").EvaluationResult(task["id"], task["skill"], 5, 5, "ok", {"feedback": "f", "misconception": "m", "steps": []}), __import__("coach.judge").CoachContent(feedback="f", misconception="m", steps=[]))},
+        {"evaluate": lambda self, task, ans: (__import__("coach.judge").EvaluationResult(task["id"], 5, 5, "ok", {"feedback": "f", "misconception": "m", "steps": []}), __import__("coach.judge").CoachContent(feedback="f", misconception="m", steps=[]))},
     )
     from backend.main import app
 
     client = TestClient(app)
-    res = client.post("/api/v1/tasks", json={"prompt": "My own question?", "skill": "ml_systems"})
+    res = client.post("/api/v1/tasks", json={"prompt": "My own question?"})
     assert res.status_code == 201
     task = res.json()["data"]
     assert task["prompt"] == "My own question?"
-    assert task["skill"] == "ml_systems"
+    assert "skill" not in task
 
     listed = client.get("/api/v1/tasks").json()["data"]
     assert any(t["id"] == task["id"] for t in listed)
@@ -49,15 +48,15 @@ def test_private_by_default_shared_when_public(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "p.db")
     from coach.tasks import create_task, list_visible_tasks
 
-    own = create_task(prompt="private q", skill="s", owner="a@x.com", is_public=False)
-    pub = create_task(prompt="public q", skill="s", owner="b@x.com", is_public=True)
+    own = create_task(prompt="private q", owner="a@x.com", is_public=False)
+    pub = create_task(prompt="public q", owner="b@x.com", is_public=True)
     assert any(t["id"] == own["id"] for t in list_visible_tasks("a@x.com"))
     assert not any(t["id"] == own["id"] for t in list_visible_tasks("b@x.com"))
     assert any(t["id"] == pub["id"] for t in list_visible_tasks("a@x.com"))
 
 
 def test_solvability_ladder_targets_80pct():
-    # Higher skill -> higher P(solve); harder task -> lower P(solve).
+    # Higher ability -> higher P(solve); harder task -> lower P(solve).
     assert p_solve(0.9, 0.8, 0.1, 1) > p_solve(0.3, 0.3, 0.8, 5)
     d = tune_difficulty_for_target(0.8, 0.7, 0.3, base_difficulty=4)
     assert 1 <= d <= 4
@@ -68,7 +67,7 @@ def test_followup_fires_after_weak_answer_with_gap():
     from coach.remediation import plan_followup
     from coach.session import Session
 
-    session = Session("c", tasks=[_task(0, "s", 3)])
+    session = Session("c", tasks=[_task(0, 3)])
     task = session.tasks[0]
     result = type("R", (), {"score": 1, "max_score": 5})()
     coach = type("C", (), {"misconception": "confused X with Y", "feedback": "weak"})()
@@ -81,7 +80,7 @@ def test_followup_skipped_on_clean_solve():
     from coach.remediation import plan_followup
     from coach.session import Session
 
-    session = Session("c2", tasks=[_task(0, "s", 3)])
+    session = Session("c2", tasks=[_task(0, 3)])
     task = session.tasks[0]
     result = type("R", (), {"score": 5, "max_score": 5})()
     coach = type("C", (), {"misconception": "", "feedback": ""})()
@@ -94,7 +93,6 @@ def test_context_notes_round_trip(tmp_path, monkeypatch):
 
     task = create_task(
         prompt="Explain caching.",
-        skill="s",
         owner="a@x.com",
         context_notes="Eviction is a prerequisite of caching, often confused with invalidation.",
     )

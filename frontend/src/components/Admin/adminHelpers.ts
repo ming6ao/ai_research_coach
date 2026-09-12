@@ -2,9 +2,9 @@ import type { AdminTableColumn, AdminTableQuery } from '../../api/client.ts';
 
 /** Exact-match filter inputs rendered per table (mirrors backend FILTERABLE). */
 export const FILTERS_PER_TABLE: Record<string, string[]> = {
-  tasks: ['owner', 'skill'],
+  tasks: ['owner'],
   task_attempts: ['candidate', 'task_id'],
-  user_skill_beliefs: ['candidate', 'skill'],
+  user_skill_beliefs: ['candidate'],
   active_sessions: ['candidate'],
   auth_tokens: ['user_id'],
   users: ['email'],

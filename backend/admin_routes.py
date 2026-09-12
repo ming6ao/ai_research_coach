@@ -2,7 +2,7 @@
 
 Covers the generic table browser (admin-only) plus owner-or-admin candidate
 wipes. Task CRUD lives in the v1 API (``/api/v1/tasks*``, owner-or-admin
-guarded); per-skill progress lives in session views (``/api/v1/sessions*``).
+guarded); overall progress lives in session views (``/api/v1/sessions*``).
 """
 
 from typing import Any, Optional
@@ -58,7 +58,6 @@ def get_table_rows(
     sort: Optional[str] = None,
     order: str = Query("desc", pattern="^(asc|desc)$"),
     candidate: Optional[str] = None,
-    skill: Optional[str] = None,
     owner: Optional[str] = None,
     task_id: Optional[str] = None,
     email: Optional[str] = None,
@@ -72,7 +71,6 @@ def get_table_rows(
         raise HTTPException(status_code=404, detail=f"Unknown table: {table_name}.")
     filters = {
         "candidate": candidate,
-        "skill": skill,
         "owner": owner,
         "task_id": task_id,
         "email": email,

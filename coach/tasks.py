@@ -5,14 +5,15 @@ Tasks live in the shared SQLite file (``data/coach.db``) via the SQLAlchemy
 
 Each task optionally carries ``context_notes``: 2-4 plain-English sentences
 (e.g. "A is a prerequisite of B, which is often confused with C") generated
-once at creation time. There is no knowledge graph, no nodes/edges.
+once at creation time. There is no knowledge graph, no nodes/edges, and no
+skill tags — every task is eligible for every candidate.
 
 Visibility: a candidate sees system seed rows (``owner='system'``,
 ``is_public=1``), their own rows, and any public rows. Guests create
 public rows (per product decision); signed-in users create private rows
 by default with an opt-in ``is_public`` flag.
 
-Skill beliefs (Gaussian mean/variance per candidate+skill) are persisted
+The overall ability belief (Gaussian mean/variance per candidate) is persisted
 in ``user_skill_beliefs`` so mastery survives across sessions; the
 in-session ``SkillState`` remains the live copy.
 """
@@ -48,12 +49,10 @@ class TaskModel(Base):
     __tablename__ = "tasks"
     __table_args__ = (
         Index("ix_tasks_owner", "owner"),
-        Index("ix_tasks_skill", "skill"),
     )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     owner: Mapped[str] = mapped_column(String(255), nullable=False, default=SYSTEM_OWNER)
-    skill: Mapped[str] = mapped_column(String(128), nullable=False, default="general")
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     scaffold: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     difficulty: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
@@ -85,7 +84,7 @@ class TaskAttemptModel(Base):
 
 
 class SkillBeliefModel(Base):
-    """Persistent Gaussian belief per (candidate, skill)."""
+    """Persistent Gaussian belief over a candidate's overall ability."""
 
     __tablename__ = "user_skill_beliefs"
     __table_args__ = (
@@ -94,7 +93,6 @@ class SkillBeliefModel(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     candidate: Mapped[str] = mapped_column(String(255), nullable=False)
-    skill: Mapped[str] = mapped_column(String(128), nullable=False)
     mean: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
     variance: Mapped[float] = mapped_column(Float, nullable=False, default=0.1225)
     questions_answered: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -108,7 +106,6 @@ def task_to_dict(model: TaskModel) -> dict:
         hints = []
     d: dict[str, Any] = {
         "id": model.id,
-        "skill": model.skill,
         "prompt": model.prompt,
         "difficulty": model.difficulty,
         "max_score": model.max_score,
@@ -132,7 +129,6 @@ def task_to_dict(model: TaskModel) -> dict:
 
 def create_task(
     prompt: str,
-    skill: str = "general",
     owner: str = SYSTEM_OWNER,
     scaffold: Optional[str] = None,
     difficulty: int = 2,
@@ -155,7 +151,6 @@ def create_task(
         model = TaskModel(
             id=tid,
             owner=owner,
-            skill=skill or "general",
             prompt=prompt,
             scaffold=scaffold,
             difficulty=max(1, min(5, int(difficulty or 2))),
@@ -178,13 +173,13 @@ def create_task(
 def update_task(task_id: str, **fields) -> Optional[dict]:
     """Update whitelisted task columns (v1 PATCH path).
 
-    Allowed: prompt, skill, scaffold, difficulty (1-5), max_score (>=1),
+    Allowed: prompt, scaffold, difficulty (1-5), max_score (>=1),
     hints (list), is_public (bool), context_notes (<=2000 chars).
     Returns the updated dict, or None when the task does not exist.
     """
     from coach.db import create_schema
 
-    allowed = {"prompt", "skill", "scaffold", "difficulty", "max_score", "hints", "is_public", "context_notes"}
+    allowed = {"prompt", "scaffold", "difficulty", "max_score", "hints", "is_public", "context_notes"}
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if "prompt" in updates and not str(updates["prompt"]).strip():
         raise ValueError("Prompt must not be empty.")
@@ -196,8 +191,6 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
             return None
         if "prompt" in updates:
             model.prompt = str(updates["prompt"]).strip()
-        if "skill" in updates:
-            model.skill = str(updates["skill"]).strip() or "general"
         if "scaffold" in updates:
             model.scaffold = updates["scaffold"]
         if "difficulty" in updates:
@@ -233,7 +226,7 @@ def get_task(task_id: str) -> Optional[dict]:
         session.close()
 
 
-def list_visible_tasks(candidate: str, skill: Optional[str] = None) -> list[dict]:
+def list_visible_tasks(candidate: str) -> list[dict]:
     """Tasks visible to a candidate: system-public + own + public."""
     from coach.db import create_schema
 
@@ -241,8 +234,6 @@ def list_visible_tasks(candidate: str, skill: Optional[str] = None) -> list[dict
     session = learner_session()
     try:
         stmt = select(TaskModel).order_by(TaskModel.created_at)
-        if skill:
-            stmt = stmt.where(TaskModel.skill == skill)
         rows = session.scalars(stmt).all()
         out = []
         for m in rows:
@@ -289,7 +280,8 @@ def record_attempt(
         session.close()
 
 
-def get_skill_belief(candidate: str, skill: str) -> Optional[dict]:
+def get_skill_belief(candidate: str) -> Optional[dict]:
+    """Return the candidate's overall ability belief, if stored."""
     from coach.db import create_schema
 
     create_schema()
@@ -298,7 +290,6 @@ def get_skill_belief(candidate: str, skill: str) -> Optional[dict]:
         m = session.scalar(
             select(SkillBeliefModel).where(
                 SkillBeliefModel.candidate == candidate,
-                SkillBeliefModel.skill == skill,
             )
         )
         if m is None:
@@ -313,8 +304,9 @@ def get_skill_belief(candidate: str, skill: str) -> Optional[dict]:
 
 
 def save_skill_belief(
-    candidate: str, skill: str, mean: float, variance: float, questions_answered: int
+    candidate: str, mean: float, variance: float, questions_answered: int
 ) -> None:
+    """Persist the candidate's overall ability belief."""
     from coach.db import create_schema
 
     create_schema()
@@ -323,7 +315,6 @@ def save_skill_belief(
         m = session.scalar(
             select(SkillBeliefModel).where(
                 SkillBeliefModel.candidate == candidate,
-                SkillBeliefModel.skill == skill,
             )
         )
         now = _utcnow_naive()
@@ -332,7 +323,6 @@ def save_skill_belief(
                 SkillBeliefModel(
                     id=str(uuid.uuid4()),
                     candidate=candidate,
-                    skill=skill,
                     mean=mean,
                     variance=variance,
                     questions_answered=questions_answered,
@@ -349,9 +339,16 @@ def save_skill_belief(
         session.close()
 
 
+# Backwards-compatible aliases for the single overall ability belief.
+get_ability = get_skill_belief
+
+
+def save_ability(candidate: str, mean: float, variance: float, questions_answered: int) -> None:
+    return save_skill_belief(candidate, mean, variance, questions_answered)
+
+
 def list_tasks_for_admin(
     owner: Optional[str] = None,
-    skill: Optional[str] = None,
     q: Optional[str] = None,
     limit: int = 200,
 ) -> list[dict]:
@@ -366,8 +363,6 @@ def list_tasks_for_admin(
         stmt = select(TaskModel).order_by(TaskModel.created_at)
         if owner:
             stmt = stmt.where(TaskModel.owner == owner)
-        if skill:
-            stmt = stmt.where(TaskModel.skill == skill)
         if q:
             stmt = stmt.where(TaskModel.prompt.contains(q))
         stmt = stmt.limit(limit)

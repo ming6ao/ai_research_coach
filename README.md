@@ -4,7 +4,7 @@ A coaching app that probes and teaches AI/ML coding skills. It asks adaptive
 coding questions (Bayesian expected-information-gain selection), judges each
 answer with an LLM, and coaches the candidate through their gaps step by step.
 There is **no summative score, report, or verdict** — the app keeps a live
-per-skill belief and shows the candidate's progress as skill confidence plus
+overall ability belief and shows the candidate's progress as overall confidence plus
 the judge's gap notes on answered questions.
 
 It is a single FastAPI + Vite app (no ADK agent). Questions live in the
@@ -20,19 +20,19 @@ FastAPI (backend/main.py, backend/v1/*, backend/auth_routes.py)
         ├── sessions (backend/dependencies.py)
         │
         ├── coach/              parent assessment engine
-        │   ├── score.py        Bayesian skill beliefs (picker inputs)
+        │   ├── score.py        Bayesian ability belief (picker inputs)
         │   ├── picker.py       EIG bank-task selection
         │   ├── hints.py        requestable hints + score penalty
-        │   ├── session.py      tasks/results/skill_states (no mode)
+        │   ├── session.py      tasks/results/ability (no mode)
         │   ├── selection.py    hybrid next-task selection
         │   ├── remediation.py  judge-driven follow-up tasks
         │   ├── solvability.py  P(solve) estimate + adaptive difficulty ladder
-        │   ├── tasks.py        DB task bank + attempts + skill beliefs
+        │   ├── tasks.py        DB task bank + attempts + ability beliefs
         │   ├── task_decomposer.py  LLM: plain-English context + follow-up tasks
         │   ├── judge.py        LLM judge (score + rationale + coaching)
         │   └── db.py           single SQLite connection + schema
 ```
-(no `learner/` package — per-skill beliefs are the only mastery model)
+(no `learner/` package — the overall ability belief is the only mastery model)
 
 LLM calls live in exactly two places: `coach/judge.py` (judge + coach) and
 `coach/task_decomposer.py` (context notes + follow-up generation).
@@ -99,15 +99,15 @@ python check_env.py          # verify env + model connectivity
 3. otherwise the EIG bank picker selects the informative task,
 4. `None` when the bank is exhausted and no follow-up remains.
 4. **Progress** — when `next_task` is `null`, the candidate is done.
-   `POST /api/v1/sessions/{id}/completion` returns the progress snapshot (per-skill confidence).
+   `POST /api/v1/sessions/{id}/completion` returns the progress snapshot (overall ability).
    Sessions stay in `active_sessions` for resume/history; "done" is derived
    from the session.
 
 ## Question selection
 
-- **Bayesian probing** (`coach/score.py` + `coach/picker.py`): a Gaussian belief
-  `N(mean, variance)` per skill, updated by the judge score minus the hint
-  penalty. The bank picker maximizes `EIG · coverage / expected_time`
+- **Bayesian probing** (`coach/score.py` + `coach/picker.py`): a single Gaussian belief
+  `N(mean, variance)` over overall ability, updated by the judge score minus the hint
+  penalty. The bank picker maximizes `EIG / expected_time`
   and the session ends when the task bank is exhausted.
 - **Follow-ups** (`coach/remediation.py`): the judge's gap text
   (misconception/feedback) drives one simpler drill task on weak answers;
@@ -120,13 +120,13 @@ All v1 resources return a `{data}` envelope; list endpoints add
 
 | Endpoint | Purpose |
 |----------|---------|
-| `POST /api/v1/sessions` `{initial_question?, task_ids?, skill?}` | New session → `{id, candidate, total_tasks, task_index, current_task}` (201) |
-| `GET /api/v1/sessions/{id}` | Resume a session → `{current_task, results, skill_states}` |
-| `POST /api/v1/sessions/{id}/answers` `{task_id, answer, hints_used?}` | Score + coach + `next_task` + `skill_update` (+ `already_answered` on replay) |
-| `POST /api/v1/sessions/{id}/completion` | Progress snapshot `{done, skill_states}` |
+| `POST /api/v1/sessions` `{initial_question?, task_ids?}` | New session → `{id, candidate, total_tasks, task_index, current_task}` (201) |
+| `GET /api/v1/sessions/{id}` | Resume a session → `{current_task, results, ability}` |
+| `POST /api/v1/sessions/{id}/answers` `{task_id, answer, hints_used?}` | Score + coach + `next_task` + `ability_update` (+ `already_answered` on replay) |
+| `POST /api/v1/sessions/{id}/completion` | Progress snapshot `{done, ability}` |
 | `DELETE /api/v1/sessions/{id}` | Delete a session (204, ownership-guarded) |
-| `POST /api/v1/tasks` `{prompt, skill?, scaffold?, difficulty?, hints?, is_public?, context_notes?}` | Create a user question (201) |
-| `GET /api/v1/tasks?skill=&q=&page=&page_size=` | List visible tasks (paginated) |
+| `POST /api/v1/tasks` `{prompt, scaffold?, difficulty?, hints?, is_public?, context_notes?}` | Create a user question (201) |
+| `GET /api/v1/tasks?q=&page=&page_size=` | List visible tasks (paginated) |
 | `GET /api/v1/tasks/{id}` | Task detail |
 | `PATCH /api/v1/tasks/{id}` | Edit a question (owner or admin) |
 | `DELETE /api/v1/tasks/{id}` | Delete a question + its attempts (owner or admin; system rows admin-only) |
@@ -141,18 +141,18 @@ All v1 resources return a `{data}` envelope; list endpoints add
 Single SQLite file `data/coach.db` (gitignored, created on first run) with 6
 tables: `users`, `auth_tokens`, `active_sessions`, `tasks`, `task_attempts`,
 `user_skill_beliefs`. `coach/db.py` is the single connection module (it drops
-the removed knowledge-graph/learner tables on startup so old databases
-converge). Per-task progress lives in `task_attempts`; per-skill mastery
-persists across sessions in `user_skill_beliefs`. Generated follow-ups link
+removed columns/tables and collapses legacy per-skill beliefs to one overall
+row per candidate so old databases converge). Per-task progress lives in
+`task_attempts`; overall mastery persists across sessions in
+`user_skill_beliefs`. Generated follow-ups link
 via `parent_task_id`/`target_text`. Each task optionally carries
 `context_notes` (plain-English prerequisites/confusions).
 
 ## How to extend (no code changes)
 
-- **Add a question**: `POST /api/v1/tasks` with `prompt`, `skill`, and optional
+- **Add a question**: `POST /api/v1/tasks` with `prompt` and optional
   `scaffold`/`difficulty`/`hints`/`context_notes`. Or pass `initial_question` to
-  `POST /api/v1/sessions`. The `skill` tag is a free-form id — a new tag starts a fresh
-  per-skill belief. User rows are private by default (guests create public
+  `POST /api/v1/sessions`. User rows are private by default (guests create public
   rows); generated follow-ups link via `parent_task_id`/`target_text`.
 - **Change the model**: set `EVAL_MODEL` in `.env` (e.g. `gemini-3.5-flash-lite`).
 

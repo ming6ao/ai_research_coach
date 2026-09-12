@@ -14,7 +14,6 @@ from coach.config import MODEL, http_retry_options
 @dataclass
 class EvaluationResult:
     task_id: str
-    skill: str
     score: float
     max_score: float
     rationale: str
@@ -25,20 +24,20 @@ class EvaluationResult:
         return self.score / self.max_score if self.max_score else 0.0
 
     def to_dict(self):
-        return {
+        d = {
             "task_id": self.task_id,
-            "skill": self.skill,
             "score": self.score,
             "max_score": self.max_score,
             "rationale": self.rationale,
             "coach": self.coach,
         }
+        return d
 
     @classmethod
     def from_dict(cls, d):
+        # Legacy dicts may carry a removed skill tag; it is ignored.
         return cls(
             d["task_id"],
-            d["skill"],
             d["score"],
             d["max_score"],
             d["rationale"],
@@ -149,12 +148,10 @@ class LLMJudge:
     def evaluate(self, task: dict, answer: str) -> tuple[EvaluationResult, CoachContent]:
         max_score = task.get("max_score", 5)
         prompt = task.get("prompt", "")
-        skill = task.get("skill", "")
         client = _client()
 
         system = _SYSTEM_PROMPT.format(max_score=max_score)
         user = (
-            f"Skill: {skill}\n\n"
             f"Task:\n{prompt}\n\n"
             f"Candidate's code:\n```\n{answer}\n```"
         )
@@ -187,7 +184,7 @@ class LLMJudge:
                 steps=steps,
             )
             return EvaluationResult(
-                task["id"], task["skill"], score, max_score, rationale, coach.to_dict()
+                task["id"], score, max_score, rationale, coach.to_dict()
             ), coach
         except Exception:
             fallback = CoachContent(
@@ -197,7 +194,7 @@ class LLMJudge:
             )
             return (
                 EvaluationResult(
-                    task["id"], task["skill"], max_score * 0.5, max_score, "Unable to evaluate", fallback.to_dict()
+                    task["id"], max_score * 0.5, max_score, "Unable to evaluate", fallback.to_dict()
                 ),
                 fallback,
             )

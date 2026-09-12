@@ -1,7 +1,7 @@
 """Bayesian ability estimation and hint-aware scoring.
 
-Each skill carries a Gaussian belief theta_s ~ N(mu, variance) over the
-candidate's mastery on [0, 1]. After each task we observe an effective score
+The candidate carries a single Gaussian belief theta ~ N(mu, variance) over
+overall mastery on [0, 1]. After each task we observe an effective score
 (raw judge fraction minus a penalty for viewed hints) with a
 difficulty-matched measurement noise, and update with the conjugate Gaussian
 formulas. All tuning constants are centralized here.
@@ -90,10 +90,10 @@ def confidence_from_variance(variance: float) -> float:
 
 
 def score_to_difficulty(score: float) -> int:
-    """Map mastery score to target difficulty level.
+    """Map overall mastery score to target difficulty level.
 
     Args:
-        score: Current skill score (0.0 - 1.0)
+        score: Current overall ability score (0.0 - 1.0)
 
     Returns:
         Target difficulty (1-5)

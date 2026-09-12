@@ -3,16 +3,10 @@
 from coach.picker import expected_time, next_task
 from coach.session import Session
 
-SKILLS = [
-    "ml_modeling",
-    "ml_systems",
-]
 
-
-def make_task(i, skill, difficulty=2):
+def make_task(i, difficulty=2):
     return {
         "id": f"t{i}",
-        "skill": skill,
         "difficulty": difficulty,
         "prompt": f"Implement function {i}.",
         "max_score": 5,
@@ -24,7 +18,7 @@ def make_session(tasks):
 
 
 def test_next_task_none_when_exhausted():
-    session = make_session([make_task(0, "ml_fundamentals")])
+    session = make_session([make_task(0)])
     first = next_task(session)
     assert first is not None
     session.asked_task_ids.add(first["id"])
@@ -36,28 +30,23 @@ def test_next_task_prefers_matched_difficulty():
     # has lower measurement noise and therefore higher expected information.
     session = make_session(
         [
-            make_task(0, "ml_fundamentals", difficulty=1),
-            make_task(1, "ml_fundamentals", difficulty=2),
+            make_task(0, difficulty=1),
+            make_task(1, difficulty=2),
         ]
     )
     chosen = next_task(session)
     assert chosen["difficulty"] == 2
 
 
-def test_probes_all_skills_before_revisiting():
-    tasks = [make_task(i, skill) for i, skill in enumerate(SKILLS)]
-    session = make_session(tasks)
-    seen_skills = []
-    for _ in range(len(tasks)):
-        task = next_task(session)
-        assert task is not None
-        seen_skills.append(task["skill"])
-        # Simulate a highly informative answer that pins the skill down.
-        state = session.get_skill_state(task["skill"])
-        state.variance = 0.0001
-        state.questions_answered += 1
-        session.asked_task_ids.add(task["id"])
-    assert len(set(seen_skills)) == len(SKILLS)
+def test_next_task_prefers_cheaper_task_at_equal_information():
+    # Same difficulty -> same information; the shorter prompt costs less time.
+    session = make_session(
+        [
+            {"id": "long", "difficulty": 2, "prompt": "word " * 200, "max_score": 5},
+            {"id": "short", "difficulty": 2, "prompt": "short prompt", "max_score": 5},
+        ]
+    )
+    assert next_task(session)["id"] == "short"
 
 
 def test_expected_time_model():
@@ -66,14 +55,8 @@ def test_expected_time_model():
     assert hard > base
 
 
-def test_unified_bank_includes_all_former_roles():
-    # Explicit bank covering both skills; the picker serves any skill.
-    session = make_session(
-        [make_task(0, "ml_modeling"), make_task(1, "ml_systems")]
-    )
-    skills = {t["skill"] for t in session.tasks}
-    assert "ml_modeling" in skills
-    assert "ml_systems" in skills
+def test_bank_tasks_have_no_skill():
+    session = make_session([make_task(0), make_task(1)])
     first = next_task(session)
     assert first is not None
-    assert first["skill"] in skills
+    assert "skill" not in first

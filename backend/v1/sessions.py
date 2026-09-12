@@ -3,7 +3,7 @@
 
 Shapes (all wrapped in ``{"data": ...}``):
 - POST   /api/v1/sessions            -> 201 {id, candidate, total_tasks, task_index, current_task}
-- GET    /api/v1/sessions/{id}       -> {id, candidate, total_tasks, task_index, current_task, results, skill_states}
+- GET    /api/v1/sessions/{id}       -> {id, candidate, total_tasks, task_index, current_task, results, ability}
 - DELETE /api/v1/sessions/{id}       -> 204
 - POST   /api/v1/sessions/{id}/answers     {task_id, answer, hints_used?}
 - POST   /api/v1/sessions/{id}/completion  {}
@@ -27,25 +27,23 @@ def _candidate_for(user: Optional[dict]) -> str:
     return f"guest-{uuid.uuid4().hex[:8]}"
 
 
-def _skill_states_dict(session) -> dict:
+def _ability_dict(session) -> dict:
+    ability = session.get_ability()
     return {
-        k: {
-            "score": v.score,
-            "confidence": v.confidence,
-            "questions_answered": v.questions_answered,
-        }
-        for k, v in session.skill_states.items()
+        "score": ability.score,
+        "confidence": ability.confidence,
+        "questions_answered": ability.questions_answered,
     }
 
 
-def _describe_context(prompt: str, skill: str, explicit: Optional[str] = None) -> str:
+def _describe_context(prompt: str, explicit: Optional[str] = None) -> str:
     """Author-supplied notes win; otherwise one best-effort LLM description."""
     if explicit is not None and explicit.strip():
         return explicit.strip()[:2000]
     try:
         from coach.task_decomposer import TaskDecomposer
 
-        return TaskDecomposer().describe_task(prompt, skill) or ""
+        return TaskDecomposer().describe_task(prompt) or ""
     except Exception:
         return ""
 
@@ -60,7 +58,7 @@ def _session_view(session_id: str, session, current_task, feedback_list=None) ->
     }
     if feedback_list is not None:
         view["results"] = feedback_list
-        view["skill_states"] = _skill_states_dict(session)
+        view["ability"] = _ability_dict(session)
     return view
 
 
@@ -96,17 +94,15 @@ def create_session(req: SessionCreateRequest, user: Optional[dict] = Depends(get
         from coach.tasks import create_task as _create_task
 
         prompt = req.initial_question.strip()
-        skill = req.skill or "general"
         custom_task = _create_task(
             prompt=prompt,
-            skill=skill,
             owner=candidate,
             difficulty=2,
             max_score=5,
             hints=[],
             source="user",
             is_public=is_guest,
-            context_notes=_describe_context(prompt, skill),
+            context_notes=_describe_context(prompt),
         )
         session.tasks.insert(0, custom_task)
 
@@ -190,7 +186,7 @@ def submit_answer(
                 "coach": existing.coach,
                 "next_task": pick_next_task(session.candidate, session),
                 "remaining": len(session.tasks) - session.index,
-                "skill_update": None,
+                "ability_update": None,
                 "already_answered": True,
             }
         }
@@ -200,8 +196,7 @@ def submit_answer(
     requested = session.viewed_hints.get(req.task_id, [])
     viewed = list(dict.fromkeys(list(req.hints_used or []) + requested))
 
-    skill_id = task["skill"]
-    state_obj = session.get_skill_state(skill_id)
+    state_obj = session.get_ability()
     penalty = hint_penalty(task, viewed)
     observation = effective_score(result.fraction, penalty)
     obs_variance = measurement_variance(task.get("difficulty", 1), state_obj.score)
@@ -209,7 +204,7 @@ def submit_answer(
         state_obj.score, state_obj.variance, observation, obs_variance
     )
 
-    session.skill_states[skill_id] = SkillState(
+    session.ability = SkillState(
         score=new_score,
         variance=new_variance,
         questions_answered=state_obj.questions_answered + 1,
@@ -225,7 +220,7 @@ def submit_answer(
             result.score, result.max_score, viewed,
         )
         _save_belief(
-            session.candidate, skill_id, new_score, new_variance,
+            session.candidate, new_score, new_variance,
             state_obj.questions_answered + 1,
         )
     except Exception:
@@ -235,7 +230,6 @@ def submit_answer(
         "task_id": task["id"],
         "prompt": task["prompt"],
         "type": "code",
-        "skill": task["skill"],
         "user_answer": req.answer,
         "result": result.to_dict(),
         "feedback": coach.feedback,
@@ -248,10 +242,9 @@ def submit_answer(
     session.results.append(result)
     session.index += 1
 
-    skill_update = {
-        "skill": skill_id,
+    ability_update = {
         "new_score": new_score,
-        "new_confidence": session.get_skill_state(skill_id).confidence,
+        "new_confidence": session.get_ability().confidence,
         "hints_used": viewed,
     }
 
@@ -275,7 +268,7 @@ def submit_answer(
             "coach": coach.to_dict(),
             "next_task": next_task,
             "remaining": len(session.tasks) - session.index,
-            "skill_update": skill_update,
+            "ability_update": ability_update,
             "already_answered": False,
         }
     }
@@ -294,4 +287,4 @@ def complete_session(session_id: str, user: Optional[dict] = Depends(get_current
     _check_owner(session, user)
     # The row stays in active_sessions for history/resume; "done" is derived
     # from the session JSON (pick_next_task returns None).
-    return {"data": {"done": True, "skill_states": _skill_states_dict(session)}}
+    return {"data": {"done": True, "ability": _ability_dict(session)}}

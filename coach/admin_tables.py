@@ -74,7 +74,6 @@ TABLE_REGISTRY: dict[str, dict[str, Any]] = {
         "columns": [
             {"name": "id", "kind": "text", "searchable": True, "editable": False},
             {"name": "owner", "kind": "text", "searchable": True, "editable": False},
-            {"name": "skill", "kind": "text", "searchable": True, "editable": True},
             {"name": "prompt", "kind": "text", "searchable": True, "editable": True},
             {"name": "scaffold", "kind": "text", "searchable": False, "editable": True},
             {"name": "difficulty", "kind": "number", "searchable": False, "editable": True},
@@ -108,7 +107,6 @@ TABLE_REGISTRY: dict[str, dict[str, Any]] = {
         "columns": [
             {"name": "id", "kind": "text", "searchable": False, "editable": False},
             {"name": "candidate", "kind": "text", "searchable": True, "editable": False},
-            {"name": "skill", "kind": "text", "searchable": True, "editable": False},
             {"name": "mean", "kind": "number", "searchable": False, "editable": True},
             {"name": "variance", "kind": "number", "searchable": False, "editable": True},
             {"name": "questions_answered", "kind": "number", "searchable": False, "editable": True},
@@ -119,9 +117,9 @@ TABLE_REGISTRY: dict[str, dict[str, Any]] = {
 
 # Extra exact-match filters the UI may pass per table (besides free-text q).
 FILTERABLE = {
-    "tasks": ("owner", "skill"),
+    "tasks": ("owner",),
     "task_attempts": ("candidate", "task_id"),
-    "user_skill_beliefs": ("candidate", "skill"),
+    "user_skill_beliefs": ("candidate",),
     "active_sessions": ("candidate",),
     "auth_tokens": ("user_id",),
     "users": ("email",),
@@ -256,9 +254,9 @@ def _orm_search_cols(name: str):
     from coach.tasks import SkillBeliefModel, TaskAttemptModel, TaskModel
 
     return {
-        "tasks": (TaskModel.prompt, TaskModel.skill, TaskModel.owner, TaskModel.id, TaskModel.context_notes),
+        "tasks": (TaskModel.prompt, TaskModel.owner, TaskModel.id, TaskModel.context_notes),
         "task_attempts": (TaskAttemptModel.candidate, TaskAttemptModel.task_id, TaskAttemptModel.id),
-        "user_skill_beliefs": (SkillBeliefModel.candidate, SkillBeliefModel.skill),
+        "user_skill_beliefs": (SkillBeliefModel.candidate,),
     }[name]
 
 
@@ -288,7 +286,6 @@ def _orm_to_list_dict(name: str, m) -> dict[str, Any]:
     return {
         "id": m.id,
         "candidate": m.candidate,
-        "skill": m.skill,
         "mean": m.mean,
         "variance": m.variance,
         "questions_answered": m.questions_answered,
@@ -425,11 +422,6 @@ def _update_task(task_id: str, fields: dict[str, Any]) -> Optional[dict[str, Any
         m = session.get(TaskModel, task_id)
         if m is None:
             return None
-        if "skill" in fields:
-            skill = str(fields["skill"] or "").strip() or "general"
-            if len(skill) > 128:
-                raise ValueError("skill must be at most 128 characters.")
-            m.skill = skill
         if "prompt" in fields:
             prompt = str(fields["prompt"] or "").strip()
             if not prompt:

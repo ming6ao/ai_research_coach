@@ -1,7 +1,7 @@
 """v1 task resources: canonical REST replacement for /api/tasks* and the
 bespoke /admin/tasks* endpoints (single owner-or-admin-guarded CRUD).
 
-- GET    /api/v1/tasks?skill=&q=&page=&page_size=  -> {data: [...], meta}
+- GET    /api/v1/tasks?q=&page=&page_size=  -> {data: [...], meta}
 - POST   /api/v1/tasks                             -> 201 {data: task}
 - GET    /api/v1/tasks/{id}                        -> {data: task}
 - PATCH  /api/v1/tasks/{id}                        -> {data: task} (owner or admin)
@@ -32,7 +32,6 @@ def _check_task_owner(task: dict, user: Optional[dict]) -> None:
 
 @router.get("", summary="List visible tasks")
 def list_tasks(
-    skill: Optional[str] = None,
     q: Optional[str] = None,
     page: PageParams = Depends(),
     user: Optional[dict] = Depends(get_current_user),
@@ -41,7 +40,7 @@ def list_tasks(
 
     # Guests without a stable id list as system: seed + public tasks.
     candidate = user["email"] if user is not None else "system"
-    tasks = list_visible_tasks(candidate, skill=skill)
+    tasks = list_visible_tasks(candidate)
     if q and q.strip():
         needle = q.strip().lower()
         tasks = [t for t in tasks if needle in (t.get("prompt") or "").lower()]
@@ -59,7 +58,6 @@ def create_task(req: TaskCreateRequest, user: Optional[dict] = Depends(get_curre
     is_guest = candidate.startswith("guest-")
     task = _create_task(
         prompt=req.prompt.strip(),
-        skill=req.skill or "general",
         owner=candidate,
         scaffold=req.scaffold,
         difficulty=req.difficulty,
@@ -68,7 +66,7 @@ def create_task(req: TaskCreateRequest, user: Optional[dict] = Depends(get_curre
         source="user",
         is_public=bool(req.is_public or is_guest),
         context_notes=_describe_context(
-            req.prompt.strip(), req.skill or "general", req.context_notes
+            req.prompt.strip(), req.context_notes
         ),
     )
     return {"data": task}

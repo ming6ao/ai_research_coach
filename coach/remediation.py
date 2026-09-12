@@ -14,7 +14,6 @@ from typing import Optional
 from coach.task_decomposer import TaskDecomposer
 
 # --- Budget guards -----------------------------------------------------------
-MAX_PER_SKILL = 2
 MAX_PER_SESSION = 4
 
 # Judge fraction below which an answer counts as not-solved.
@@ -28,11 +27,9 @@ class RemediationPlanner:
         self,
         decomposer: Optional[TaskDecomposer] = None,
         *,
-        max_per_skill: int = MAX_PER_SKILL,
         max_per_session: int = MAX_PER_SESSION,
     ) -> None:
         self.decomposer = decomposer or TaskDecomposer()
-        self.max_per_skill = max_per_skill
         self.max_per_session = max_per_session
 
     def decide(
@@ -44,15 +41,12 @@ class RemediationPlanner:
     ) -> Optional[dict]:
         """Return a generated follow-up task dict, or None if unwarranted.
 
-        ``session`` is the parent ``Session`` (budget caps + skill lookup).
+        ``session`` is the parent ``Session`` (budget cap + ability lookup).
         ``result`` is the judge ``EvaluationResult``; ``coach`` is the
         ``CoachContent`` (gap text source).
         """
-        # 1. Budget guards (per-session and per-skill caps).
+        # 1. Budget guard (per-session cap).
         if self._session_generated_count(session) >= self.max_per_session:
-            return None
-        skill_id = (task or {}).get("skill", "general")
-        if self._skill_generated_count(session, skill_id) >= self.max_per_skill:
             return None
 
         # 2. Judge signals.
@@ -68,14 +62,13 @@ class RemediationPlanner:
 
         difficulty = self._difficulty(session, task, fraction)
         generated = self.decomposer.generate_followup_task(gap_text or "the previous gap", task, difficulty)
-        generated["skill"] = skill_id
         return generated
 
     # -- difficulty ----------------------------------------------------------
 
     def _difficulty(self, session, task: dict, fraction: float) -> int:
         """One step easier than the original (two on very weak answers),
-        then clamped so P(solve) lands near ~80% on skill belief alone."""
+        then clamped so P(solve) lands near ~80% on overall ability alone."""
         base = max(1, min(5, int((task or {}).get("difficulty", 2))))
         difficulty = max(1, base - 1)
         if fraction < 0.4:
@@ -85,13 +78,13 @@ class RemediationPlanner:
             try:
                 from coach.solvability import TARGET_P_SOLVE, p_solve, tune_difficulty_for_target
 
-                skill_mean = 0.5
+                ability_mean = 0.5
                 try:
-                    skill_mean = session.get_skill_state((task or {}).get("skill", "general")).score
+                    ability_mean = session.get_ability().score
                 except Exception:
                     pass
-                difficulty = tune_difficulty_for_target(skill_mean, None, None, base, TARGET_P_SOLVE)
-                if p_solve(skill_mean, None, None, difficulty) < 0.7:
+                difficulty = tune_difficulty_for_target(ability_mean, None, None, base, TARGET_P_SOLVE)
+                if p_solve(ability_mean, None, None, difficulty) < 0.7:
                     difficulty = max(1, difficulty - 1)
             except Exception:
                 difficulty = base
@@ -129,14 +122,6 @@ class RemediationPlanner:
     def _session_generated_count(session) -> int:
         return len(getattr(session, "generated_task_ids", set()))
 
-    @staticmethod
-    def _skill_generated_count(session, skill_id: str) -> int:
-        count = 0
-        for t in getattr(session, "tasks", []):
-            if t.get("generated") and t.get("skill") == skill_id:
-                count += 1
-        return count
-
 
 def plan_followup(
     session,
@@ -171,7 +156,6 @@ def _persist_generated_task(session, generated: dict, parent_task: dict | None) 
         candidate = getattr(session, "candidate", "system")
         create_task(
             prompt=generated.get("prompt", ""),
-            skill=generated.get("skill", "general"),
             owner=candidate,
             difficulty=generated.get("difficulty", 2),
             max_score=generated.get("max_score", 5),

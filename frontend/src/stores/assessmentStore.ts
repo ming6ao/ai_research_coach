@@ -1,12 +1,11 @@
 import { create } from 'zustand';
 import { apiClient, storage } from '../api/client';
-import type { Task, EvaluationResult, FeedbackEntry, ResumeResponse, CoachContent } from '../api/client';
+import type { Task, EvaluationResult, FeedbackEntry, ResumeResponse, CoachContent, AbilityState } from '../api/client';
 
 export interface ResultWithFeedback {
   task_id: string;
   prompt: string;
   type: string;
-  skill: string;
   userAnswer: string;
   result: EvaluationResult;
   feedback: string;
@@ -21,7 +20,7 @@ interface AssessmentState {
   taskIndex: number;
   totalTasks: number;
   results: ResultWithFeedback[];
-  skillStates: Record<string, { score: number; confidence: number; questions_answered: number }>;
+  ability: AbilityState | null;
   progressView: boolean;
   loading: boolean;
   error: string | null;
@@ -39,13 +38,25 @@ function toResultWithFeedback(entry: FeedbackEntry): ResultWithFeedback {
     task_id: entry.task_id,
     prompt: entry.prompt,
     type: entry.type,
-    skill: entry.skill,
     userAnswer: entry.user_answer,
     result: entry.result,
     feedback: entry.feedback,
     coach: entry.coach,
     scored: (entry as FeedbackEntry & { scored?: boolean }).scored ?? true,
   };
+}
+
+/** Tolerate legacy resume payloads that carried per-skill states. */
+function toAbility(res: ResumeResponse): AbilityState | null {
+  if (res.ability) return res.ability;
+  const legacy = (res as unknown as { skill_states?: Record<string, AbilityState> }).skill_states;
+  if (legacy) {
+    const entries = Object.values(legacy);
+    if (entries.length > 0) {
+      return entries.sort((a, b) => b.questions_answered - a.questions_answered)[0];
+    }
+  }
+  return null;
 }
 
 const SESSION_KEY = 'ai_coach_session_id';
@@ -57,7 +68,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
   taskIndex: 0,
   totalTasks: 0,
   results: [],
-  skillStates: {},
+  ability: null,
   progressView: false,
   loading: false,
   error: null,
@@ -73,7 +84,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       taskIndex: res.task_index,
       totalTasks: res.total_tasks,
       results,
-      skillStates: res.skill_states,
+      ability: toAbility(res),
       progressView: done,
     });
     storage.set(SESSION_KEY, res.id);
@@ -91,7 +102,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         taskIndex: 0,
         totalTasks: res.total_tasks,
         results: [],
-        skillStates: {},
+        ability: null,
         progressView: false,
         initialQuestion: initialQuestion?.trim() || null,
       });
@@ -104,7 +115,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
   },
 
   submitAnswer: async (taskId, answer, hintsUsed = []) => {
-    const { sessionId, results } = get();
+    const { sessionId, results, ability } = get();
     if (!sessionId) return;
     set({ loading: true, error: null });
     try {
@@ -115,7 +126,6 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         task_id: res.result.task_id,
         prompt: currentTask?.prompt ?? '',
         type: currentTask?.type ?? 'unknown',
-        skill: res.result.skill,
         userAnswer: answer,
         result: res.result,
         feedback: res.coach.feedback,
@@ -123,20 +133,22 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         scored: true,
       };
 
-      const newSkillStates = { ...get().skillStates };
-      if (res.skill_update) {
-        newSkillStates[res.skill_update.skill] = {
-          score: res.skill_update.new_score,
-          confidence: res.skill_update.new_confidence,
-          questions_answered: (newSkillStates[res.skill_update.skill]?.questions_answered ?? 0) + 1,
-        };
-      }
+      // Tolerate legacy payloads that still send skill_update.
+      const update = res.ability_update
+        ?? (res as unknown as { skill_update?: { new_score: number; new_confidence: number } }).skill_update;
+      const newAbility: AbilityState | null = update
+        ? {
+            score: update.new_score,
+            confidence: update.new_confidence,
+            questions_answered: (ability?.questions_answered ?? 0) + 1,
+          }
+        : ability;
 
       set({
         results: [...results, rf],
         currentTask: res.next_task,
         taskIndex: get().taskIndex + 1,
-        skillStates: newSkillStates,
+        ability: newAbility,
       });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -152,8 +164,11 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const res = await apiClient.complete(sessionId);
+      const legacy = (res as unknown as { skill_states?: Record<string, AbilityState> }).skill_states;
+      const ability = res.ability
+        ?? (legacy ? Object.values(legacy).sort((a, b) => b.questions_answered - a.questions_answered)[0] ?? null : null);
       set({
-        skillStates: res.skill_states,
+        ability,
         progressView: true,
       });
     } catch (e: unknown) {
@@ -173,7 +188,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       taskIndex: 0,
       totalTasks: 0,
       results: [],
-      skillStates: {},
+      ability: null,
       progressView: false,
       error: null,
       initialQuestion: null,

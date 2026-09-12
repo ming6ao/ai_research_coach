@@ -25,7 +25,7 @@ class FakeJudge:
             steps=[CoachStep("Confirm the approach", "The implementation is correct.", None)],
         )
         result = EvaluationResult(
-            task["id"], task["skill"], max_score, max_score, "Perfect.", coach.to_dict()
+            task["id"], max_score, max_score, "Perfect.", coach.to_dict()
         )
         return result, coach
 
@@ -40,7 +40,6 @@ def client(tmp_path, monkeypatch):
 
     _seed_task(
         prompt="Implement overfitting detection from loss curves. Signature: def detect_overfitting(train_losses, val_losses):",
-        skill="ml_modeling",
         owner="system",
         difficulty=2,
         max_score=5,
@@ -54,7 +53,6 @@ def client(tmp_path, monkeypatch):
     )
     _seed_task(
         prompt="Implement top-k gradient compression. Signature: def topk_compress(grads, k):",
-        skill="ml_systems",
         owner="system",
         difficulty=2,
         max_score=5,
@@ -93,13 +91,13 @@ def test_hints_reduce_mastery_for_perfect_code(client):
     assert task["hints"], "task should carry hints"
 
     data = _answer(client, no_hints["id"], task["id"])
-    score_without_hints = data["skill_update"]["new_score"]
+    score_without_hints = data["ability_update"]["new_score"]
 
     with_hints = _start(client)
     task2 = with_hints["current_task"]
     all_hint_ids = [h["id"] for h in task2["hints"]]
     data2 = _answer(client, with_hints["id"], task2["id"], hints_used=all_hint_ids)
-    score_with_hints = data2["skill_update"]["new_score"]
+    score_with_hints = data2["ability_update"]["new_score"]
 
     assert score_with_hints < score_without_hints
 
@@ -126,7 +124,7 @@ def test_complete_returns_progress_snapshot(client):
     assert res.status_code == 200
     data = res.json()["data"]
     assert data["done"] is True
-    assert "skill_states" in data
+    assert "ability" in data
     assert "learner" not in data
     assert "verdict" not in data
     assert "overall_score" not in data
@@ -145,7 +143,7 @@ def test_submit_is_idempotent(client):
     first = _answer(client, started["id"], task["id"])
     second = _answer(client, started["id"], task["id"])
     assert second["already_answered"] is True
-    assert second["skill_update"] is None
+    assert second["ability_update"] is None
     assert second["result"]["task_id"] == first["result"]["task_id"]
 
 

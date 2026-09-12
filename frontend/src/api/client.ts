@@ -10,7 +10,6 @@ export interface Hint {
 
 export interface Task {
   id: string;
-  skill: string;
   type: 'code';
   prompt: string;
   difficulty: number;
@@ -22,7 +21,6 @@ export interface Task {
 
 export interface EvaluationResult {
   task_id: string;
-  skill: string;
   score: number;
   max_score: number;
   rationale: string;
@@ -41,11 +39,16 @@ export interface CoachContent {
   steps: CoachStep[];
 }
 
-export interface SkillUpdate {
-  skill: string;
+export interface AbilityUpdate {
   new_score: number;
   new_confidence: number;
   hints_used?: string[];
+}
+
+export interface AbilityState {
+  score: number;
+  confidence: number;
+  questions_answered: number;
 }
 
 export interface StartResponse {
@@ -61,13 +64,13 @@ export interface SubmitResponse {
   coach: CoachContent;
   next_task: Task | null;
   remaining: number;
-  skill_update: SkillUpdate | null;
+  ability_update: AbilityUpdate | null;
   already_answered: boolean;
 }
 
 export interface CompleteResponse {
   done: boolean;
-  skill_states: Record<string, { score: number; confidence: number; questions_answered: number }>;
+  ability: AbilityState;
 }
 
 export interface ResumeResponse {
@@ -77,14 +80,13 @@ export interface ResumeResponse {
   task_index: number;
   current_task: Task | null;
   results: FeedbackEntry[];
-  skill_states: Record<string, { score: number; confidence: number; questions_answered: number }>;
+  ability: AbilityState;
 }
 
 export interface FeedbackEntry {
   task_id: string;
   prompt: string;
   type: string;
-  skill: string;
   user_answer: string;
   result: EvaluationResult;
   feedback: string;
@@ -227,7 +229,6 @@ export interface AdminTableQuery {
   sort?: string;
   order?: 'asc' | 'desc';
   candidate?: string;
-  skill?: string;
   owner?: string;
   task_id?: string;
   email?: string;
@@ -247,7 +248,7 @@ export function buildAdminTableQuery(query: AdminTableQuery): string {
   if (query.q?.trim()) params.set('q', query.q.trim());
   if (query.sort) params.set('sort', query.sort);
   if (query.order) params.set('order', query.order);
-  for (const key of ['candidate', 'skill', 'owner', 'task_id', 'email', 'user_id'] as const) {
+  for (const key of ['candidate', 'owner', 'task_id', 'email', 'user_id'] as const) {
     if (query[key]?.trim()) params.set(key, query[key].trim());
   }
   const s = params.toString();

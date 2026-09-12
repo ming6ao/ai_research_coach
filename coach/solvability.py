@@ -2,9 +2,9 @@
 
 P(solve) blends signals already in the system:
 
-- skill belief mean (Gaussian ``SkillState.score``),
+- overall ability belief mean (Gaussian ``SkillState.score``),
 - optional node mastery / uncertainty overrides (accepted for compatibility,
-  pass None to use the skill belief alone),
+  pass None to use the overall ability alone),
 - task difficulty mismatch (same noise model as ``coach.score``).
 
 Pure function, no DB access: callers pass beliefs in.
@@ -20,7 +20,7 @@ TARGET_P_SOLVE = 0.80
 
 
 def p_solve(
-    skill_mean: float,
+    ability_mean: float,
     node_mastery: float | None = None,
     node_uncertainty: float | None = None,
     difficulty: int = 2,
@@ -28,11 +28,11 @@ def p_solve(
 ) -> float:
     """Estimate probability the candidate solves a task.
 
-    Logistic in (ability - difficulty): ability is the mean of the skill
+    Logistic in (ability - difficulty): ability is the mean of the overall
     belief and node mastery; difficulty maps 1..5 onto the 0..1 scale.
     Uncertainty and hint load discount the estimate.
     """
-    ability = max(0.0, min(1.0, skill_mean))
+    ability = max(0.0, min(1.0, ability_mean))
     if node_mastery is not None:
         ability = 0.5 * ability + 0.5 * max(0.0, min(1.0, node_mastery))
     # Difficulty 1..5 -> 0.1..0.9 anchor points.
@@ -48,7 +48,7 @@ def p_solve(
 
 
 def tune_difficulty_for_target(
-    skill_mean: float,
+    ability_mean: float,
     node_mastery: float | None = None,
     node_uncertainty: float | None = None,
     base_difficulty: int = 2,
@@ -60,6 +60,6 @@ def tune_difficulty_for_target(
     than the task they follow.
     """
     for d in range(max(1, min(5, base_difficulty)), 0, -1):
-        if p_solve(skill_mean, node_mastery, node_uncertainty, d) >= target:
+        if p_solve(ability_mean, node_mastery, node_uncertainty, d) >= target:
             return d
     return 1
