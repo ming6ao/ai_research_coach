@@ -6,6 +6,7 @@ import { Header } from './components/Header/Header';
 import { ChatView } from './components/Chat/ChatView';
 import { WelcomeView } from './components/Chat/WelcomeView';
 import { AuthModal } from './components/Auth/AuthModal';
+import { AdminView } from './components/Admin/AdminView';
 import { LearnerProgressView } from './components/Progress/LearnerProgressView';
 
 function OfflineBanner() {
@@ -46,6 +47,7 @@ export default function App() {
   const { authLoading, restore } = useAuthStore();
   const [authModal, setAuthModal] = useState<null | 'login' | 'signup'>(null);
   const [restored, setRestored] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -65,10 +67,12 @@ export default function App() {
 
   return (
     <div className="flex h-screen flex-col">
-      <Header onOpenAuth={setAuthModal} />
+      <Header onOpenAuth={setAuthModal} onOpenAdmin={() => setShowAdmin(true)} />
       <OfflineBanner />
 
-      {progressView ? (
+      {showAdmin ? (
+        <AdminView onClose={() => setShowAdmin(false)} />
+      ) : progressView ? (
         <LearnerProgressView />
       ) : sessionId ? (
         <ChatView />

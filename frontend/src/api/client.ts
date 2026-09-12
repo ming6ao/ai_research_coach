@@ -156,6 +156,86 @@ async function api<T>(path: string, body?: unknown, method?: string): Promise<T>
   return res.json();
 }
 
+export interface AdminTableColumn {
+  name: string;
+  kind: 'text' | 'number' | 'bool' | 'datetime' | 'json';
+  searchable: boolean;
+  editable: boolean;
+  sensitive?: boolean;
+}
+
+export interface AdminTableMeta {
+  name: string;
+  pk: string;
+  default_sort: string;
+  columns: AdminTableColumn[];
+  count: number;
+}
+
+export interface AdminTablePage {
+  rows: Record<string, unknown>[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface AdminWhoami {
+  user: AuthUser;
+  is_admin: boolean;
+}
+
+export interface AdminTableQuery {
+  page?: number;
+  page_size?: number;
+  q?: string;
+  sort?: string;
+  order?: 'asc' | 'desc';
+  candidate?: string;
+  skill?: string;
+  owner?: string;
+  task_id?: string;
+  email?: string;
+  user_id?: string;
+}
+
+const ADMIN_BASE = '/admin';
+
+async function adminApi<T>(path: string, body?: unknown, method?: string): Promise<T> {
+  const effectiveMethod = method ?? (body !== undefined ? 'POST' : 'GET');
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = getAuthToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const res = await fetch(`${ADMIN_BASE}${path}`, {
+    method: effectiveMethod,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    if (res.status === 401 && token) {
+      setAuthToken(null);
+    }
+    const detail = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(detail.detail || `API error ${res.status}`);
+  }
+  return res.json();
+}
+
+export function buildAdminTableQuery(query: AdminTableQuery): string {
+  const params = new URLSearchParams();
+  if (query.page) params.set('page', String(query.page));
+  if (query.page_size) params.set('page_size', String(query.page_size));
+  if (query.q?.trim()) params.set('q', query.q.trim());
+  if (query.sort) params.set('sort', query.sort);
+  if (query.order) params.set('order', query.order);
+  for (const key of ['candidate', 'skill', 'owner', 'task_id', 'email', 'user_id'] as const) {
+    if (query[key]?.trim()) params.set(key, query[key].trim());
+  }
+  const s = params.toString();
+  return s ? `?${s}` : '';
+}
+
 export interface AdminCandidate {
   candidate: string;
 }
@@ -218,13 +298,35 @@ export const apiClient = {
   me: () =>
     api<{ user: AuthUser }>('/auth/me'),
 
-  // Admin endpoints
+  // Admin endpoints (served under /admin, not /api)
   adminCandidates: () =>
-    api<{ learners: AdminCandidate[] }>('/learners', undefined, 'GET'),
+    adminApi<{ learners: AdminCandidate[] }>('/learners', undefined, 'GET'),
 
   adminSkillStates: (candidate: string) =>
-    api<AdminSkillStates>(`/skill-states/${encodeURIComponent(candidate)}`, undefined, 'GET'),
+    adminApi<AdminSkillStates>(`/skill-states/${encodeURIComponent(candidate)}`, undefined, 'GET'),
 
   adminStats: () =>
-    api<AdminStats>('/stats', undefined, 'GET'),
+    adminApi<AdminStats>('/stats', undefined, 'GET'),
+
+  adminWhoami: () =>
+    adminApi<AdminWhoami>('/whoami', undefined, 'GET'),
+
+  adminTables: () =>
+    adminApi<{ tables: AdminTableMeta[] }>('/tables', undefined, 'GET'),
+
+  adminTableRows: (table: string, query: AdminTableQuery = {}) =>
+    adminApi<AdminTablePage>(`/table/${encodeURIComponent(table)}${buildAdminTableQuery(query)}`, undefined, 'GET'),
+
+  adminTableRow: (table: string, rowId: string) =>
+    adminApi<{ row: Record<string, unknown> }>(`/table/${encodeURIComponent(table)}/${encodeURIComponent(rowId)}`, undefined, 'GET'),
+
+  adminUpdateRow: (table: string, rowId: string, fields: Record<string, unknown>) =>
+    adminApi<{ ok: boolean; row: Record<string, unknown> }>(
+      `/table/${encodeURIComponent(table)}/${encodeURIComponent(rowId)}`, fields, 'PATCH',
+    ),
+
+  adminDeleteRow: (table: string, rowId: string) =>
+    adminApi<{ ok: boolean; deleted: number }>(
+      `/table/${encodeURIComponent(table)}/${encodeURIComponent(rowId)}`, undefined, 'DELETE',
+    ),
 };

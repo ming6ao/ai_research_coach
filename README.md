@@ -44,8 +44,7 @@ ai_research_coach/
 ├── backend/
 │   ├── main.py            # FastAPI app
 │   ├── routes.py          # /api/* endpoints
-│   ├── admin_routes.py    # /admin/* debug endpoints
-│   ├── admin_page.py      # standalone admin/debug HTML page
+│   ├── admin_routes.py    # /admin/* endpoints (table browser + manage)
 │   ├── auth.py            # bearer tokens
 │   └── google_auth.py     # Google OAuth (stdlib only)
 ├── coach/
@@ -125,7 +124,7 @@ python check_env.py          # verify env + model connectivity
 | `DELETE /api/sessions/active/{id}` | Delete an active session (ownership-guarded) |
 | `DELETE /api/sessions/clear/{candidate}` | Delete sessions + attempts + beliefs + owned tasks |
 | `/api/auth/*` | Google login / me / logout |
-| `/admin/*` | Debug endpoints (candidates, skill states, stats) + Manage endpoints below |
+| `/admin/*` | Admin endpoints: table browser (`/tables`, `/table/{name}`) + manage endpoints below |
 | `GET /admin/tasks?owner=&skill=&q=` | List questions with attempt counts |
 | `PATCH /admin/tasks/{id}` `{context_notes}` | Edit a question's plain-English context (owner or admin) |
 | `GET /admin/candidate/{candidate}/summary` | Per-table row counts preview (owner or admin) |

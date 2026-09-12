@@ -3,9 +3,10 @@ import { useAuthStore } from '../../stores/authStore';
 
 interface Props {
   onOpenAuth: (tab: 'login' | 'signup') => void;
+  onOpenAdmin: () => void;
 }
 
-export function Header({ onOpenAuth }: Props) {
+export function Header({ onOpenAuth, onOpenAdmin }: Props) {
   const { taskIndex, totalTasks, reset } = useAssessmentStore();
   const { user, logout } = useAuthStore();
 
@@ -32,14 +33,12 @@ export function Header({ onOpenAuth }: Props) {
 
         {user ? (
           <>
-            <a
-              href="/admin"
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={onOpenAdmin}
               className="text-xs text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
             >
-              Debug
-            </a>
+              Admin
+            </button>
             <span className="hidden text-sm text-[var(--color-text-secondary)] sm:block">
               {user.display_name || user.email.split('@')[0]}
             </span>
