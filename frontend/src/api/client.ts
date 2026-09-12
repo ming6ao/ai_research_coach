@@ -1,4 +1,5 @@
-const BASE = '/api';
+const V1_BASE = '/api/v1';
+const AUTH_BASE = '/api';
 
 export interface Hint {
   id: string;
@@ -48,21 +49,20 @@ export interface SkillUpdate {
 }
 
 export interface StartResponse {
-  session_id: string;
+  id: string;
   candidate: string;
-  message: string;
   total_tasks: number;
-  first_task: Task | null;
+  task_index: number;
+  current_task: Task | null;
 }
 
 export interface SubmitResponse {
   result: EvaluationResult;
-  feedback: string;
-  coach?: CoachContent;
+  coach: CoachContent;
   next_task: Task | null;
   remaining: number;
-  skill_update?: SkillUpdate;
-  note?: string;
+  skill_update: SkillUpdate | null;
+  already_answered: boolean;
 }
 
 export interface CompleteResponse {
@@ -71,7 +71,7 @@ export interface CompleteResponse {
 }
 
 export interface ResumeResponse {
-  session_id: string;
+  id: string;
   candidate: string;
   total_tasks: number;
   task_index: number;
@@ -163,18 +163,30 @@ async function request<T>(base: string, path: string, body?: unknown, method?: s
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
-    const isAuthCall = path.startsWith('/auth/');
+    const isAuthCall = base === AUTH_BASE && path.startsWith('/auth/');
     if (res.status === 401 && !isAuthCall && authToken) {
       setAuthToken(null);
     }
     const detail = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(detail.detail || `API error ${res.status}`);
   }
+  if (res.status === 204) {
+    return undefined as T;
+  }
   return res.json();
 }
 
 async function api<T>(path: string, body?: unknown, method?: string): Promise<T> {
-  return request<T>(BASE, path, body, method);
+  return request<T>(AUTH_BASE, path, body, method);
+}
+
+/** v1 resource API. List endpoints return {data, meta}; this helper unwraps `data`. */
+async function v1<T>(path: string, body?: unknown, method?: string): Promise<T> {
+  const res = await request<{ data: T; meta?: unknown }>(V1_BASE, path, body, method);
+  if (res === undefined) {
+    return undefined as T;
+  }
+  return res.data;
 }
 
 export interface AdminTableColumn {
@@ -241,22 +253,29 @@ export function buildAdminTableQuery(query: AdminTableQuery): string {
 
 export const apiClient = {
   start: (initial_question?: string) =>
-    api<StartResponse>('/start', { initial_question }),
+    v1<StartResponse>('/sessions', { initial_question }),
 
   submit: (session_id: string, task_id: string, answer: string, hints_used: string[] = []) =>
-    api<SubmitResponse>('/submit', { session_id, task_id, answer, hints_used }),
+    v1<SubmitResponse>(`/sessions/${encodeURIComponent(session_id)}/answers`, { task_id, answer, hints_used }),
 
   complete: (session_id: string) =>
-    api<CompleteResponse>('/complete', { session_id }),
+    v1<CompleteResponse>(`/sessions/${encodeURIComponent(session_id)}/completion`, {}),
 
-  listSessions: () =>
-    api<{ sessions: UnifiedSession[] }>('/sessions'),
+  listSessions: async () => {
+    const res = await request<{ data: UnifiedSession[]; meta: { total: number } }>(
+      V1_BASE, '/me/sessions', undefined, 'GET',
+    );
+    return { sessions: res.data, total: res.meta.total };
+  },
 
   openSession: (id: string) =>
-    api<ResumeResponse>('/session/open', { id }),
+    v1<ResumeResponse>(`/sessions/${encodeURIComponent(id)}`, undefined, 'GET'),
 
-  clearCandidateData: (candidate: string) =>
-    api<{ ok: boolean; deleted: number }>(`/sessions/clear/${encodeURIComponent(candidate)}`, undefined, 'DELETE'),
+  deleteSession: (id: string) =>
+    v1<void>(`/sessions/${encodeURIComponent(id)}`, undefined, 'DELETE'),
+
+  clearOwnData: () =>
+    v1<{ deleted: number }>(`/me/data`, undefined, 'DELETE'),
 
   googleAuthUrl: () =>
     api<{ url: string }>('/auth/google/url'),

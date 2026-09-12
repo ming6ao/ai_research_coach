@@ -175,21 +175,50 @@ def create_task(
         session.close()
 
 
-def update_task_context(task_id: str, context_notes: str) -> Optional[dict]:
-    """Overwrite a task's plain-English context notes (admin edit path)."""
+def update_task(task_id: str, **fields) -> Optional[dict]:
+    """Update whitelisted task columns (v1 PATCH path).
+
+    Allowed: prompt, skill, scaffold, difficulty (1-5), max_score (>=1),
+    hints (list), is_public (bool), context_notes (<=2000 chars).
+    Returns the updated dict, or None when the task does not exist.
+    """
     from coach.db import create_schema
 
+    allowed = {"prompt", "skill", "scaffold", "difficulty", "max_score", "hints", "is_public", "context_notes"}
+    updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    if "prompt" in updates and not str(updates["prompt"]).strip():
+        raise ValueError("Prompt must not be empty.")
     create_schema()
     session = learner_session()
     try:
         model = session.get(TaskModel, task_id)
         if model is None:
             return None
-        model.context_notes = (context_notes or "").strip()[:2000]
+        if "prompt" in updates:
+            model.prompt = str(updates["prompt"]).strip()
+        if "skill" in updates:
+            model.skill = str(updates["skill"]).strip() or "general"
+        if "scaffold" in updates:
+            model.scaffold = updates["scaffold"]
+        if "difficulty" in updates:
+            model.difficulty = max(1, min(5, int(updates["difficulty"])))
+        if "max_score" in updates:
+            model.max_score = max(1, int(updates["max_score"]))
+        if "hints" in updates:
+            model.hints_json = json.dumps(updates["hints"] or [])
+        if "is_public" in updates:
+            model.is_public = 1 if updates["is_public"] else 0
+        if "context_notes" in updates:
+            model.context_notes = str(updates["context_notes"] or "").strip()[:2000]
         session.commit()
         return task_to_dict(model)
     finally:
         session.close()
+
+
+def update_task_context(task_id: str, context_notes: str) -> Optional[dict]:
+    """Overwrite a task's plain-English context notes (admin edit path)."""
+    return update_task(task_id, context_notes=context_notes)
 
 
 def get_task(task_id: str) -> Optional[dict]:

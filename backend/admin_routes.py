@@ -1,23 +1,17 @@
-"""Admin/debug API routes (graph-free).
+"""Admin/debug API routes.
 
-Tasks carry plain-English ``context_notes``; there are no knowledge graphs,
-nodes, edges, or learner-model rows. Remaining endpoints cover candidate
-management, question management, skill states, and DB stats.
+Covers the generic table browser (admin-only) plus owner-or-admin candidate
+wipes. Task CRUD lives in the v1 API (``/api/v1/tasks*``, owner-or-admin
+guarded); per-skill progress lives in session views (``/api/v1/sessions*``).
 """
 
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Query
-from pydantic import BaseModel, Field
 
 from backend.auth import get_current_user, is_admin
-from backend.dependencies import get_store
 
 admin_router = APIRouter(prefix="/admin", tags=["admin"])
-
-
-class TaskContextUpdate(BaseModel):
-    context_notes: str = Field(default="", max_length=2000)
 
 
 def _require_user(user: dict = Depends(get_current_user)):
@@ -134,80 +128,6 @@ def delete_table_row(table_name: str, row_id: str, user: dict = Depends(_require
     return {"ok": True, "table": table_name, "row_id": row_id, **result}
 
 
-@admin_router.get("/learners")
-def list_learners(user: dict = Depends(_require_user)):
-    """List known candidates (derived from sessions/attempts/tasks)."""
-    from coach.admin import list_candidates
-
-    return {"learners": [{"candidate": c["candidate"]} for c in list_candidates()]}
-
-
-@admin_router.get("/skill-states/{candidate}")
-def get_skill_states(candidate: str, user: dict = Depends(_require_user)):
-    """Return parent app Bayesian SkillState for a candidate's active sessions."""
-    from coach.session import Session
-
-    store = get_store()
-    active = store.list_by_candidate(candidate)
-    if active:
-        state = store.get(active[0]["session_id"])
-        if state and "session" in state:
-            session = Session.from_dict(state["session"])
-            return {
-                "source": "active_session",
-                "session_id": active[0]["session_id"],
-                "skill_states": {
-                    k: {
-                        "score": v.score,
-                        "variance": v.variance,
-                        "confidence": v.confidence,
-                        "questions_answered": v.questions_answered,
-                    }
-                    for k, v in session.skill_states.items()
-                },
-            }
-
-    return {"source": "none", "skill_states": {}}
-
-
-@admin_router.get("/stats")
-def get_stats(user: dict = Depends(_require_user)):
-    """Return summary counts: tasks, attempts, beliefs, sessions."""
-    from coach.admin import stats_summary
-
-    return stats_summary()
-
-
-@admin_router.get("/tasks")
-def list_tasks_admin(
-    owner: Optional[str] = None,
-    skill: Optional[str] = None,
-    q: Optional[str] = None,
-    limit: int = Query(default=200, ge=1, le=500),
-    user: dict = Depends(_require_user),
-):
-    """List task-bank rows with attempt counts (for the Manage tab)."""
-    from coach.tasks import list_tasks_for_admin
-
-    tasks = list_tasks_for_admin(owner=owner, skill=skill, q=q, limit=limit)
-    return {"tasks": tasks}
-
-
-@admin_router.patch("/tasks/{task_id}")
-def update_task_endpoint(task_id: str, body: TaskContextUpdate, user: dict = Depends(_require_user)):
-    """Edit a question's plain-English context notes (owner or admin)."""
-    from coach.tasks import get_task, update_task_context
-
-    task = get_task(task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail="Task not found.")
-    email = (user.get("email") or "").strip().lower()
-    if (task.get("owner") or "") != email and not is_admin(user):
-        raise HTTPException(status_code=403, detail="Not authorized to edit this task.")
-    updated = update_task_context(task_id, body.context_notes or "")
-    return {"ok": True, "task": updated}
-
-
 @admin_router.get("/candidate/{candidate}/summary")
 def candidate_summary_endpoint(candidate: str, user: dict = Depends(_require_user)):
     """Dry-run preview: per-table row counts for a candidate (owner or admin)."""
@@ -224,22 +144,3 @@ def delete_candidate_endpoint(candidate: str, user: dict = Depends(_require_user
 
     _require_owner_or_admin(candidate, user)
     return {"ok": True, **clear_candidate_everything(candidate)}
-
-
-@admin_router.delete("/tasks/{task_id}")
-def delete_task_endpoint(task_id: str, user: dict = Depends(_require_user)):
-    """Delete one question plus its attempts (cascade).
-
-    Allowed for the task owner or an ADMIN_EMAILS admin (system seed rows
-    are admin-only).
-    """
-    from coach.tasks import delete_task, get_task
-
-    task = get_task(task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail="Task not found.")
-    email = (user.get("email") or "").strip().lower()
-    if (task.get("owner") or "") != email and not is_admin(user):
-        raise HTTPException(status_code=403, detail="Not authorized to delete this task.")
-    result = delete_task(task_id)
-    return {"ok": True, "task_id": task_id, **result}

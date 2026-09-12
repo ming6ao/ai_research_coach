@@ -39,20 +39,21 @@ test('submit auto-advances to the next task immediately', async () => {
 
   const start = mock.method(apiClient, 'start', async () =>
     ({
-      session_id: 's1',
+      id: 's1',
       candidate: 'guest-abc12345',
-      message: 'Assessment started.',
       total_tasks: 2,
-      first_task: task,
+      task_index: 0,
+      current_task: task,
     }) as StartResponse,
   );
   const submit = mock.method(apiClient, 'submit', async () =>
     ({
       result: { task_id: 't1', skill: 'ml_modeling', score: 5, max_score: 5, rationale: 'ok' },
-      feedback: 'Great job!',
       coach: { feedback: 'Great job!', misconception: 'none', steps: [] },
       next_task: next,
       remaining: 1,
+      skill_update: { skill: 'ml_modeling', new_score: 0.8, new_confidence: 0.5 },
+      already_answered: false,
     }) as SubmitResponse,
   );
 
@@ -85,20 +86,21 @@ test('submit with null next_task leaves no current task (done)', async () => {
 
   const start = mock.method(apiClient, 'start', async () =>
     ({
-      session_id: 's1',
+      id: 's1',
       candidate: 'guest-abc12345',
-      message: 'Assessment started.',
       total_tasks: 1,
-      first_task: task,
+      task_index: 0,
+      current_task: task,
     }) as StartResponse,
   );
   const submit = mock.method(apiClient, 'submit', async () =>
     ({
       result: { task_id: 't1', skill: 'ml_modeling', score: 5, max_score: 5, rationale: 'ok' },
-      feedback: 'Great job!',
       coach: { feedback: 'Great job!', misconception: 'none', steps: [] },
       next_task: null,
       remaining: 0,
+      skill_update: { skill: 'ml_modeling', new_score: 0.8, new_confidence: 0.5 },
+      already_answered: false,
     }) as SubmitResponse,
   );
 

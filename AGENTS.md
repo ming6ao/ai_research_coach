@@ -31,11 +31,11 @@ python check_env.py
 
 ## Architecture Essentials
 
-- **Entry point**: FastAPI app in `backend/main.py` (`backend/routes.py` + admin routes). No ADK agent.
-- **DB task bank**: Questions live in the `tasks` table (`coach/tasks.py`) — users add their own via `POST /api/tasks` or `initial_question` on `/api/start`; each task's `skill` tag is a free-form id that keys a per-skill belief
+- **Entry point**: FastAPI app in `backend/main.py` (`backend/v1/*` resources + `backend/auth_routes.py` + admin routes). No ADK agent.
+- **DB task bank**: Questions live in the `tasks` table (`coach/tasks.py`) — users add their own via `POST /api/v1/tasks` or `initial_question` on `POST /api/v1/sessions`; each task's `skill` tag is a free-form id that keys a per-skill belief
 - **Bayesian probing**: `coach/score.py` + `coach/picker.py` keep a Gaussian belief `N(mean, variance)` per skill; `pick_next_task` (in `coach/selection.py`) selects questions to maximize expected information gain (EIG) per unit of expected time, weighted by skill coverage
 - **Hybrid question selection**: `coach/selection.py:pick_next_task` — (1) pending generated task, (2) judge-driven follow-up (`coach/remediation.py`: a simpler task drilled from the judge's misconception/feedback text, difficulty tuned to ~80% P(solve) via `coach/solvability.py`), (3) EIG bank picker, (4) `None` when done
-- **No knowledge graph**: there are no nodes/edges. Each task optionally carries `context_notes` (2–4 plain-English sentences, e.g. "A is a prerequisite of B, often confused with C"), generated once at creation by `coach/task_decomposer.py:describe_task` and editable via `PATCH /admin/tasks/{id}`
+- **No knowledge graph**: there are no nodes/edges. Each task optionally carries `context_notes` (2–4 plain-English sentences, e.g. "A is a prerequisite of B, often confused with C"), generated once at creation by `coach/task_decomposer.py:describe_task` and editable via `PATCH /api/v1/tasks/{id}` (owner or admin)
 - **Hints**: `coach/hints.py` — tasks declare ordered hints; weak candidates get them pre-revealed, others request them on demand; viewed hints reduce effective mastery
 - **Code eval**: `coach/judge.py` evaluates candidate code via a single structured LLM call (score + rationale + coaching response)
 - **Coaching**: The judge's coaching response (in `coach/judge.py` as `CoachContent`) identifies the candidate's misconception/gap and walks them step-by-step to the correct solution with code examples — no separate feedback step
@@ -46,7 +46,7 @@ python check_env.py
 
 ## Extending Without Code Changes
 
-- **Add question**: `POST /api/tasks` with `prompt`, `skill`, optional `scaffold`/`difficulty`/`hints`; or `initial_question` on `/api/start`
+- **Add question**: `POST /api/v1/tasks` with `prompt`, `skill`, optional `scaffold`/`difficulty`/`hints`; or `initial_question` on `POST /api/v1/sessions`
 - **Change model**: Set `EVAL_MODEL` in `.env`
 
 ## Task Types & Required Fields
@@ -63,7 +63,7 @@ Optional per task: `hints` (ordered list with `id`, `text`, `weight` 0..1, and `
 - Skill ability is a Gaussian belief (`N(mean, variance)`). The mean is the reported skill score; `1 - σ/σ_max` is the reported confidence.
 - Effective score = `raw_fraction − Σ weight(viewed hints)`, clamped to [0, 1] — solving correctly with many hints yields lower mastery.
 - The bank picker maximizes `EIG · coverage / expected_time`, so it drills into informative, uncovered skills with cheap questions. The session ends when the task bank is exhausted.
-- After a submit, the picked task is returned as `next_task` but held back by the UI until the candidate reviews the coaching and clicks **Next question** — the system never auto-advances. A `next_task: null` after the last question means the candidate is done; the frontend then shows the progress view (via `/api/complete`).
+- After a submit, the picked task is returned as `next_task` but held back by the UI until the candidate reviews the coaching and clicks **Next question** — the system never auto-advances. A `next_task: null` after the last question means the candidate is done; the frontend then shows the progress view (via `POST /api/v1/sessions/{id}/completion`).
 
 ## Learner Model (flat `learner/`)
 
@@ -85,14 +85,14 @@ EVAL_RETRY_MAX_DELAY=30.0       # Max backoff (seconds)
 ## Retry / Resilience
 
 - All model calls use exponential backoff (5 attempts, 1s→30s, jitter) on 408/429/5xx
-- `/api/submit` is idempotent: it returns the stored result (+ stored coaching) if the task was already scored; `/api/start` and `/api/session/open` resume in-progress sessions
+- `POST /api/v1/sessions/{id}/answers` is idempotent: it returns the stored result (+ stored coaching, `already_answered: true`) if the task was already scored; `POST /api/v1/sessions` starts and `GET /api/v1/sessions/{id}` resumes sessions
 
 ## Frontend Notes
 
 - React 19 + TypeScript + Vite + Tailwind v4
 - Chat-style UI: `ChatView`/`WelcomeView` in `frontend/src/components/Chat/` render the session as coach/user bubbles; the active task embeds Monaco via `CodeEditor`; submitted results render the judge's coaching (`CoachingBubble`: verdict chip + misconception + numbered steps with code examples)
 - Single unified behavior for guests and signed-in users (no practice/assessment split). Guests keep their in-progress session in `localStorage`; signed-in users (bearer token in `localStorage`) get per-account history
-- Progress view: `frontend/src/components/Progress/LearnerProgressView.tsx` shows per-skill confidence + answered questions with the judge's gap text after `/api/complete` or on resume of a done session
+- Progress view: `frontend/src/components/Progress/LearnerProgressView.tsx` shows per-skill confidence + answered questions with the judge's gap text after completion or on resume of a done session
 - Auth backend: `backend/auth.py` (bearer tokens, `get_current_user` FastAPI dependency) + `backend/google_auth.py` (Google OAuth authorization-code flow, stdlib only). Login is Google-only — `/auth/google/url` + `/auth/google/callback` exchange a code for a local user (keyed by email) and redirect to `FRONTEND_URL/?token=...`. Requires `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` in `.env`
 - Linting: `oxlint` (config in `frontend/.oxlintrc.json`)
 - Typecheck: `tsc -b` (project references: `tsconfig.app.json`, `tsconfig.node.json`)

@@ -1,8 +1,8 @@
-"""End-to-end coaching flow test with a fake judge (via the FastAPI routes).
+"""End-to-end coaching flow test with a fake judge (via the v1 API).
 
 Verifies that viewing hints reduces the effective mastery for a task even when
-the submitted code is perfect, that /submit returns the coaching + next task,
-and that /complete returns the progress snapshot (no report/verdict).
+the submitted code is perfect, that answers return the coaching + next task in
+a {data} envelope, and that completion returns the progress snapshot.
 """
 
 from __future__ import annotations
@@ -70,74 +70,61 @@ def client(tmp_path, monkeypatch):
 
 def _start(client, initial_question=None):
     body = {"initial_question": initial_question} if initial_question else {}
-    res = client.post("/api/start", json=body)
-    assert res.status_code == 200
-    data = res.json()
+    res = client.post("/api/v1/sessions", json=body)
+    assert res.status_code == 201
+    data = res.json()["data"]
     assert "mode" not in data
     return data
 
 
+def _answer(client, session_id, task_id, answer="def f(): pass", hints_used=None):
+    res = client.post(
+        f"/api/v1/sessions/{session_id}/answers",
+        json={"task_id": task_id, "answer": answer, "hints_used": hints_used or []},
+    )
+    assert res.status_code == 200
+    return res.json()["data"]
+
+
 def test_hints_reduce_mastery_for_perfect_code(client):
     no_hints = _start(client)
-    task = no_hints["first_task"]
+    task = no_hints["current_task"]
     assert task is not None
     assert task["hints"], "task should carry hints"
 
-    resp = client.post("/api/submit", json={
-        "session_id": no_hints["session_id"],
-        "task_id": task["id"],
-        "answer": "def f(): pass",
-        "hints_used": [],
-    })
-    assert resp.status_code == 200
-    score_without_hints = resp.json()["skill_update"]["new_score"]
+    data = _answer(client, no_hints["id"], task["id"])
+    score_without_hints = data["skill_update"]["new_score"]
 
     with_hints = _start(client)
-    task2 = with_hints["first_task"]
+    task2 = with_hints["current_task"]
     all_hint_ids = [h["id"] for h in task2["hints"]]
-    resp2 = client.post("/api/submit", json={
-        "session_id": with_hints["session_id"],
-        "task_id": task2["id"],
-        "answer": "def f(): pass",
-        "hints_used": all_hint_ids,
-    })
-    assert resp2.status_code == 200
-    score_with_hints = resp2.json()["skill_update"]["new_score"]
+    data2 = _answer(client, with_hints["id"], task2["id"], hints_used=all_hint_ids)
+    score_with_hints = data2["skill_update"]["new_score"]
 
     assert score_with_hints < score_without_hints
 
 
 def test_submit_returns_coaching_and_next_task(client):
     started = _start(client)
-    task = started["first_task"]
-    resp = client.post("/api/submit", json={
-        "session_id": started["session_id"],
-        "task_id": task["id"],
-        "answer": "def f(): pass",
-        "hints_used": [],
-    })
-    assert resp.status_code == 200
-    data = resp.json()
+    task = started["current_task"]
+    data = _answer(client, started["id"], task["id"])
     assert data["coach"]["misconception"], "coach should identify a gap/misconception"
     assert data["coach"]["steps"], "coach should provide step-by-step guidance"
     assert data["coach"]["steps"][0]["title"]
     assert "next_task" in data, "the picked task is still returned (gated by the UI)"
-    assert data["feedback"] == "Great job!"
+    assert data["coach"]["feedback"] == "Great job!"
+    assert data["already_answered"] is False
+    assert "feedback" not in data, "top-level feedback alias removed in v1"
     assert "learner_update" not in data
 
 
 def test_complete_returns_progress_snapshot(client):
     started = _start(client)
-    task = started["first_task"]
-    client.post("/api/submit", json={
-        "session_id": started["session_id"],
-        "task_id": task["id"],
-        "answer": "def f(): pass",
-        "hints_used": [],
-    })
-    res = client.post("/api/complete", json={"session_id": started["session_id"]})
+    task = started["current_task"]
+    _answer(client, started["id"], task["id"])
+    res = client.post(f"/api/v1/sessions/{started['id']}/completion", json={})
     assert res.status_code == 200
-    data = res.json()
+    data = res.json()["data"]
     assert data["done"] is True
     assert "skill_states" in data
     assert "learner" not in data
@@ -147,25 +134,28 @@ def test_complete_returns_progress_snapshot(client):
 
 def test_custom_question_injected_as_first_task(client):
     started = _start(client, initial_question="Explain what a cache eviction policy is.")
-    assert started["first_task"] is not None
-    assert started["first_task"]["prompt"] == "Explain what a cache eviction policy is."
+    assert started["current_task"] is not None
+    assert started["current_task"]["prompt"] == "Explain what a cache eviction policy is."
     assert started["total_tasks"] > 1
 
 
 def test_submit_is_idempotent(client):
     started = _start(client)
-    task = started["first_task"]
-    first = client.post("/api/submit", json={
-        "session_id": started["session_id"],
-        "task_id": task["id"],
-        "answer": "def f(): pass",
-        "hints_used": [],
-    }).json()
-    second = client.post("/api/submit", json={
-        "session_id": started["session_id"],
-        "task_id": task["id"],
-        "answer": "def f(): pass",
-        "hints_used": [],
-    }).json()
-    assert second["note"] == "Already answered."
+    task = started["current_task"]
+    first = _answer(client, started["id"], task["id"])
+    second = _answer(client, started["id"], task["id"])
+    assert second["already_answered"] is True
+    assert second["skill_update"] is None
     assert second["result"]["task_id"] == first["result"]["task_id"]
+
+
+def test_get_and_delete_session(client):
+    started = _start(client)
+    res = client.get(f"/api/v1/sessions/{started['id']}")
+    assert res.status_code == 200
+    assert res.json()["data"]["id"] == started["id"]
+
+    assert client.get("/api/v1/sessions/does-not-exist").status_code == 404
+
+    assert client.delete(f"/api/v1/sessions/{started['id']}").status_code == 204
+    assert client.get(f"/api/v1/sessions/{started['id']}").status_code == 404

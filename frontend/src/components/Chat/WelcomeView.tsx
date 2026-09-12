@@ -54,7 +54,7 @@ export function WelcomeView() {
     if (!user) return;
     if (!window.confirm('Delete ALL sessions and data for your account? This cannot be undone.')) return;
     try {
-      await apiClient.clearCandidateData(user.email);
+      await apiClient.clearOwnData();
       setSessions([]);
     } catch {
       // Ignore — list stays as-is.

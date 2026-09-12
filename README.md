@@ -9,12 +9,12 @@ the judge's gap notes on answered questions.
 
 It is a single FastAPI + Vite app (no ADK agent). Questions live in the
 `tasks` DB table (not a YAML file) — users enter their own via
-`POST /api/tasks` or the `initial_question` field on `/api/start`.
+`POST /api/v1/tasks` or the `initial_question` field on `POST /api/v1/sessions`.
 
 ## Architecture
 
 ```
-FastAPI (backend/main.py, backend/routes.py)
+FastAPI (backend/main.py, backend/v1/*, backend/auth_routes.py)
         │
         ├── auth (backend/auth.py + google_auth.py)
         ├── sessions (backend/dependencies.py)
@@ -43,9 +43,10 @@ LLM calls live in exactly two places: `coach/judge.py` (judge + coach) and
 ai_research_coach/
 ├── backend/
 │   ├── main.py            # FastAPI app
-│   ├── routes.py          # /api/* endpoints
-│   ├── admin_routes.py    # /admin/* endpoints (table browser + manage)
-│   ├── auth.py            # bearer tokens
+│   ├── v1/                # canonical REST API (/api/v1/*): sessions, tasks, users
+│   ├── auth_routes.py     # /api/auth/* endpoints (Google OAuth)
+│   ├── admin_routes.py    # /admin/* endpoints (table browser + candidate wipe)
+│   ├── auth.py            # bearer tokens (+ HttpOnly cookie fallback)
 │   └── google_auth.py     # Google OAuth (stdlib only)
 ├── coach/
 │   ├── score.py / picker.py / hints.py   # Bayesian probing engine
@@ -80,7 +81,7 @@ python check_env.py          # verify env + model connectivity
 
 ## How it works
 
-1. **Start** — `POST /api/start` (optionally with a custom `initial_question`)
+1. **Start** — `POST /api/v1/sessions` (optionally with a custom `initial_question`)
    creates a session. The candidate is derived from the bearer token (email) or
    a fresh `guest-<hex>` id. The first task is picked by `pick_next_task`.
 2. **Task loop** — the candidate writes code and may reveal hints (which reduce
@@ -95,7 +96,7 @@ python check_env.py          # verify env + model connectivity
 3. otherwise the EIG bank picker selects the informative task,
 4. `None` when the bank is exhausted and no follow-up remains.
 4. **Progress** — when `next_task` is `null`, the candidate is done.
-   `POST /api/complete` returns the progress snapshot (per-skill confidence).
+   `POST /api/v1/sessions/{id}/completion` returns the progress snapshot (per-skill confidence).
    Sessions stay in `active_sessions` for resume/history; "done" is derived
    from the session.
 
@@ -111,25 +112,26 @@ python check_env.py          # verify env + model connectivity
 
 ## API surface
 
+All v1 resources return a `{data}` envelope; list endpoints add
+`{meta: {page, page_size, total}}`.
+
 | Endpoint | Purpose |
 |----------|---------|
-| `POST /api/start` `{initial_question?, task_ids?, skill?}` | New session → `{session_id, candidate, message, first_task}` |
-| `POST /api/tasks` `{prompt, skill?, scaffold?, difficulty?, hints?, is_public?, context_notes?}` | Create a user question → `{task}` |
-| `GET /api/tasks?skill=` | List visible tasks |
-| `GET /api/tasks/{id}` | Task detail |
-| `POST /api/submit` `{session_id, task_id, answer, hints_used}` | Score + coach + `next_task` + `skill_update` |
-| `POST /api/complete` `{session_id}` | Progress snapshot `{done, skill_states}` |
-| `POST /api/session/open` `{id}` | Resume a session → `{current_task, results, skill_states}` |
-| `GET /api/sessions` | Candidate's sessions with a `done` flag |
-| `DELETE /api/sessions/active/{id}` | Delete an active session (ownership-guarded) |
-| `DELETE /api/sessions/clear/{candidate}` | Delete sessions + attempts + beliefs + owned tasks |
+| `POST /api/v1/sessions` `{initial_question?, task_ids?, skill?}` | New session → `{id, candidate, total_tasks, task_index, current_task}` (201) |
+| `GET /api/v1/sessions/{id}` | Resume a session → `{current_task, results, skill_states}` |
+| `POST /api/v1/sessions/{id}/answers` `{task_id, answer, hints_used?}` | Score + coach + `next_task` + `skill_update` (+ `already_answered` on replay) |
+| `POST /api/v1/sessions/{id}/completion` | Progress snapshot `{done, skill_states}` |
+| `DELETE /api/v1/sessions/{id}` | Delete a session (204, ownership-guarded) |
+| `POST /api/v1/tasks` `{prompt, skill?, scaffold?, difficulty?, hints?, is_public?, context_notes?}` | Create a user question (201) |
+| `GET /api/v1/tasks?skill=&q=&page=&page_size=` | List visible tasks (paginated) |
+| `GET /api/v1/tasks/{id}` | Task detail |
+| `PATCH /api/v1/tasks/{id}` | Edit a question (owner or admin) |
+| `DELETE /api/v1/tasks/{id}` | Delete a question + its attempts (owner or admin; system rows admin-only) |
+| `GET /api/v1/me` | Current user |
+| `GET /api/v1/me/sessions` | My sessions with a `done` flag (paginated) |
+| `DELETE /api/v1/me/data` | Delete my sessions + attempts + beliefs + owned tasks |
 | `/api/auth/*` | Google login / me / logout |
-| `/admin/*` | Admin endpoints: table browser (`/tables`, `/table/{name}`) + manage endpoints below |
-| `GET /admin/tasks?owner=&skill=&q=` | List questions with attempt counts |
-| `PATCH /admin/tasks/{id}` `{context_notes}` | Edit a question's plain-English context (owner or admin) |
-| `GET /admin/candidate/{candidate}/summary` | Per-table row counts preview (owner or admin) |
-| `DELETE /admin/candidate/{candidate}` | Full candidate wipe (owner or admin) |
-| `DELETE /admin/tasks/{id}` | Delete a question + its attempts (owner or admin; system rows admin-only) |
+| `/admin/*` | Admin table browser (`/tables`, `/table/{name}`) + owner-or-admin candidate wipe (`/candidate/{candidate}`, `/candidate/{candidate}/summary`) |
 
 ## Persistence
 
@@ -144,9 +146,9 @@ via `parent_task_id`/`target_text`. Each task optionally carries
 
 ## How to extend (no code changes)
 
-- **Add a question**: `POST /api/tasks` with `prompt`, `skill`, and optional
+- **Add a question**: `POST /api/v1/tasks` with `prompt`, `skill`, and optional
   `scaffold`/`difficulty`/`hints`/`context_notes`. Or pass `initial_question` to
-  `/api/start`. The `skill` tag is a free-form id — a new tag starts a fresh
+  `POST /api/v1/sessions`. The `skill` tag is a free-form id — a new tag starts a fresh
   per-skill belief. User rows are private by default (guests create public
   rows); generated follow-ups link via `parent_task_id`/`target_text`.
 - **Change the model**: set `EVAL_MODEL` in `.env` (e.g. `gemini-3.5-flash-lite`).
@@ -168,8 +170,8 @@ ADMIN_EMAILS=you@example.com    # Admin allowlist for /admin deletes (comma-sepa
 
 Transient failures (rate limits `429`, server errors `5xx`, timeouts `408/504`)
 are handled with exponential backoff retries (5 attempts, 1s → 30s, jitter).
-`/api/submit` is idempotent: re-submitting a scored task returns the stored
-result without double-counting.
+Answer submission is idempotent: re-submitting a scored task returns the stored
+result with `already_answered: true` without double-counting.
 
 ## Tests
 

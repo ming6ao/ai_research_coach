@@ -32,16 +32,16 @@ def test_create_and_list_tasks_endpoint():
     from backend.main import app
 
     client = TestClient(app)
-    res = client.post("/api/tasks", json={"prompt": "My own question?", "skill": "ml_systems"})
+    res = client.post("/api/v1/tasks", json={"prompt": "My own question?", "skill": "ml_systems"})
     assert res.status_code == 201
-    task = res.json()["task"]
+    task = res.json()["data"]
     assert task["prompt"] == "My own question?"
     assert task["skill"] == "ml_systems"
 
-    listed = client.get("/api/tasks").json()["tasks"]
+    listed = client.get("/api/v1/tasks").json()["data"]
     assert any(t["id"] == task["id"] for t in listed)
 
-    got = client.get(f"/api/tasks/{task['id']}").json()["task"]
+    got = client.get(f"/api/v1/tasks/{task['id']}").json()["data"]
     assert got["prompt"] == "My own question?"
 
 

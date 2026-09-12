@@ -178,22 +178,22 @@ def test_me_requires_token(client):
 
 
 def test_guest_start_creates_guest_candidate(client):
-    res = client.post("/api/start", json={})
-    assert res.status_code == 200
-    data = res.json()
+    res = client.post("/api/v1/sessions", json={})
+    assert res.status_code == 201
+    data = res.json()["data"]
     assert data["candidate"].startswith("guest-")
-    assert data["first_task"] is not None
+    assert data["current_task"] is not None
 
 
 def test_guest_submit_is_scored(client, fake_judge):
-    started = client.post("/api/start", json={})
-    sid = started.json()["session_id"]
-    task_id = started.json()["first_task"]["id"]
+    started = client.post("/api/v1/sessions", json={})
+    sid = started.json()["data"]["id"]
+    task_id = started.json()["data"]["current_task"]["id"]
 
-    res = client.post("/api/submit", json={"session_id": sid, "task_id": task_id, "answer": "def f(): pass"})
+    res = client.post(f"/api/v1/sessions/{sid}/answers", json={"task_id": task_id, "answer": "def f(): pass"})
     assert res.status_code == 200
-    data = res.json()
-    assert data["feedback"] == "Great job!"
+    data = res.json()["data"]
+    assert data["coach"]["feedback"] == "Great job!"
     assert data["skill_update"] is not None
 
 
@@ -201,44 +201,59 @@ def test_authenticated_start_uses_account(client, google_env):
     user = auth.upsert_google_user("alice@b.co", "Alice")
     token = auth.create_token(user["id"])
 
-    res = client.post("/api/start", json={}, headers=_auth_headers(token))
-    assert res.status_code == 200
-    data = res.json()
+    res = client.post("/api/v1/sessions", json={}, headers=_auth_headers(token))
+    assert res.status_code == 201
+    data = res.json()["data"]
     assert data["candidate"] == "alice@b.co"
 
 
 def test_sessions_are_scoped_to_account(client, google_env):
     user = auth.upsert_google_user("bob@b.co", "Bob")
     token = auth.create_token(user["id"])
-    client.post("/api/start", json={}, headers=_auth_headers(token))
+    client.post("/api/v1/sessions", json={}, headers=_auth_headers(token))
 
-    mine = client.get("/api/sessions", headers=_auth_headers(token))
+    mine = client.get("/api/v1/me/sessions", headers=_auth_headers(token))
     assert mine.status_code == 200
-    sessions = mine.json()["sessions"]
+    sessions = mine.json()["data"]
     assert len(sessions) == 1
     assert sessions[0]["done"] is False
     assert "score" not in sessions[0]
 
-    guest = client.get("/api/sessions")
+    guest = client.get("/api/v1/me/sessions")
     assert guest.status_code == 200
-    assert guest.json()["sessions"] == []
+    assert guest.json()["data"] == []
 
 
 def test_guest_cannot_open_named_session(client, google_env):
     user = auth.upsert_google_user("carol@b.co", "Carol")
     token = auth.create_token(user["id"])
-    started = client.post("/api/start", json={}, headers=_auth_headers(token))
-    sid = started.json()["session_id"]
+    started = client.post("/api/v1/sessions", json={}, headers=_auth_headers(token))
+    sid = started.json()["data"]["id"]
 
-    guest_open = client.post("/api/session/open", json={"id": sid})
+    guest_open = client.get(f"/api/v1/sessions/{sid}")
     assert guest_open.status_code == 403
     assert "own sessions" in guest_open.json()["detail"]
 
 
 def test_guest_can_reopen_own_session(client):
-    started = client.post("/api/start", json={})
-    sid = started.json()["session_id"]
+    started = client.post("/api/v1/sessions", json={})
+    sid = started.json()["data"]["id"]
 
-    reopen = client.post("/api/session/open", json={"id": sid})
+    reopen = client.get(f"/api/v1/sessions/{sid}")
     assert reopen.status_code == 200
-    assert reopen.json()["candidate"].startswith("guest-")
+    assert reopen.json()["data"]["candidate"].startswith("guest-")
+
+
+def test_user_can_delete_own_data(client, google_env):
+    user = auth.upsert_google_user("erin@b.co", "Erin")
+    token = auth.create_token(user["id"])
+    client.post("/api/v1/sessions", json={}, headers=_auth_headers(token))
+
+    res = client.delete("/api/v1/me/data", headers=_auth_headers(token))
+    assert res.status_code == 200
+    assert res.json()["data"]["deleted"] > 0
+
+    mine = client.get("/api/v1/me/sessions", headers=_auth_headers(token))
+    assert mine.json()["data"] == []
+    assert client.get("/api/v1/me", headers=_auth_headers(token)).status_code == 200
+    assert client.get("/api/v1/me").status_code == 401

@@ -20,8 +20,9 @@ load_dotenv(_root / ".env")
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routes import router
+from backend.auth_routes import router as auth_router
 from backend.admin_routes import admin_router
+from backend.v1 import v1_router
 
 import os
 
@@ -49,7 +50,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(router)
+app.include_router(auth_router)
+app.include_router(v1_router)
 app.include_router(admin_router)
 
 

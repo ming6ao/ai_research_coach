@@ -1,4 +1,4 @@
-"""Admin management: candidate wipes + question deletes (owner-only + admin)."""
+"""Task ownership (v1 owner-or-admin guard) + candidate wipes."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -42,9 +42,12 @@ def _seed_candidate(candidate):
     return task["id"]
 
 
-def test_unauthenticated_is_401(client):
-    assert client.get("/admin/tasks").status_code == 401
-    assert client.delete("/admin/tasks/whatever").status_code == 401
+def test_unauthenticated_task_writes_are_401(client):
+    # v1 task listing is public (seed + public rows); writes need auth.
+    assert client.get("/api/v1/tasks").status_code == 200
+    task_id = _seed_candidate("alice@x.com")
+    assert client.patch(f"/api/v1/tasks/{task_id}", json={"context_notes": "x"}).status_code == 401
+    assert client.delete(f"/api/v1/tasks/{task_id}").status_code == 401
     assert client.get("/admin/candidate/a@x.com/summary").status_code == 401
     assert client.delete("/admin/candidate/a@x.com").status_code == 401
 
@@ -55,7 +58,8 @@ def test_non_owner_non_admin_is_forbidden(client):
 
     assert client.get("/admin/candidate/alice@x.com/summary", headers=_h(mallory)).status_code == 403
     assert client.delete("/admin/candidate/alice@x.com", headers=_h(mallory)).status_code == 403
-    assert client.delete(f"/admin/tasks/{task_id}", headers=_h(mallory)).status_code == 403
+    assert client.patch(f"/api/v1/tasks/{task_id}", json={"context_notes": "x"}, headers=_h(mallory)).status_code == 403
+    assert client.delete(f"/api/v1/tasks/{task_id}", headers=_h(mallory)).status_code == 403
 
 
 def test_owner_can_wipe_self(client):
@@ -93,10 +97,9 @@ def test_admin_can_wipe_other_candidate_and_system_task(client):
     assert res.json()["deleted"]["total"] > 0
 
     # System seed row: admin-only delete with cascade of its attempts.
-    res = client.delete(f"/admin/tasks/{system_task['id']}", headers=_h(admin))
+    res = client.delete(f"/api/v1/tasks/{system_task['id']}", headers=_h(admin))
     assert res.status_code == 200
-    assert res.json() == {
-        "ok": True,
+    assert res.json()["data"] == {
         "task_id": system_task["id"],
         "deleted_task": 1,
         "deleted_attempts": 1,
@@ -113,16 +116,16 @@ def test_task_owner_delete_cascades_attempts(client):
 
     record_attempt("carol@x.com", task["id"], 1.0, 5, 5, [])
 
-    listed = client.get("/admin/tasks?owner=carol@x.com", headers=_h(token)).json()["tasks"]
-    assert any(t["id"] == task["id"] and t["attempt_count"] == 1 for t in listed)
+    listed = client.get("/api/v1/tasks", headers=_h(token)).json()["data"]
+    assert any(t["id"] == task["id"] for t in listed)
 
-    res = client.delete(f"/admin/tasks/{task['id']}", headers=_h(token))
+    res = client.delete(f"/api/v1/tasks/{task['id']}", headers=_h(token))
     assert res.status_code == 200
-    assert res.json()["deleted_task"] == 1
-    assert res.json()["deleted_attempts"] == 1
+    assert res.json()["data"]["deleted_task"] == 1
+    assert res.json()["data"]["deleted_attempts"] == 1
     assert get_task(task["id"]) is None
 
-    assert client.delete("/admin/tasks/does-not-exist", headers=_h(token)).status_code == 404
+    assert client.delete("/api/v1/tasks/does-not-exist", headers=_h(token)).status_code == 404
 
 
 def test_task_owner_can_edit_context_notes(client):
@@ -133,17 +136,17 @@ def test_task_owner_can_edit_context_notes(client):
     task = create_task(prompt="Dave's question?", skill="s", owner="dave@x.com")
 
     res = client.patch(
-        f"/admin/tasks/{task['id']}",
+        f"/api/v1/tasks/{task['id']}",
         json={"context_notes": "A is a prerequisite of B, often confused with C."},
         headers=_h(token),
     )
     assert res.status_code == 200
-    assert res.json()["task"]["context_notes"].startswith("A is a prerequisite")
+    assert res.json()["data"]["context_notes"].startswith("A is a prerequisite")
     assert get_task(task["id"])["context_notes"].startswith("A is a prerequisite")
 
     assert client.patch(
-        f"/admin/tasks/{task['id']}",
+        f"/api/v1/tasks/{task['id']}",
         json={"context_notes": "hijacked"},
         headers=_h(stranger),
     ).status_code == 403
-    assert client.patch("/admin/tasks/does-not-exist", json={"context_notes": "x"}, headers=_h(token)).status_code == 404
+    assert client.patch("/api/v1/tasks/does-not-exist", json={"context_notes": "x"}, headers=_h(token)).status_code == 404

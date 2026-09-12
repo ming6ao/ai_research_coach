@@ -67,7 +67,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
     const results = res.results.map(toResultWithFeedback);
     const done = res.current_task === null && results.length > 0;
     set({
-      sessionId: res.session_id,
+      sessionId: res.id,
       candidate: res.candidate,
       currentTask: res.current_task,
       taskIndex: res.task_index,
@@ -76,18 +76,18 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       skillStates: res.skill_states,
       progressView: done,
     });
-    storage.set(SESSION_KEY, res.session_id);
+    storage.set(SESSION_KEY, res.id);
   },
 
   startAssessment: async (initialQuestion) => {
     set({ loading: true, error: null });
     try {
       const res = await apiClient.start(initialQuestion);
-      storage.set(SESSION_KEY, res.session_id);
+      storage.set(SESSION_KEY, res.id);
       set({
-        sessionId: res.session_id,
+        sessionId: res.id,
         candidate: res.candidate,
-        currentTask: res.first_task,
+        currentTask: res.current_task,
         taskIndex: 0,
         totalTasks: res.total_tasks,
         results: [],
@@ -118,7 +118,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         skill: res.result.skill,
         userAnswer: answer,
         result: res.result,
-        feedback: res.feedback,
+        feedback: res.coach.feedback,
         coach: res.coach,
         scored: true,
       };
