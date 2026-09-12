@@ -8,53 +8,55 @@ persisted in ``active_sessions``; "done" is derived from the session JSON via
 import uuid
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, Response, status
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, Field
+from typing import Any, Optional
 
 from backend.dependencies import get_store
 from backend import google_auth
 from backend.auth import (
+    AUTH_COOKIE_NAME,
     upsert_google_user,
     create_token,
     revoke_token,
     get_current_user,
+    require_user,
 )
 
-router = APIRouter(prefix="/api", tags=["assessment"])
+router = APIRouter(prefix="/api")
 
 
 class StartRequest(BaseModel):
-    initial_question: Optional[str] = None
-    task_ids: Optional[list] = None
-    skill: Optional[str] = None
+    initial_question: Optional[str] = Field(default=None, max_length=8000)
+    task_ids: Optional[list[str]] = Field(default=None, max_length=100)
+    skill: Optional[str] = Field(default=None, max_length=120)
 
 
 class TaskCreateRequest(BaseModel):
-    prompt: str
-    skill: Optional[str] = "general"
-    scaffold: Optional[str] = None
-    difficulty: Optional[int] = 2
-    max_score: Optional[int] = 5
-    hints: Optional[list] = None
-    is_public: Optional[bool] = False
-    context_notes: Optional[str] = None
+    prompt: str = Field(min_length=1, max_length=8000)
+    skill: str = Field(default="general", max_length=120)
+    scaffold: Optional[str] = Field(default=None, max_length=16000)
+    difficulty: int = Field(default=2, ge=1, le=5)
+    max_score: int = Field(default=5, ge=1, le=100)
+    hints: list[dict[str, Any]] = Field(default_factory=list)
+    is_public: bool = False
+    context_notes: Optional[str] = Field(default=None, max_length=2000)
 
 
 class SubmitRequest(BaseModel):
-    session_id: str
-    task_id: str
-    answer: str
-    hints_used: Optional[list] = None
+    session_id: str = Field(min_length=1, max_length=64)
+    task_id: str = Field(min_length=1, max_length=128)
+    answer: str = Field(min_length=1, max_length=50000)
+    hints_used: list[str] = Field(default_factory=list, max_length=50)
 
 
 class CompleteRequest(BaseModel):
-    session_id: str
+    session_id: str = Field(min_length=1, max_length=64)
 
 
 class SessionOpenRequest(BaseModel):
-    id: str
+    id: str = Field(min_length=1, max_length=64)
 
 
 def _candidate_for(user: dict) -> str:
@@ -86,7 +88,7 @@ def _describe_context(prompt: str, skill: str, explicit: Optional[str] = None) -
         return ""
 
 
-@router.get("/auth/google/url")
+@router.get("/auth/google/url", tags=["auth"], summary="Get Google OAuth URL")
 def google_auth_url():
     """Return the Google authorization URL for the frontend to redirect to."""
     try:
@@ -96,9 +98,14 @@ def google_auth_url():
     return {"url": url}
 
 
-@router.get("/auth/google/callback")
-def google_auth_callback(code: str, state: str):
-    """OAuth callback: verify state, exchange code, upsert user, redirect with token."""
+@router.get("/auth/google/callback", tags=["auth"], summary="Google OAuth callback")
+def google_auth_callback(code: str, state: str, response: Response):
+    """OAuth callback: verify state, exchange code, upsert user, redirect with token.
+
+    Phase 1 sets the ``ai_coach_token`` HttpOnly cookie in addition to the
+    legacy ``?token=`` redirect query param (kept for backward compat with
+    the current frontend). Phase 3 will drop the query param.
+    """
     if not google_auth.consume_state(state):
         raise HTTPException(status_code=400, detail="Invalid or expired OAuth state.")
     if not code:
@@ -113,25 +120,41 @@ def google_auth_callback(code: str, state: str):
         raise HTTPException(status_code=400, detail="Google account has no email.")
     user = upsert_google_user(email, info.get("name") or "")
     token = create_token(user["id"])
-    return RedirectResponse(url=f"{google_auth.frontend_url()}/?token={quote(token)}")
+    redirect = RedirectResponse(url=f"{google_auth.frontend_url()}/?token={quote(token)}")
+    # Phase 1 (additive): also set an HttpOnly cookie so browsers stop
+    # depending on the ?token= query param (removed in Phase 3).
+    redirect.set_cookie(
+        AUTH_COOKIE_NAME,
+        token,
+        httponly=True,
+        samesite="lax",
+        secure=google_auth.frontend_url().startswith("https://"),
+        path="/",
+        max_age=30 * 24 * 3600,
+    )
+    return redirect
 
 
-@router.post("/auth/logout")
-def logout(request: Request):
+@router.post("/auth/logout", tags=["auth"], summary="Revoke bearer token")
+def logout(request: Request, response: Response):
     auth = request.headers.get("Authorization", "")
+    token = None
     if auth.startswith("Bearer "):
-        revoke_token(auth[len("Bearer "):].strip())
+        token = auth[len("Bearer "):].strip()
+    if not token:
+        token = request.cookies.get(AUTH_COOKIE_NAME, "")
+    if token:
+        revoke_token(token.strip())
+    response.delete_cookie(AUTH_COOKIE_NAME, path="/")
     return {"ok": True}
 
 
-@router.get("/auth/me")
-def me(user: dict = Depends(get_current_user)):
-    if user is None:
-        raise HTTPException(status_code=401, detail="Not authenticated.")
+@router.get("/auth/me", tags=["auth"], summary="Current user")
+def me(user: dict = Depends(require_user)):
     return {"user": user}
 
 
-@router.post("/start")
+@router.post("/start", tags=["sessions"], summary="Start coaching session")
 def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
     from coach.session import Session, task_view
     from coach.selection import pick_next_task
@@ -190,7 +213,7 @@ def start_assessment(req: StartRequest, user: dict = Depends(get_current_user)):
     }
 
 
-@router.post("/submit")
+@router.post("/submit", tags=["sessions"], summary="Submit answer for a task")
 def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
     from coach.session import Session, SkillState, task_view
     from coach.score import bayesian_update, effective_score, measurement_variance
@@ -201,7 +224,7 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
     store = get_store()
     state = store.get(req.session_id)
     if state is None:
-        raise HTTPException(status_code=400, detail="No active session.")
+        raise HTTPException(status_code=404, detail="Session not found.")
 
     session = Session.from_dict(state["session"])
     feedback_list = state.get("_feedback_list", [])
@@ -219,9 +242,14 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
         return {
             "result": existing.to_dict(),
             "coach": existing.coach,
+            # NOTE: ``feedback`` is a deprecated alias of ``coach.feedback``
+            # (kept for backward compat; prefer ``coach``). ``note`` is kept
+            # for compat; prefer the ``already_answered`` flag.
+            "feedback": (existing.coach or {}).get("feedback") if isinstance(existing.coach, dict) else None,
             "next_task": nxt,
             "remaining": len(session.tasks) - session.index,
             "note": "Already answered.",
+            "already_answered": True,
         }
 
     result, coach = LLMJudge().evaluate(task, req.answer)
@@ -312,20 +340,22 @@ def submit_answer(req: SubmitRequest, user: dict = Depends(get_current_user)):
 
     return {
         "result": result.to_dict(),
+        # Deprecated alias of ``coach.feedback`` (kept for compat).
         "feedback": coach.feedback,
         "coach": coach.to_dict(),
         "next_task": next_task,
         "remaining": len(session.tasks) - session.index,
         "skill_update": skill_update,
+        "already_answered": False,
     }
 
 
-@router.post("/tasks")
+@router.post("/tasks", tags=["tasks"], status_code=status.HTTP_201_CREATED, summary="Create task")
 def create_task_endpoint(req: TaskCreateRequest, user: dict = Depends(get_current_user)):
     from coach.tasks import create_task as _create_task
 
-    if not req.prompt or not req.prompt.strip():
-        raise HTTPException(status_code=400, detail="Prompt is required.")
+    if not req.prompt.strip():
+        raise HTTPException(status_code=422, detail="Prompt must not be empty.")
     candidate = _candidate_for(user)
     is_guest = candidate.startswith("guest-")
     task = _create_task(
@@ -343,7 +373,7 @@ def create_task_endpoint(req: TaskCreateRequest, user: dict = Depends(get_curren
     return {"task": task}
 
 
-@router.get("/tasks")
+@router.get("/tasks", tags=["tasks"], summary="List visible tasks")
 def list_tasks_endpoint(skill: Optional[str] = None, user: dict = Depends(get_current_user)):
     from coach.tasks import list_visible_tasks
 
@@ -354,7 +384,7 @@ def list_tasks_endpoint(skill: Optional[str] = None, user: dict = Depends(get_cu
     return {"tasks": tasks}
 
 
-@router.get("/tasks/{task_id}")
+@router.get("/tasks/{task_id}", tags=["tasks"], summary="Get task by id")
 def get_task_endpoint(task_id: str, user: dict = Depends(get_current_user)):
     from coach.tasks import get_task as _get_task
 
@@ -364,14 +394,14 @@ def get_task_endpoint(task_id: str, user: dict = Depends(get_current_user)):
     return {"task": task}
 
 
-@router.post("/complete")
+@router.post("/complete", tags=["sessions"], summary="Complete session")
 def complete_session(req: CompleteRequest, user: dict = Depends(get_current_user)):
     from coach.session import Session
 
     store = get_store()
     state = store.get(req.session_id)
     if state is None:
-        raise HTTPException(status_code=400, detail="No active session.")
+        raise HTTPException(status_code=404, detail="Session not found.")
 
     session = Session.from_dict(state["session"])
     if user is not None and session.candidate != user["email"]:
@@ -385,7 +415,7 @@ def complete_session(req: CompleteRequest, user: dict = Depends(get_current_user
     }
 
 
-@router.post("/session/open")
+@router.post("/session/open", tags=["sessions"], summary="Reopen session")
 def open_session(req: SessionOpenRequest, user: dict = Depends(get_current_user)):
     from coach.session import Session
     from coach.selection import pick_next_task
@@ -419,7 +449,7 @@ def open_session(req: SessionOpenRequest, user: dict = Depends(get_current_user)
     }
 
 
-@router.get("/sessions")
+@router.get("/sessions", tags=["sessions"], summary="List my sessions")
 def list_sessions(user: dict = Depends(get_current_user)):
     from coach.session import Session
     from coach.selection import pick_next_task
@@ -450,7 +480,7 @@ def list_sessions(user: dict = Depends(get_current_user)):
     return {"sessions": sessions}
 
 
-@router.delete("/sessions/active/{session_id}")
+@router.delete("/sessions/active/{session_id}", tags=["sessions"], summary="Delete active session")
 def delete_active_session(session_id: str, user: dict = Depends(get_current_user)):
     store = get_store()
     state = store.get(session_id)
@@ -465,8 +495,14 @@ def delete_active_session(session_id: str, user: dict = Depends(get_current_user
     return {"ok": True}
 
 
-@router.delete("/sessions/clear/{candidate}")
+@router.delete("/sessions/clear/{candidate}", tags=["sessions"], summary="Clear candidate data")
 def clear_candidate_data(candidate: str, user: dict = Depends(get_current_user)):
+    """Clear all data for a candidate.
+
+    When authenticated the path ``candidate`` is ignored and the caller's own
+    account is cleared (legacy behavior kept for compat; prefer ``DELETE /me``
+    in the v1 API).
+    """
     from coach.admin import clear_candidate_everything
 
     if user is not None:

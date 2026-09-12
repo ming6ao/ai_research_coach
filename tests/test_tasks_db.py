@@ -33,7 +33,7 @@ def test_create_and_list_tasks_endpoint():
 
     client = TestClient(app)
     res = client.post("/api/tasks", json={"prompt": "My own question?", "skill": "ml_systems"})
-    assert res.status_code == 200
+    assert res.status_code == 201
     task = res.json()["task"]
     assert task["prompt"] == "My own question?"
     assert task["skill"] == "ml_systems"

@@ -8,7 +8,7 @@ management, question management, skill states, and DB stats.
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.auth import get_current_user, is_admin
 from backend.dependencies import get_store
@@ -17,7 +17,7 @@ admin_router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 class TaskContextUpdate(BaseModel):
-    context_notes: str = ""
+    context_notes: str = Field(default="", max_length=2000)
 
 
 def _require_user(user: dict = Depends(get_current_user)):
@@ -183,7 +183,7 @@ def list_tasks_admin(
     owner: Optional[str] = None,
     skill: Optional[str] = None,
     q: Optional[str] = None,
-    limit: int = 200,
+    limit: int = Query(default=200, ge=1, le=500),
     user: dict = Depends(_require_user),
 ):
     """List task-bank rows with attempt counts (for the Manage tab)."""

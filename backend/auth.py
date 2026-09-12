@@ -13,11 +13,15 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 
 from coach.db import sqlite_conn
 
 TOKEN_TTL_DAYS = 30
+
+# Cookie name for browser-based auth (Phase 1: read-only fallback for the
+# Authorization header; Phase 3 will set it in the OAuth callback).
+AUTH_COOKIE_NAME = "ai_coach_token"
 
 
 def admin_emails() -> set[str]:
@@ -104,8 +108,29 @@ def user_from_token(token: str) -> Optional[dict]:
 
 
 def get_current_user(request: Request) -> Optional[dict]:
-    """FastAPI dependency: authenticated user or None (guests allowed)."""
+    """FastAPI dependency: authenticated user or None (guests allowed).
+
+    Reads the ``Authorization: Bearer`` header first, then falls back to the
+    ``ai_coach_token`` HttpOnly cookie (set by the OAuth callback in Phase 3).
+    Kept for backward compatibility; prefer :func:`get_optional_user`.
+    """
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
         return user_from_token(auth[len("Bearer "):].strip())
+    cookie_token = request.cookies.get(AUTH_COOKIE_NAME, "")
+    if cookie_token:
+        return user_from_token(cookie_token.strip())
     return None
+
+
+def get_optional_user(request: Request) -> Optional[dict]:
+    """Alias for :func:`get_current_user` — guests allowed (returns None)."""
+    return get_current_user(request)
+
+
+def require_user(request: Request) -> dict:
+    """FastAPI dependency: authenticated user or 401 (no guest fallback)."""
+    user = get_current_user(request)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated.")
+    return user
