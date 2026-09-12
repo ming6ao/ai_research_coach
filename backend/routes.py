@@ -38,7 +38,6 @@ class TaskCreateRequest(BaseModel):
     difficulty: Optional[int] = 2
     max_score: Optional[int] = 5
     hints: Optional[list] = None
-    expected_time_min: Optional[float] = None
     is_public: Optional[bool] = False
     context_notes: Optional[str] = None
 
@@ -337,7 +336,6 @@ def create_task_endpoint(req: TaskCreateRequest, user: dict = Depends(get_curren
         difficulty=req.difficulty or 2,
         max_score=req.max_score or 5,
         hints=req.hints or [],
-        expected_time_min=req.expected_time_min,
         source="user",
         is_public=bool(req.is_public or is_guest),
         context_notes=_describe_context(req.prompt.strip(), req.skill or "general", req.context_notes),

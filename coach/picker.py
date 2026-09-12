@@ -60,14 +60,7 @@ def _utility(task: dict, session: Session) -> float:
 
 
 def expected_time(task: dict) -> float:
-    """Expected minutes to complete a task (static prior).
-
-    A task can override the model with an explicit `expected_time_min`.
-    """
-    override = task.get("expected_time_min")
-    if override:
-        return float(override)
-
+    """Expected minutes to complete a task (static prior)."""
     prompt_words = len(task.get("prompt", "").split())
     minutes = (
         TIME_BASE_MIN

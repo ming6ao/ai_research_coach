@@ -66,7 +66,7 @@ _DROPPED_TABLES = (
 
 # Columns from the removed per-task frozen graph. Best-effort DROP COLUMN;
 # failures are swallowed so startup never breaks.
-_DROPPED_TASK_COLUMNS = ("graph_json", "target_node_id", "target_node_slug")
+_DROPPED_TASK_COLUMNS = ("graph_json", "target_node_id", "target_node_slug", "expected_time_min")
 
 
 def sqlite_conn() -> sqlite3.Connection:

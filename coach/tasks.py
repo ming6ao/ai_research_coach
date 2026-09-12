@@ -60,7 +60,6 @@ class TaskModel(Base):
     max_score: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     hints_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     context_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    expected_time_min: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     parent_task_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     target_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -121,8 +120,6 @@ def task_to_dict(model: TaskModel) -> dict:
     }
     if model.scaffold:
         d["scaffold"] = model.scaffold
-    if model.expected_time_min:
-        d["expected_time_min"] = model.expected_time_min
     if model.parent_task_id:
         d["parent_task_id"] = model.parent_task_id
     if model.target_text:
@@ -141,7 +138,6 @@ def create_task(
     difficulty: int = 2,
     max_score: int = 5,
     hints: Optional[list] = None,
-    expected_time_min: Optional[float] = None,
     source: str = "user",
     parent_task_id: Optional[str] = None,
     target_text: Optional[str] = None,
@@ -166,7 +162,6 @@ def create_task(
             max_score=max_score or 5,
             hints_json=json.dumps(hints or []),
             context_notes=(context_notes or "").strip()[:2000],
-            expected_time_min=expected_time_min,
             source=source,
             parent_task_id=parent_task_id,
             target_text=target_text,

@@ -1,7 +1,5 @@
 """Unit tests for the information-efficient question picker in coach.picker."""
 
-import pytest
-
 from coach.picker import expected_time, next_task
 from coach.session import Session
 
@@ -66,8 +64,6 @@ def test_expected_time_model():
     base = expected_time({"difficulty": 1, "prompt": "short prompt", "scaffold": "x"})
     hard = expected_time({"difficulty": 5, "prompt": "short prompt", "scaffold": "x"})
     assert hard > base
-    override = expected_time({"difficulty": 1, "expected_time_min": 2.5})
-    assert override == pytest.approx(2.5)
 
 
 def test_unified_bank_includes_all_former_roles():

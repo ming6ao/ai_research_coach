@@ -81,7 +81,6 @@ TABLE_REGISTRY: dict[str, dict[str, Any]] = {
             {"name": "max_score", "kind": "number", "searchable": False, "editable": True},
             {"name": "hints_json", "kind": "json", "searchable": False, "editable": True},
             {"name": "context_notes", "kind": "text", "searchable": True, "editable": True},
-            {"name": "expected_time_min", "kind": "number", "searchable": False, "editable": True},
             {"name": "source", "kind": "text", "searchable": False, "editable": False},
             {"name": "parent_task_id", "kind": "text", "searchable": False, "editable": False},
             {"name": "target_text", "kind": "text", "searchable": False, "editable": False},
@@ -270,7 +269,6 @@ def _orm_to_list_dict(name: str, m) -> dict[str, Any]:
         d = task_to_dict(m)
         # task_to_dict nests hints; expose the raw JSON + flat scalars for the grid.
         d["hints_json"] = _preview(m.hints_json or "[]")
-        d["expected_time_min"] = m.expected_time_min
         d["created_at"] = m.created_at.isoformat() if m.created_at else None
         for k in ("prompt", "scaffold", "context_notes", "target_text"):
             if isinstance(d.get(k), str):
@@ -468,9 +466,6 @@ def _update_task(task_id: str, fields: dict[str, Any]) -> Optional[dict[str, Any
             m.hints_json = json.dumps(parsed)
         if "context_notes" in fields:
             m.context_notes = str(fields["context_notes"] or "").strip()[:2000]
-        if "expected_time_min" in fields:
-            v = fields["expected_time_min"]
-            m.expected_time_min = None if v in (None, "") else _check_range("expected_time_min", v, 0.1, 600)
         if "is_public" in fields:
             v = fields["is_public"]
             m.is_public = 1 if v in (True, 1, "1", "true", "True") else 0
