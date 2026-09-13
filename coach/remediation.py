@@ -446,7 +446,7 @@ def _persist_generated_task(session, generated: dict, parent_task: dict | None) 
             difficulty=generated.get("difficulty", 2),
             max_score=generated.get("max_score", 5),
             hints=generated.get("hints", []),
-            context_notes="",
+            context_notes=generated.get("context_notes", ""),
             tags=generated.get("tags"),
             source="generated",
             parent_task_id=(parent_task or {}).get("id") or generated.get("parent_task_id"),
