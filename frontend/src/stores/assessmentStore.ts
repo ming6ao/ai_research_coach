@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { apiClient, storage } from '../api/client';
-import type { Task, EvaluationResult, FeedbackEntry, ResumeResponse, CoachContent, AbilityState } from '../api/client';
+import type { Task, EvaluationResult, FeedbackEntry, ResumeResponse, CoachContent, AbilityState, MasteryBlock, TaskTags } from '../api/client';
 
 export interface ResultWithFeedback {
   task_id: string;
@@ -11,6 +11,7 @@ export interface ResultWithFeedback {
   feedback: string;
   coach?: CoachContent;
   scored: boolean;
+  tags?: TaskTags;
 }
 
 interface AssessmentState {
@@ -21,6 +22,7 @@ interface AssessmentState {
   totalTasks: number;
   results: ResultWithFeedback[];
   ability: AbilityState | null;
+  mastery: MasteryBlock | null;
   progressView: boolean;
   loading: boolean;
   error: string | null;
@@ -43,6 +45,7 @@ function toResultWithFeedback(entry: FeedbackEntry): ResultWithFeedback {
     feedback: entry.feedback,
     coach: entry.coach,
     scored: (entry as FeedbackEntry & { scored?: boolean }).scored ?? true,
+    tags: entry.tags,
   };
 }
 
@@ -69,6 +72,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
   totalTasks: 0,
   results: [],
   ability: null,
+  mastery: null,
   progressView: false,
   loading: false,
   error: null,
@@ -85,6 +89,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       totalTasks: res.total_tasks,
       results,
       ability: toAbility(res),
+      mastery: res.mastery ?? null,
       progressView: done,
     });
     storage.set(SESSION_KEY, res.id);
@@ -103,6 +108,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         totalTasks: res.total_tasks,
         results: [],
         ability: null,
+        mastery: null,
         progressView: false,
         initialQuestion: initialQuestion?.trim() || null,
       });
@@ -131,6 +137,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         feedback: res.coach.feedback,
         coach: res.coach,
         scored: true,
+        tags: currentTask?.tags,
       };
 
       // Tolerate legacy payloads that still send skill_update.
@@ -149,6 +156,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         currentTask: res.next_task,
         taskIndex: get().taskIndex + 1,
         ability: newAbility,
+        mastery: res.mastery ?? get().mastery,
       });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -169,6 +177,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         ?? (legacy ? Object.values(legacy).sort((a, b) => b.questions_answered - a.questions_answered)[0] ?? null : null);
       set({
         ability,
+        mastery: res.mastery ?? get().mastery,
         progressView: true,
       });
     } catch (e: unknown) {
@@ -189,6 +198,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       totalTasks: 0,
       results: [],
       ability: null,
+      mastery: null,
       progressView: false,
       error: null,
       initialQuestion: null,

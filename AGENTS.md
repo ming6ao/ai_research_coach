@@ -22,6 +22,8 @@ python check_env.py
 |------|---------|
 | Install deps | `pip install -r requirements.txt` |
 | Test backend | `.venv/bin/python -m pytest` |
+| Seed the builtin question bank (idempotent, runs at startup) | `python -m coach.seed_bank` |
+| Mint tasks for uncovered/low-coverage tags (LLM) | `python -m coach.seed_bank --fill-gaps [--limit N]` |
 | Lint frontend | `cd frontend && npm run lint` |
 | Typecheck frontend | `cd frontend && npx tsc -b` |
 | Test frontend | `cd frontend && npm test` |
@@ -32,21 +34,22 @@ python check_env.py
 ## Architecture Essentials
 
 - **Entry point**: FastAPI app in `backend/main.py` (`backend/v1/*` resources + `backend/auth_routes.py` + admin routes). No ADK agent.
-- **DB task bank**: Questions live in the `tasks` table (`coach/tasks.py`) — users add their own via `POST /api/v1/tasks` or `initial_question` on `POST /api/v1/sessions`; every task is eligible for every candidate (no skill tags)
-- **Bayesian probing**: `coach/score.py` + `coach/picker.py` keep a single Gaussian belief `N(mean, variance)` over overall ability; `pick_next_task` (in `coach/selection.py`) selects questions to maximize expected information gain (EIG) per unit of expected time
-- **Hybrid question selection**: `coach/selection.py:pick_next_task` — (1) pending generated task, (2) judge-driven follow-up (`coach/remediation.py`: a simpler task drilled from the judge's misconception/feedback text, difficulty tuned to ~80% P(solve) via `coach/solvability.py`), (3) EIG bank picker, (4) `None` when done
-- **No knowledge graph**: there are no nodes/edges. Each task optionally carries `context_notes` (2–4 plain-English sentences, e.g. "A is a prerequisite of B, often confused with C"), generated once at creation by `coach/task_decomposer.py:describe_task` and editable via `PATCH /api/v1/tasks/{id}` (owner or admin)
+- **Builtin question bank**: `coach/seed_bank.py` ships a curated ~30-task code catalog (`SEED_CATALOG`, all `context_notes` pre-authored) covering every family and fine tag. `seed_question_bank()` runs from `create_schema()` (startup), is hermetic (no LLM/network), and uses a single batched `INSERT OR IGNORE` — re-runs are no-ops and human-edited seeds are never overwritten. `coverage_report()` (admin UI) + `--fill-gaps` mint tasks for uncovered/lowest-coverage tags as `source="seed_llm"`.
+- **Tag everything**: every task — seed, user, or generated — carries `tags: {primary: <fine tag>, secondary: [0-2 fine tags]}` + `task_type` (`implement|apply|debug|design|analyze`). `coach/taxonomy.py` is the single source of truth (11 families / 46 fine tags, `ALIASES`, `validate`, `family_of`); unknown tags are rejected (422). Only the primary tag feeds the belief system; secondary tags count for coverage/diversity only.
+- **Hierarchical mastery**: `coach/score.py` (global) + `coach/area_score.py` (family + tag) keep per-level sufficient statistics. At read time `area_report_dict` folds them with empirical-Bayes shrinkage (`eta=2.0`, weight `n/(n+eta)` on own evidence, parent = family's/global's shrunk estimate) — order-invariant, sparse tags report ~family estimate, dense tags converge to own evidence.
+- **Hybrid question selection**: `coach/selection.py:pick_next_task` — (1) pending generated task, (2) judge-driven follow-up (`coach/remediation.py`: a simpler task drilled from the judge's misconception/feedback text, difficulty tuned to ~80% P(solve) via `coach/solvability.py`), (3) EIG bank picker with small exploration bonuses (`coach/picker.py`: `0.004·1/(1+family_attempts) + 0.001·1/(1+tag_attempts)`, minus a soft `-0.010` same-family penalty), (4) scope-widening challenge (least-covered family/tag)
+- **No knowledge graph**: there are no nodes/edges. Each task carries `context_notes` (2–4 plain-English sentences), generated once at creation by a combined LLM call (`coach/task_decomposer.py:describe_and_categorize` returns notes + tags in one call) and editable via `PATCH /api/v1/tasks/{id}` (owner or admin)
 - **Hints**: `coach/hints.py` — tasks declare ordered hints; weak candidates get them pre-revealed, others request them on demand; viewed hints reduce effective mastery
 - **Code eval**: `coach/judge.py` evaluates candidate code via a single structured LLM call (score + rationale + coaching response)
 - **Coaching**: The judge's coaching response (in `coach/judge.py` as `CoachContent`) identifies the candidate's misconception/gap and walks them step-by-step to the correct solution with code examples — no separate feedback step
 - **Teaching pause**: After a submit the UI does **not** auto-advance. The coaching response is shown and the candidate advances manually (`Next question`); the picked task is held until then
-- **No summative product**: there is no `assessments` table, report, verdict, or raw-score UI. The app probes and teaches; the progress view shows overall confidence + answered questions with the judge's gap text
-- **Persistence**: single SQLite file `data/coach.db` (gitignored) with 6 tables (`users`, `auth_tokens`, `active_sessions`, `tasks`, `task_attempts`, `user_skill_beliefs`). `coach/db.py` is the single connection module; `create_schema()` drops removed columns/tables and collapses legacy per-skill beliefs to one row per candidate so old DBs converge to the fresh design
-- **Models**: `EVAL_MODEL` (judge/coach + context/follow-up generation) defaults to `gemini-3.5-flash-lite`
+- **No summative product**: there is no `assessments` table, report, verdict, or raw-score UI. The app probes and teaches; the progress view shows overall + per-family confidence bars and per-tag chips (from the `mastery` block in answers/completion/resume responses) plus answered questions with the judge's gap text
+- **Persistence**: single SQLite file `data/coach.db` (gitignored) with 6 tables (`users`, `auth_tokens`, `active_sessions`, `tasks`, `task_attempts`, `user_skill_beliefs`). `coach/db.py` is the single connection module; `create_schema()` drops removed columns/tables, seeds the question bank, and migrates beliefs to one row per `(candidate, level, key)` (`level` ∈ global/family/tag) with a unique index (`uq_user_skill_beliefs`)
+- **Models**: `EVAL_MODEL` (judge/coach + decomposition) defaults to `gemini-3.5-flash-lite`
 
 ## Extending Without Code Changes
 
-- **Add question**: `POST /api/v1/tasks` with `prompt`, optional `scaffold`/`difficulty`/`hints`; or `initial_question` on `POST /api/v1/sessions`
+- **Add question**: `POST /api/v1/tasks` with `prompt`, optional `scaffold`/`difficulty`/`hints`/`tags`/`task_type`; or `initial_question` on `POST /api/v1/sessions` (auto-tagged by one combined LLM call)
 - **Change model**: Set `EVAL_MODEL` in `.env`
 
 ## Task Types & Required Fields
@@ -56,21 +59,22 @@ python check_env.py
 | `code` (function) | `prompt` | LLM judge returns score (0..max_score) + rationale + coaching (misconception + steps) |
 | `code` (scaffold) | `scaffold`, `prompt` | LLM judge returns score (0..max_score) + rationale + coaching (misconception + steps) |
 
-Optional per task: `hints` (ordered list with `id`, `text`, `weight` 0..1, and `reveal_threshold` ability below which the engine pre-reveals it).
+Every task carries `tags: {primary, secondary[]}` (fine tags from `coach/taxonomy.py`; unknown → 422) and a `task_type`. Optional per task: `hints` (ordered list with `id`, `text`, `weight` 0..1, and `reveal_threshold` ability below which the engine pre-reveals it).
 
 ## Scoring / Adaptive Behavior
 
 - Overall ability is a Gaussian belief (`N(mean, variance)`). The mean is the reported score; `1 - σ/σ_max` is the reported confidence.
+- Family/tag beliefs are the same Gaussian over each level's own observations, shrunk at read time toward the parent level (`eta=2.0`): an unattempted tag reports its family's estimate, sparse tags lean on the family, dense tags converge to the candidate's own evidence. Only the primary tag updates the estimator.
 - Effective score = `raw_fraction − Σ weight(viewed hints)`, clamped to [0, 1] — solving correctly with many hints yields lower mastery.
-- The bank picker maximizes `EIG / expected_time`, so it drills into informative questions with cheap costs. The session ends when the task bank is exhausted.
+- The bank picker maximizes `EIG / expected_time` plus small exploration bonuses for under-asked families/tags (`0.004`/`0.001` · `1/(1+attempts)`), minus a soft `-0.010` penalty for repeating the previous family. The session ends when the task bank is exhausted.
 - After a submit, the picked task is returned as `next_task` but held back by the UI until the candidate reviews the coaching and clicks **Next question** — the system never auto-advances. A `next_task: null` after the last question means the candidate is done; the frontend then shows the progress view (via `POST /api/v1/sessions/{id}/completion`).
 
-## Learner Model (flat `learner/`)
+## Learner Model (hierarchical beliefs)
 
-- Removed. There is no `learner/` package, no nodes/edges, no frontier/policy.
-- Overall mastery is the single Gaussian belief in `coach/score.py` + `user_skill_beliefs`.
-- Follow-ups are judge-driven: `coach/remediation.py` drills the judge's gap text.
-- `coach/task_decomposer.py` has two LLM helpers only: `describe_task` (context notes) and `generate_followup_task` (simpler drill task), both with deterministic no-API-key fallbacks.
+- There is no `learner/` package, no nodes/edges, no frontier/policy.
+- Mastery is three Gaussian layers per candidate — `tag ← family ← global` — stored as one `user_skill_beliefs` row per `(candidate, level, key)` and folded to reported scores at read time (`coach/area_score.py:area_report_dict`).
+- Follow-ups are judge-driven: `coach/remediation.py` drills the judge's gap text; generated tasks inherit the root task's tags.
+- `coach/task_decomposer.py` has three LLM helpers with deterministic no-API-key fallbacks: `describe_and_categorize` (combined context notes + tags), `generate_followup_task` (simpler drill), and `generate_seed_task_for_tag` (`--fill-gaps`).
 
 ## Environment Variables
 
@@ -92,7 +96,7 @@ EVAL_RETRY_MAX_DELAY=30.0       # Max backoff (seconds)
 - React 19 + TypeScript + Vite + Tailwind v4
 - Chat-style UI: `ChatView`/`WelcomeView` in `frontend/src/components/Chat/` render the session as coach/user bubbles; the active task embeds Monaco via `CodeEditor`; submitted results render the judge's coaching (`CoachingBubble`: verdict chip + misconception + numbered steps with code examples)
 - Single unified behavior for guests and signed-in users (no practice/assessment split). Guests keep their in-progress session in `localStorage`; signed-in users (bearer token in `localStorage`) get per-account history
-- Progress view: `frontend/src/components/Progress/LearnerProgressView.tsx` shows overall confidence + answered questions with the judge's gap text after completion or on resume of a done session
+- Progress view: `frontend/src/components/Progress/LearnerProgressView.tsx` shows overall + per-family confidence bars and per-tag chips (from the `mastery` block) + answered questions with the judge's gap text after completion or on resume of a done session. Task bubbles show tag chips; the admin `coverage` tab shows the seed-bank coverage report
 - Auth backend: `backend/auth.py` (session tokens: `Authorization: Bearer` header or HttpOnly `ai_coach_token` cookie, `require_user`/`get_current_user` FastAPI dependencies) + `backend/google_auth.py` (Google OAuth authorization-code flow, single-use DB-backed `state`). Login is Google-only — `/auth/google/url` + `/auth/google/callback` exchange a code for a local user (keyed by email), set the session cookie, and redirect (303) to `FRONTEND_URL/?login=success` (no token in the URL). Requires `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` in `.env`. Cookie-authenticated writes additionally require a matching `Origin`/`Referer` header (`backend/csrf.py`); Bearer callers are exempt
 - Linting: `oxlint` (config in `frontend/.oxlintrc.json`)
 - Typecheck: `tsc -b` (project references: `tsconfig.app.json`, `tsconfig.node.json`)

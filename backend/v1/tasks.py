@@ -33,6 +33,7 @@ def _check_task_owner(task: dict, user: Optional[dict]) -> None:
 @router.get("", summary="List visible tasks")
 def list_tasks(
     q: Optional[str] = None,
+    tag: Optional[str] = None,
     page: PageParams = Depends(),
     user: Optional[dict] = Depends(get_current_user),
 ):
@@ -44,6 +45,29 @@ def list_tasks(
     if q and q.strip():
         needle = q.strip().lower()
         tasks = [t for t in tasks if needle in (t.get("prompt") or "").lower()]
+    if tag and tag.strip():
+        from coach.taxonomy import family_of, is_valid_family, is_valid_tag, normalize_tag
+
+        target = normalize_tag(tag.strip())
+        if target is None:
+            target = tag.strip()
+        want_family = is_valid_family(target)
+        if not want_family and not is_valid_tag(target):
+            target = None
+        out = []
+        for t in tasks:
+            tags = t.get("tags") or {}
+            prim = tags.get("primary")
+            sec = tags.get("secondary") or []
+            if want_family:
+                hit = (family_of(prim) == target) or any(
+                    family_of(s) == target for s in sec
+                )
+            else:
+                hit = prim == target or target in sec
+            if hit:
+                out.append(t)
+        tasks = out
     items, meta = paginate(tasks, page.page, page.page_size)
     return {"data": items, "meta": meta}
 
@@ -51,9 +75,14 @@ def list_tasks(
 @router.post("", status_code=status.HTTP_201_CREATED, summary="Create task")
 def create_task(req: TaskCreateRequest, user: Optional[dict] = Depends(get_current_user)):
     from coach.tasks import create_task as _create_task
+    from coach.taxonomy import validate as validate_tags
 
     if not req.prompt.strip():
         raise HTTPException(status_code=422, detail="Prompt must not be empty.")
+    try:
+        tags = validate_tags(req.tags)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     candidate = _candidate_for(user)
     is_guest = candidate.startswith("guest-")
     task = _create_task(
@@ -68,6 +97,8 @@ def create_task(req: TaskCreateRequest, user: Optional[dict] = Depends(get_curre
         context_notes=_describe_context(
             req.prompt.strip(), req.context_notes
         ),
+        tags=tags,
+        task_type=req.task_type or "implement",
     )
     return {"data": task}
 
@@ -94,7 +125,10 @@ def patch_task(
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found.")
     _check_task_owner(task, user)
-    updated = _update_task(task_id, **req.model_dump(exclude_unset=True))
+    try:
+        updated = _update_task(task_id, **req.model_dump(exclude_unset=True))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     if updated is None:
         raise HTTPException(status_code=404, detail="Task not found.")
     return {"data": updated}

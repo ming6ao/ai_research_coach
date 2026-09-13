@@ -59,6 +59,8 @@ class TaskModel(Base):
     max_score: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     hints_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     context_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    tags_json: Mapped[str] = mapped_column(Text, nullable=False, default='{"primary": "python", "secondary": []}')
+    task_type: Mapped[str] = mapped_column(String(32), nullable=False, default="implement")
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     parent_task_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     target_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -84,19 +86,53 @@ class TaskAttemptModel(Base):
 
 
 class SkillBeliefModel(Base):
-    """Persistent Gaussian belief over a candidate's overall ability."""
+    """Persistent Gaussian belief over a candidate's ability at one level.
+
+    ``level`` is ``'global' | 'family' | 'tag'``; ``key`` is ``'overall'``,
+    a family name, or a fine tag name. One row per ``(candidate, level,
+    key)``, enforced by a unique index (SQLite cannot add a UNIQUE
+    constraint via ``ALTER TABLE``).
+    """
 
     __tablename__ = "user_skill_beliefs"
     __table_args__ = (
         Index("ix_skill_beliefs_candidate", "candidate"),
+        Index("uq_user_skill_beliefs", "candidate", "level", "key", unique=True),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     candidate: Mapped[str] = mapped_column(String(255), nullable=False)
+    level: Mapped[str] = mapped_column(String(16), nullable=False, default="global")
+    key: Mapped[str] = mapped_column(String(64), nullable=False, default="overall")
     mean: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
     variance: Mapped[float] = mapped_column(Float, nullable=False, default=0.1225)
     questions_answered: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+def parse_tags(tags_json: Optional[str]) -> dict:
+    """Parse a stored ``tags_json`` value into ``{primary, secondary}``.
+
+    Tolerates empty strings and any JSON value; the object default
+    ``{"primary": "python", "secondary": []}`` is returned on malformed data
+    so a JSON-array default can never crash a scalar ``.get()``.
+    """
+    try:
+        parsed = json.loads(tags_json or "{}")
+    except Exception:
+        parsed = {}
+    if not isinstance(parsed, dict):
+        parsed = {}
+    primary = str(parsed.get("primary") or "python").strip() or "python"
+    secondary = parsed.get("secondary") or []
+    if not isinstance(secondary, list):
+        secondary = []
+    return {"primary": primary, "secondary": [str(t) for t in secondary]}
+
+
+def serialize_tags(tags: dict | None) -> str:
+    """Serialize a validated tags dict for storage."""
+    return json.dumps(tags if isinstance(tags, dict) else {"primary": "python", "secondary": []})
 
 
 def task_to_dict(model: TaskModel) -> dict:
@@ -111,6 +147,8 @@ def task_to_dict(model: TaskModel) -> dict:
         "max_score": model.max_score,
         "hints": hints,
         "context_notes": getattr(model, "context_notes", "") or "",
+        "tags": parse_tags(getattr(model, "tags_json", "")),
+        "task_type": getattr(model, "task_type", "") or "implement",
         "source": model.source,
         "is_public": bool(model.is_public),
         "owner": model.owner,
@@ -140,11 +178,22 @@ def create_task(
     is_public: bool = False,
     task_id: Optional[str] = None,
     context_notes: Optional[str] = None,
+    tags: Optional[dict] = None,
+    task_type: str = "implement",
 ) -> dict:
-    """Persist a task row and return its dict form."""
+    """Persist a task row and return its dict form.
+
+    ``tags`` is validated against the closed vocabulary
+    (``coach.taxonomy.validate``); invalid tags raise ``ValueError``.
+    """
     from coach.db import create_schema
 
     create_schema()
+    from coach.taxonomy import TASK_TYPES, validate as validate_tags
+
+    if task_type not in TASK_TYPES:
+        raise ValueError(f"Unknown task_type: {task_type!r}.")
+    tags = validate_tags(tags)
     tid = task_id or f"task_{uuid.uuid4().hex[:10]}"
     session = learner_session()
     try:
@@ -157,6 +206,8 @@ def create_task(
             max_score=max_score or 5,
             hints_json=json.dumps(hints or []),
             context_notes=(context_notes or "").strip()[:2000],
+            tags_json=serialize_tags(tags),
+            task_type=task_type,
             source=source,
             parent_task_id=parent_task_id,
             target_text=target_text,
@@ -174,16 +225,26 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
     """Update whitelisted task columns (v1 PATCH path).
 
     Allowed: prompt, scaffold, difficulty (1-5), max_score (>=1),
-    hints (list), is_public (bool), context_notes (<=2000 chars).
+    hints (list), is_public (bool), context_notes (<=2000 chars),
+    tags (validated against the vocabulary), task_type.
     Returns the updated dict, or None when the task does not exist.
     """
     from coach.db import create_schema
 
-    allowed = {"prompt", "scaffold", "difficulty", "max_score", "hints", "is_public", "context_notes"}
+    allowed = {
+        "prompt", "scaffold", "difficulty", "max_score", "hints",
+        "is_public", "context_notes", "tags", "task_type",
+    }
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if "prompt" in updates and not str(updates["prompt"]).strip():
         raise ValueError("Prompt must not be empty.")
     create_schema()
+    from coach.taxonomy import TASK_TYPES, validate as validate_tags
+
+    if "tags" in updates:
+        updates["tags"] = validate_tags(updates["tags"])
+    if "task_type" in updates and updates["task_type"] not in TASK_TYPES:
+        raise ValueError(f"Unknown task_type: {updates['task_type']!r}.")
     session = learner_session()
     try:
         model = session.get(TaskModel, task_id)
@@ -203,6 +264,10 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
             model.is_public = 1 if updates["is_public"] else 0
         if "context_notes" in updates:
             model.context_notes = str(updates["context_notes"] or "").strip()[:2000]
+        if "tags" in updates:
+            model.tags_json = serialize_tags(updates["tags"])
+        if "task_type" in updates:
+            model.task_type = updates["task_type"]
         session.commit()
         return task_to_dict(model)
     finally:
@@ -280,18 +345,38 @@ def record_attempt(
         session.close()
 
 
+def _belief_row(session, candidate: str, level: str, key: str):
+    return session.scalar(
+        select(SkillBeliefModel).where(
+            SkillBeliefModel.candidate == candidate,
+            SkillBeliefModel.level == level,
+            SkillBeliefModel.key == key,
+        )
+    )
+
+
+def _belief_to_dict(m: SkillBeliefModel) -> dict:
+    return {
+        "level": m.level,
+        "key": m.key,
+        "mean": m.mean,
+        "variance": m.variance,
+        "questions_answered": m.questions_answered,
+    }
+
+
 def get_skill_belief(candidate: str) -> Optional[dict]:
-    """Return the candidate's overall ability belief, if stored."""
+    """Return the candidate's overall ability belief, if stored.
+
+    Filters on ``level='global'`` / ``key='overall'`` so multiple per-area
+    rows never trip a scalar ``MultipleResultsFound``.
+    """
     from coach.db import create_schema
 
     create_schema()
     session = learner_session()
     try:
-        m = session.scalar(
-            select(SkillBeliefModel).where(
-                SkillBeliefModel.candidate == candidate,
-            )
-        )
+        m = _belief_row(session, candidate, "global", "overall")
         if m is None:
             return None
         return {
@@ -307,22 +392,32 @@ def save_skill_belief(
     candidate: str, mean: float, variance: float, questions_answered: int
 ) -> None:
     """Persist the candidate's overall ability belief."""
+    save_area_belief(candidate, "global", "overall", mean, variance, questions_answered)
+
+
+def save_area_belief(
+    candidate: str,
+    level: str,
+    key: str,
+    mean: float,
+    variance: float,
+    questions_answered: int,
+) -> None:
+    """Persist one belief row at ``(candidate, level, key)`` (upsert)."""
     from coach.db import create_schema
 
     create_schema()
     session = learner_session()
     try:
-        m = session.scalar(
-            select(SkillBeliefModel).where(
-                SkillBeliefModel.candidate == candidate,
-            )
-        )
+        m = _belief_row(session, candidate, level, key)
         now = _utcnow_naive()
         if m is None:
             session.add(
                 SkillBeliefModel(
                     id=str(uuid.uuid4()),
                     candidate=candidate,
+                    level=level,
+                    key=key,
                     mean=mean,
                     variance=variance,
                     questions_answered=questions_answered,
@@ -335,6 +430,21 @@ def save_skill_belief(
             m.questions_answered = questions_answered
             m.updated_at = now
         session.commit()
+    finally:
+        session.close()
+
+
+def get_area_beliefs(candidate: str) -> dict[tuple[str, str], dict]:
+    """All belief rows for a candidate, keyed by ``(level, key)``."""
+    from coach.db import create_schema
+
+    create_schema()
+    session = learner_session()
+    try:
+        rows = session.scalars(
+            select(SkillBeliefModel).where(SkillBeliefModel.candidate == candidate)
+        ).all()
+        return {(m.level, m.key): _belief_to_dict(m) for m in rows}
     finally:
         session.close()
 

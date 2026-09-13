@@ -12,6 +12,7 @@ import {
 import { useAdminTable } from './useAdminTable';
 import { RowGrid } from './RowGrid';
 import { DetailPane } from './DetailPane';
+import { CoverageView } from './CoverageView';
 
 interface Props {
   onClose: () => void;
@@ -40,9 +41,11 @@ export function AdminView({ onClose }: Props) {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Record<string, string> | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showCoverage, setShowCoverage] = useState(false);
 
   const switchTable = (name: string) => {
     table.switchTable(name);
+    setShowCoverage(false);
     setDetail(null);
     setDetailId(null);
     setEditing(null);
@@ -169,12 +172,27 @@ export function AdminView({ onClose }: Props) {
       </div>
 
       <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--color-border-default)] px-3 pt-2">
+        <button
+          onClick={() => {
+            setShowCoverage(true);
+            setDetail(null);
+            setDetailId(null);
+            setEditing(null);
+          }}
+          className={`whitespace-nowrap rounded-t-lg px-3 py-1.5 text-xs font-medium ${
+            showCoverage
+              ? 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)]'
+              : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
+          }`}
+        >
+          coverage
+        </button>
         {tables.map((t) => (
           <button
             key={t.name}
             onClick={() => switchTable(t.name)}
             className={`whitespace-nowrap rounded-t-lg px-3 py-1.5 text-xs font-medium ${
-              t.name === activeTable
+              t.name === activeTable && !showCoverage
                 ? 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)]'
                 : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
             }`}
@@ -227,37 +245,43 @@ export function AdminView({ onClose }: Props) {
       )}
 
       <div className="flex min-h-0 flex-1">
-        <RowGrid
-          meta={meta}
-          rows={table.rows}
-          loading={table.loading}
-          total={table.total}
-          pages={table.pages}
-          query={query}
-          setQuery={setQuery}
-          activeTable={activeTable}
-          detailId={detailId}
-          onOpenDetail={openDetail}
-          onDeleteRow={deleteRow}
-          onSort={table.setSort}
-        />
+        {showCoverage ? (
+          <CoverageView onError={setError} />
+        ) : (
+          <>
+            <RowGrid
+              meta={meta}
+              rows={table.rows}
+              loading={table.loading}
+              total={table.total}
+              pages={table.pages}
+              query={query}
+              setQuery={setQuery}
+              activeTable={activeTable}
+              detailId={detailId}
+              onOpenDetail={openDetail}
+              onDeleteRow={deleteRow}
+              onSort={table.setSort}
+            />
 
-        {detail && (
-          <DetailPane
-            detail={detail}
-            editableCols={editableCols}
-            editing={editing}
-            setEditing={setEditing}
-            saving={saving}
-            onStartEdit={startEdit}
-            onSaveEdit={saveEdit}
-            onClose={() => {
-              setDetail(null);
-              setDetailId(null);
-              setEditing(null);
-            }}
-            onDelete={deleteRow}
-          />
+            {detail && (
+              <DetailPane
+                detail={detail}
+                editableCols={editableCols}
+                editing={editing}
+                setEditing={setEditing}
+                saving={saving}
+                onStartEdit={startEdit}
+                onSaveEdit={saveEdit}
+                onClose={() => {
+                  setDetail(null);
+                  setDetailId(null);
+                  setEditing(null);
+                }}
+                onDelete={deleteRow}
+              />
+            )}
+          </>
         )}
       </div>
     </div>

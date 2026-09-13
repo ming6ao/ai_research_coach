@@ -37,7 +37,7 @@ def test_create_and_list_tasks_endpoint():
     assert task["prompt"] == "My own question?"
     assert "skill" not in task
 
-    listed = client.get("/api/v1/tasks").json()["data"]
+    listed = client.get("/api/v1/tasks?page_size=100").json()["data"]
     assert any(t["id"] == task["id"] for t in listed)
 
     got = client.get(f"/api/v1/tasks/{task['id']}").json()["data"]

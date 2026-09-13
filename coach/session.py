@@ -1,10 +1,12 @@
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 
+from coach.area_score import AreaState
 from coach.hints import select_hints
 from coach.score import INITIAL_SCORE, INITIAL_VARIANCE, confidence_from_variance
 from coach.judge import EvaluationResult
+from coach.taxonomy import family_of
 
 
 def _load_bank_tasks(candidate: str) -> list:
@@ -80,6 +82,9 @@ class Session:
     asked_task_ids: Set[str] = field(default_factory=set)
     viewed_hints: Dict[str, List[str]] = field(default_factory=dict)
     generated_task_ids: Set[str] = field(default_factory=set)
+    family_states: Dict[str, AreaState] = field(default_factory=dict)
+    tag_states: Dict[str, AreaState] = field(default_factory=dict)
+    _area_restored: bool = field(default=False, init=False)
 
     def __post_init__(self):
         if not self.tasks:
@@ -137,6 +142,70 @@ class Session:
         self.tasks.append(task)
         self.generated_task_ids.add(task["id"])
 
+    def get_family_state(self, family: str) -> AreaState:
+        """Return (and lazily create) the AreaState for a family."""
+        self._restore_area_beliefs()
+        if family not in self.family_states:
+            self.family_states[family] = AreaState()
+        return self.family_states[family]
+
+    def get_tag_state(self, tag: str) -> AreaState:
+        """Return (and lazily create) the AreaState for a fine tag."""
+        self._restore_area_beliefs()
+        if tag not in self.tag_states:
+            self.tag_states[tag] = AreaState()
+        return self.tag_states[tag]
+
+    def _restore_area_beliefs(self) -> None:
+        """Restore persisted family/tag statistics into a fresh session.
+
+        Mirrors the global-ability restore in ``get_skill_state``: a session
+        with no area evidence loads its own (level, key) sufficient
+        statistics from ``user_skill_beliefs`` so mastery carries across
+        sessions. Safe to call repeatedly (runs once).
+        """
+        if self._area_restored or self.family_states or self.tag_states:
+            return
+        self._area_restored = True
+        try:
+            from coach.tasks import get_area_beliefs
+
+            for (level, key), b in get_area_beliefs(self.candidate).items():
+                st = AreaState(
+                    mean=b["mean"],
+                    variance=b["variance"],
+                    questions_answered=b["questions_answered"],
+                )
+                if level == "family":
+                    self.family_states[key] = st
+                elif level == "tag":
+                    self.tag_states[key] = st
+        except Exception:
+            pass
+
+    def attempts_for_family(self, task: dict) -> int:
+        """Number of in-session observations for a task's primary family."""
+        tags = task.get("tags") or {}
+        family = family_of(tags.get("primary")) or "python"
+        return self.get_family_state(family).questions_answered
+
+    def attempts_for_tag(self, task: dict) -> int:
+        """Number of in-session observations for a task's primary tag."""
+        tags = task.get("tags") or {}
+        tag = tags.get("primary")
+        if not tag:
+            return 0
+        return self.get_tag_state(tag).questions_answered
+
+    def previous_family(self) -> Optional[str]:
+        """Primary family of the most recently asked task, if any."""
+        asked = self.asked_task_ids
+        for t in reversed(self.tasks):
+            if t["id"] in asked:
+                tags = t.get("tags") or {}
+                return family_of(tags.get("primary"))
+        return None
+
     def to_dict(self):
         return {
             "candidate": self.candidate,
@@ -148,6 +217,8 @@ class Session:
             "asked_task_ids": list(self.asked_task_ids),
             "viewed_hints": self.viewed_hints,
             "generated_task_ids": list(self.generated_task_ids),
+            "family_states": {k: v.to_dict() for k, v in self.family_states.items()},
+            "tag_states": {k: v.to_dict() for k, v in self.tag_states.items()},
         }
 
     @classmethod
@@ -178,6 +249,12 @@ class Session:
         s.asked_task_ids = set(d.get("asked_task_ids", []))
         s.viewed_hints = dict(d.get("viewed_hints", {}))
         s.generated_task_ids = set(d.get("generated_task_ids", []))
+        s.family_states = {
+            k: AreaState.from_dict(v) for k, v in d.get("family_states", {}).items()
+        }
+        s.tag_states = {
+            k: AreaState.from_dict(v) for k, v in d.get("tag_states", {}).items()
+        }
         return s
 
 
@@ -209,6 +286,8 @@ def task_view(task: dict, session: Session) -> dict | None:
         "difficulty": task.get("difficulty", 1),
         "scaffold": build_code_stub(task),
         "hints": select_hints(task, ability),
+        "tags": task.get("tags") or {"primary": "python", "secondary": []},
+        "task_type": task.get("task_type") or "implement",
     }
     if task.get("context_notes"):
         view["context_notes"] = task["context_notes"]

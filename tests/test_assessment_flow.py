@@ -66,8 +66,12 @@ def client(tmp_path, monkeypatch):
     return TestClient(app)
 
 
-def _start(client, initial_question=None):
-    body = {"initial_question": initial_question} if initial_question else {}
+def _start(client, initial_question=None, task_ids=None):
+    body = {}
+    if initial_question:
+        body["initial_question"] = initial_question
+    if task_ids:
+        body["task_ids"] = task_ids
     res = client.post("/api/v1/sessions", json=body)
     assert res.status_code == 201
     data = res.json()["data"]
@@ -85,7 +89,7 @@ def _answer(client, session_id, task_id, answer="def f(): pass", hints_used=None
 
 
 def test_hints_reduce_mastery_for_perfect_code(client):
-    no_hints = _start(client)
+    no_hints = _start(client, task_ids=["seed_ml_01"])
     task = no_hints["current_task"]
     assert task is not None
     assert task["hints"], "task should carry hints"
@@ -93,7 +97,7 @@ def test_hints_reduce_mastery_for_perfect_code(client):
     data = _answer(client, no_hints["id"], task["id"])
     score_without_hints = data["ability_update"]["new_score"]
 
-    with_hints = _start(client)
+    with_hints = _start(client, task_ids=["seed_ml_01"])
     task2 = with_hints["current_task"]
     all_hint_ids = [h["id"] for h in task2["hints"]]
     data2 = _answer(client, with_hints["id"], task2["id"], hints_used=all_hint_ids)

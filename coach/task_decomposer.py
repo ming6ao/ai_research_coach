@@ -23,13 +23,6 @@ from coach.config import MODEL, http_retry_options
 
 logger = logging.getLogger(__name__)
 
-_CONTEXT_SYSTEM_PROMPT = """\
-You are a curriculum assistant. Given a coding task, \
-describe the background knowledge in 2-4 plain English sentences. \
-Name prerequisites ("X is a prerequisite of Y"), what builds on what, \
-and what learners often confuse ("Y is often confused with Z"). \
-Concrete, focused on THIS task only. Return plain text, no JSON, no bullets."""
-
 _FOLLOWUP_SYSTEM_PROMPT = """\
 You are a tutor for a learning system. A candidate answered the original task \
 incorrectly or revealed a gap described below. Create ONE simpler coding task \
@@ -111,6 +104,77 @@ _FOLLOWUP_SCHEMA = types.Schema(
     required=["prompt", "difficulty"],
 )
 
+_CATEGORIZE_SYSTEM_PROMPT = """\
+You are a curriculum librarian. Given a coding task, classify it into ONE \
+primary fine tag and at most TWO secondary fine tags from the closed \
+vocabulary below. Primary must be the single best match. Return JSON with \
+exactly three keys:
+  "context_notes": 2-4 plain English sentences describing prerequisites, what \
+    builds on what, and common confusions (concrete, focused on THIS task).
+  "primary_tag": one fine tag (or a family name if no fine tag fits well).
+  "secondary_tag": a JSON array of 0-2 fine tags.
+
+Vocabulary (fine tag -> family):
+  python: data_structures, functional, generators_iterators
+  data_etl: pandas_cleaning, joins_merges, missing_outliers
+  feature_eng: scaling_encoding, feature_construction, imbalanced_classes
+  ml_classical: linear_regression, classification_logistic, trees_ensembles, \
+    clustering_kmeans, dimensionality_reduction, knn_svm_naivebayes
+  stats_probability: bias_variance, distributions, hypothesis_pvalue, \
+    bayes_mle, bootstrap_ci
+  training: loss_functions, regularization, backprop, lr_scheduling, \
+    overfitting_underfitting
+  optimization: gradient_descent_sgd, optimizers_adam, hyperparameter_tuning
+  dl_arch: mlp, cnn, rnn_lstm, attention_transformer, activation_normalization
+  llm_genai: tokenization_bpe, pretraining_finetuning, rag_retrieval, \
+    quantization, kv_cache
+  eval: metrics_classification, regression_metrics, cross_validation, \
+    data_leakage_calibration
+  mlops_serving: deployment_serving, monitoring_drift, explainability, \
+    reproducibility_tracking
+
+Use only tags from this vocabulary; no other strings."""
+
+_COMBINED_SCHEMA = types.Schema(
+    type=types.Type.OBJECT,
+    properties={
+        "context_notes": types.Schema(type=types.Type.STRING),
+        "primary_tag": types.Schema(type=types.Type.STRING),
+        "secondary_tag": types.Schema(
+            type=types.Type.ARRAY,
+            items=types.Schema(type=types.Type.STRING),
+        ),
+    },
+    required=["context_notes", "primary_tag", "secondary_tag"],
+)
+
+_SEED_GEN_SYSTEM_PROMPT = """\
+You are a question author for an ML practice app. Create ONE self-contained, \
+deterministic Python coding task that tests the requested tag, solvable with \
+standard Python + NumPy in under ~30 lines. It must be gradeable by executing \
+the candidate's code with hidden tests.
+
+Return JSON with exactly four keys:
+  "prompt": the task prompt (2-6 sentences, self-contained, with a clear \
+    function signature or spec). Do not reveal the answer.
+  "scaffold": a Python code stub for the candidate to fill in (the exact \
+    function signature from the prompt, with a TODO comment and a `pass` \
+    body — never the solution).
+  "difficulty": an integer in [1, 5].
+  "context_notes": 2-4 plain English sentences describing prerequisites and \
+    common confusions for this task."""
+
+_SEED_GEN_SCHEMA = types.Schema(
+    type=types.Type.OBJECT,
+    properties={
+        "prompt": types.Schema(type=types.Type.STRING),
+        "scaffold": types.Schema(type=types.Type.STRING),
+        "difficulty": types.Schema(type=types.Type.INTEGER),
+        "context_notes": types.Schema(type=types.Type.STRING),
+    },
+    required=["prompt", "difficulty"],
+)
+
 
 def _scaffold_for(prompt: str, original_task: dict | None) -> str | None:
     """Derive a fill-in stub when the model omits ``scaffold``.
@@ -169,20 +233,69 @@ class TaskDecomposer:
 
     def describe_task(self, prompt: str) -> str:
         """Return 2-4 plain sentences of task context, or "" on any failure."""
+        try:
+            return self.describe_and_categorize(prompt).get("context_notes", "")
+        except Exception:
+            return ""
+
+    def categorize_task(self, prompt: str) -> dict:
+        """Return ``{primary, secondary}`` tags for a prompt, or the fallback.
+
+        Deterministic fallback ``{"primary": "python", "secondary": []}`` when
+        there is no API key or the call fails.
+        """
+        try:
+            return self.describe_and_categorize(prompt).get("tags") or {
+                "primary": "python",
+                "secondary": [],
+            }
+        except Exception:
+            return {"primary": "python", "secondary": []}
+
+    def describe_and_categorize(self, prompt: str) -> dict:
+        """Combined context-notes + tag categorization (ONE LLM call).
+
+        Returns ``{"context_notes": str, "tags": {primary, secondary}}``.
+        Without an API key or on any failure, returns
+        ``{"context_notes": "", "tags": {"primary": "python", "secondary": []}}``
+        so task creation stays hermetic.
+        """
         import os
 
+        from coach.taxonomy import validate as validate_tags
+
+        fallback = {"context_notes": "", "tags": {"primary": "python", "secondary": []}}
         if not os.getenv("GOOGLE_API_KEY"):
-            return ""
+            return dict(fallback)
+        raw = ""
         try:
             client = self._client()
             resp = client.models.generate_content(
                 model=self._model,
                 contents=f"Task:\n{prompt}",
-                config={"system_instruction": _CONTEXT_SYSTEM_PROMPT},
+                config={
+                    "system_instruction": _CATEGORIZE_SYSTEM_PROMPT,
+                    "response_mime_type": "application/json",
+                    "response_schema": _COMBINED_SCHEMA,
+                },
             )
-            return (resp.text or "").strip()[:1000]
+            raw = getattr(resp, "text", "") or ""
+            payload = json.loads(raw)
+            notes = str(payload.get("context_notes") or "").strip()[:1000]
+            primary = payload.get("primary_tag")
+            secondary = payload.get("secondary_tag") or []
+            if not isinstance(secondary, list):
+                secondary = []
+            # LLM output is sanitized, not silently trusted: invalid secondary
+            # tags are dropped (a strict rejection would nuke the whole call).
+            from coach.taxonomy import FAMILIES, normalize_tag
+
+            secondary = [t for t in (normalize_tag(s) for s in secondary) if t and t not in FAMILIES][:2]
+            tags = validate_tags({"primary": primary or "python", "secondary": secondary})
+            return {"context_notes": notes, "tags": tags}
         except Exception:
-            return ""
+            logger.warning("[categorize] fallback used after failure (%s)", raw[:200])
+            return dict(fallback)
 
     # -- judge-driven follow-up generation -------------------------------
 
@@ -278,6 +391,7 @@ class TaskDecomposer:
                 kind=mode, parent_task_id=(original_task or {}).get("id"),
                 root_task_id=(original_task or {}).get("root_task_id") or (original_task or {}).get("id"),
                 root_difficulty=(original_task or {}).get("root_difficulty", orig_diff),
+                tags=(original_task or {}).get("tags"),
             )
         except Exception as exc:
             logger.exception(
@@ -290,11 +404,21 @@ class TaskDecomposer:
                 f"raw response: {raw[:2000]!r}"
             ) from exc
 
-    def generate_challenge_task(self, difficulty: int, avoid_text: str = "") -> dict:
+    def generate_challenge_task(
+        self,
+        difficulty: int,
+        avoid_text: str = "",
+        prefer_family: str = "",
+        prefer_tag: str = "",
+        tags: dict | None = None,
+    ) -> dict:
         """Generate a fresh adaptive task keeping an open-ended session going.
 
         Used when the task bank is exhausted: picks an important skill at the
         requested difficulty, avoiding recently-drilled gaps in ``avoid_text``.
+        ``prefer_family``/``prefer_tag`` steer the generated task toward an
+        under-explored area (scope widening, §5). ``tags`` are attached as-is
+        (defaults to ``prefer_tag`` as primary when provided).
         Same raise-on-failure contract as ``generate_followup_task``.
         """
         import os
@@ -309,6 +433,10 @@ class TaskDecomposer:
         try:
             client = self._client()
             body = f"Desired difficulty (1-5): {difficulty}\n"
+            if prefer_tag:
+                body += f"Target fine tag: {prefer_tag}\n"
+            elif prefer_family:
+                body += f"Target family: {prefer_family}\n"
             if avoid_text and avoid_text.strip():
                 body += f"\nRecently drilled gaps to avoid repeating:\n{avoid_text.strip()[:1500]}\n"
             body += (
@@ -334,7 +462,10 @@ class TaskDecomposer:
             llm_difficulty = int(payload.get("difficulty", difficulty))
             difficulty = max(1, min(5, llm_difficulty or difficulty))
             scaffold = str(payload.get("scaffold") or "").strip() or _scaffold_for(prompt, None)
-            task = self._build(task_id, difficulty, prompt, "open-ended challenge", scaffold, kind="challenge")
+            task = self._build(
+                task_id, difficulty, prompt, "open-ended challenge", scaffold,
+                kind="challenge", tags=tags or ({"primary": prefer_tag} if prefer_tag else None),
+            )
             task["target_text"] = ""
             return task
         except Exception as exc:
@@ -342,6 +473,72 @@ class TaskDecomposer:
             logger.error("[challenge] raw model response: %r", raw[:2000])
             raise RuntimeError(
                 f"Challenge generation failed: {type(exc).__name__}: {exc}; "
+                f"raw response: {raw[:2000]!r}"
+            ) from exc
+
+    def generate_seed_task_for_tag(self, tag: str, difficulty: int = 2) -> dict:
+        """Generate a self-contained code task for an exact tag (LLM).
+
+        Used by ``python -m coach.seed_bank --fill-gaps`` to mint tasks for
+        tags with zero/lowest seed coverage. The tag is pre-attached as the
+        primary tag. Returns a SeedTask-shaped dict
+        (``prompt/scaffold/difficulty/max_score/hints/tags/task_type/context_notes``).
+
+        Raises ``RuntimeError`` when the API key is missing or generation
+        fails (the CLI surfaces the error and moves on).
+        """
+        import os
+
+        from coach.taxonomy import validate as validate_tags
+
+        difficulty = max(1, min(5, int(difficulty)))
+        if not os.getenv("GOOGLE_API_KEY"):
+            reason = "missing GOOGLE_API_KEY"
+            logger.error("[seed-gen] %s, cannot generate task for tag=%s", reason, tag)
+            raise RuntimeError(f"Seed task generation failed: {reason}")
+        raw = ""
+        try:
+            client = self._client()
+            body = (
+                f"Target tag: {tag}\n"
+                f"Desired difficulty (1-5): {difficulty}\n"
+                "Create ONE coding task that directly tests this tag, "
+                "self-contained with a clear function signature, plus a "
+                "'scaffold' Python stub (TODO + pass, no solution) and "
+                "2-4 sentences of 'context_notes'. Do not reveal the answer."
+            )
+            resp = client.models.generate_content(
+                model=self._model,
+                contents=body,
+                config={
+                    "system_instruction": _SEED_GEN_SYSTEM_PROMPT,
+                    "response_mime_type": "application/json",
+                    "response_schema": _SEED_GEN_SCHEMA,
+                },
+            )
+            raw = getattr(resp, "text", "") or ""
+            payload = json.loads(raw)
+            prompt = str(payload.get("prompt") or "").strip()
+            if not prompt:
+                raise ValueError(f"empty seed prompt in model response: {raw[:2000]!r}")
+            llm_difficulty = int(payload.get("difficulty", difficulty))
+            difficulty = max(1, min(5, llm_difficulty or difficulty))
+            scaffold = str(payload.get("scaffold") or "").strip() or _scaffold_for(prompt, None)
+            return {
+                "prompt": prompt,
+                "scaffold": scaffold,
+                "difficulty": difficulty,
+                "max_score": 5,
+                "hints": [],
+                "tags": validate_tags({"primary": tag, "secondary": []}),
+                "task_type": "implement",
+                "context_notes": str(payload.get("context_notes") or "").strip()[:2000],
+            }
+        except Exception as exc:
+            logger.exception("[seed-gen] LLM generation failed (%s: %s)", type(exc).__name__, exc)
+            logger.error("[seed-gen] raw model response: %r", raw[:2000])
+            raise RuntimeError(
+                f"Seed task generation failed: {type(exc).__name__}: {exc}; "
                 f"raw response: {raw[:2000]!r}"
             ) from exc
 
@@ -356,6 +553,7 @@ class TaskDecomposer:
         parent_task_id: str | None = None,
         root_task_id: str | None = None,
         root_difficulty: int | None = None,
+        tags: dict | None = None,
     ) -> dict:
         task: dict = {
             "id": task_id,
@@ -369,6 +567,13 @@ class TaskDecomposer:
             "target_text": target_text,
             "context_notes": "",
         }
+        if tags:
+            from coach.taxonomy import validate as validate_tags
+
+            try:
+                task["tags"] = validate_tags(tags)
+            except Exception:
+                task["tags"] = {"primary": "python", "secondary": []}
         if parent_task_id:
             task["parent_task_id"] = parent_task_id
         if root_task_id:

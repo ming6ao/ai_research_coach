@@ -49,6 +49,14 @@ def list_tables(user: dict = Depends(_require_admin)):
     return {"tables": _list_tables()}
 
 
+@admin_router.get("/coverage", summary="Seed + per-candidate coverage report")
+def coverage_report_endpoint(user: dict = Depends(_require_admin)):
+    """Per-family/per-tag seed coverage + per-candidate asked counts."""
+    from coach.seed_bank import coverage_report
+
+    return {"data": coverage_report()}
+
+
 @admin_router.get("/table/{table_name}")
 def get_table_rows(
     table_name: str,

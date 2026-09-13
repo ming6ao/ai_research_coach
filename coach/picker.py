@@ -2,7 +2,9 @@
 
 Selects the next question to maximize expected information gain (posterior
 variance reduction of the overall ability belief) per unit of expected
-assessment time.
+assessment time, plus small, well-calibrated exploration bonuses layered on
+top so the picker widens coverage into under-explored families/tags without
+ever replacing the EIG signal (design doc §5).
 
 The session is open-ended: when the bank is exhausted, ``coach.selection``
 mints a fresh adaptive challenge task instead of ending (the user exits
@@ -15,6 +17,7 @@ import random
 
 from coach.session import Session
 from coach.score import expected_variance_reduction, measurement_variance
+from coach.taxonomy import FAMILIES, family_of
 
 
 # Static expected-time model (minutes) used as the cost of a question.
@@ -22,6 +25,17 @@ TIME_BASE_MIN = 4.0
 TIME_PER_DIFFICULTY = 1.2
 TIME_PER_100_WORDS = 1.0
 TIME_NO_SCAFFOLD_EXTRA = 0.5
+
+# Exploration weights (unit-consistent with EIG_global/time ~ 0.005-0.015).
+# They must stay well below the EIG term so exploration is a genuine
+# tiebreaker, never a replacement (§5).
+LAMBDA_FAMILY = 0.004
+LAMBDA_TAG = 0.001
+
+# Soft breadth penalty: applied to a candidate task whose primary family
+# equals the previously asked task's family. Soft, so it can never remove
+# the last viable bank task (no deadlock).
+BREADTH_PENALTY = 0.010
 
 
 def next_task(session: Session, sample_top_n: Optional[int] = None) -> Optional[dict]:
@@ -52,8 +66,13 @@ def next_task(session: Session, sample_top_n: Optional[int] = None) -> Optional[
     return scored[0][1]
 
 
+def _explore(attempts: int) -> float:
+    """Exploration bonus for a family/tag with `attempts` observations."""
+    return 1.0 / (1.0 + max(0, int(attempts)))
+
+
 def _utility(task: dict, session: Session) -> float:
-    """Utility = expected variance reduction / cost."""
+    """Utility = EIG/time + exploration bonuses - soft breadth penalty."""
     state = session.get_ability()
 
     obs_variance = measurement_variance(task.get("difficulty", 1), state.score)
@@ -61,7 +80,31 @@ def _utility(task: dict, session: Session) -> float:
 
     cost = expected_time(task)
 
-    return information / cost
+    eig = information / cost
+
+    tags = task.get("tags") or {}
+    primary = tags.get("primary")
+    fam = family_of(primary)
+
+    explore = 0.0
+    if fam:
+        explore += LAMBDA_FAMILY * _explore(
+            session.get_family_state(fam).questions_answered
+        )
+    # Only real fine tags feed the tag-level term; a family used as the
+    # primary (fallback "python") already counts via the family term.
+    if primary and primary not in FAMILIES:
+        explore += LAMBDA_TAG * _explore(
+            session.get_tag_state(primary).questions_answered
+        )
+
+    utility = eig + explore
+
+    prev_fam = session.previous_family()
+    if fam and prev_fam and fam == prev_fam:
+        utility -= BREADTH_PENALTY
+
+    return utility
 
 
 def expected_time(task: dict) -> float:

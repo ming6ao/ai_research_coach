@@ -116,7 +116,7 @@ def test_task_owner_delete_cascades_attempts(client):
 
     record_attempt("carol@x.com", task["id"], 1.0, 5, 5, [])
 
-    listed = client.get("/api/v1/tasks", headers=_h(token)).json()["data"]
+    listed = client.get("/api/v1/tasks?page_size=100", headers=_h(token)).json()["data"]
     assert any(t["id"] == task["id"] for t in listed)
 
     res = client.delete(f"/api/v1/tasks/{task['id']}", headers=_h(token))

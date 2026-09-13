@@ -39,16 +39,80 @@ def _ability_dict(session) -> dict:
     }
 
 
+def _mastery_dict(session) -> dict:
+    """Read-time shrunk mastery block (global + families + tags)."""
+    from coach.area_score import AreaState, area_report_dict
+
+    ability = session.get_ability()
+    global_state = AreaState(
+        mean=ability.score,
+        variance=ability.variance,
+        questions_answered=ability.questions_answered,
+    )
+    return area_report_dict(global_state, session.family_states, session.tag_states)
+
+
+def _save_area_beliefs(session) -> None:
+    """Persist per-family and per-tag sufficient statistics (best-effort)."""
+    try:
+        from coach.tasks import save_area_belief
+
+        for fam, st in session.family_states.items():
+            save_area_belief(
+                session.candidate, "family", fam, st.mean, st.variance, st.questions_answered
+            )
+        for tag, st in session.tag_states.items():
+            save_area_belief(
+                session.candidate, "tag", tag, st.mean, st.variance, st.questions_answered
+            )
+    except Exception:
+        pass
+
+
+_COMBINED_CACHE: dict[str, tuple[str, dict]] = {}
+_COMBINED_CACHE_MAX = 1000
+
+
+def _describe_and_categorize(prompt: str) -> tuple[str, dict]:
+    """One combined context-notes + tag-categorization call per prompt.
+
+    The result is cached per request so ``_describe_context`` and
+    ``_categorize_tags`` never trigger a second LLM round-trip for the same
+    task (§6: task creation uses a single Gemini call).
+    """
+    key = (prompt or "").strip()
+    if key in _COMBINED_CACHE:
+        return _COMBINED_CACHE[key]
+    notes = ""
+    tags = {"primary": "python", "secondary": []}
+    try:
+        from coach.task_decomposer import TaskDecomposer
+
+        out = TaskDecomposer().describe_and_categorize(prompt)
+        notes = out.get("context_notes") or ""
+        tags = out.get("tags") or tags
+    except Exception:
+        pass
+    if len(_COMBINED_CACHE) >= _COMBINED_CACHE_MAX:
+        _COMBINED_CACHE.clear()
+    _COMBINED_CACHE[key] = (notes, tags)
+    return _COMBINED_CACHE[key]
+
+
 def _describe_context(prompt: str, explicit: Optional[str] = None) -> str:
     """Author-supplied notes win; otherwise one best-effort LLM description."""
     if explicit is not None and explicit.strip():
         return explicit.strip()[:2000]
-    try:
-        from coach.task_decomposer import TaskDecomposer
+    notes, _tags = _describe_and_categorize(prompt)
+    return notes
 
-        return TaskDecomposer().describe_task(prompt) or ""
-    except Exception:
-        return ""
+
+def _categorize_tags(prompt: str, explicit: Optional[dict] = None) -> dict:
+    """Explicit tags win; otherwise one best-effort LLM categorization."""
+    if explicit is not None:
+        return explicit
+    _notes, tags = _describe_and_categorize(prompt)
+    return tags
 
 
 def _session_view(session_id: str, session, current_task, feedback_list=None) -> dict:
@@ -62,6 +126,7 @@ def _session_view(session_id: str, session, current_task, feedback_list=None) ->
     if feedback_list is not None:
         view["results"] = feedback_list
         view["ability"] = _ability_dict(session)
+        view["mastery"] = _mastery_dict(session)
     return view
 
 
@@ -97,6 +162,7 @@ def create_session(req: SessionCreateRequest, user: Optional[dict] = Depends(get
         from coach.tasks import create_task as _create_task
 
         prompt = req.initial_question.strip()
+        tags = _categorize_tags(prompt)
         custom_task = _create_task(
             prompt=prompt,
             owner=candidate,
@@ -106,6 +172,7 @@ def create_session(req: SessionCreateRequest, user: Optional[dict] = Depends(get
             source="user",
             is_public=is_guest,
             context_notes=_describe_context(prompt),
+            tags=tags,
         )
         session.tasks.insert(0, custom_task)
 
@@ -169,6 +236,7 @@ def submit_answer(
     from coach.score import bayesian_update, effective_score, measurement_variance
     from coach.selection import pick_next_task
     from coach.session import Session, SkillState, task_view
+    from coach.taxonomy import family_of
 
     store = get_store()
     state = store.get(session_id)
@@ -192,6 +260,7 @@ def submit_answer(
                 "next_task": pick_next_task(session.candidate, session),
                 "remaining": len(session.tasks) - session.index,
                 "ability_update": None,
+                "mastery": _mastery_dict(session),
                 "already_answered": True,
             }
         }
@@ -216,6 +285,21 @@ def submit_answer(
         evidence=state_obj.evidence + [result.rationale],
         hints_used=state_obj.hints_used + viewed,
     )
+
+    # Per-area updates: one answer updates exactly the primary tag, its
+    # family, and the global belief (§4.2). Secondary tags never feed the
+    # estimator (coverage/diversity only).
+    task_tags = task.get("tags") or {}
+    primary_tag = task_tags.get("primary")
+    family = family_of(primary_tag) if primary_tag else None
+    difficulty = task.get("difficulty", 1)
+    if primary_tag:
+        tag_state = session.get_tag_state(primary_tag)
+        session.tag_states[primary_tag] = tag_state.update(difficulty, observation)
+    if family:
+        fam_state = session.get_family_state(family)
+        session.family_states[family] = fam_state.update(difficulty, observation)
+
     try:
         from coach.tasks import record_attempt as _record_attempt
         from coach.tasks import save_skill_belief as _save_belief
@@ -228,6 +312,7 @@ def submit_answer(
             session.candidate, new_score, new_variance,
             state_obj.questions_answered + 1,
         )
+        _save_area_beliefs(session)
     except Exception:
         pass
 
@@ -240,6 +325,7 @@ def submit_answer(
         "feedback": coach.feedback,
         "coach": coach.to_dict(),
         "hints_used": viewed,
+        "tags": task.get("tags"),
         "scored": True,
     })
 
@@ -274,6 +360,7 @@ def submit_answer(
             "next_task": next_task,
             "remaining": len(session.tasks) - session.index,
             "ability_update": ability_update,
+            "mastery": _mastery_dict(session),
             "already_answered": False,
         }
     }
@@ -292,4 +379,10 @@ def complete_session(session_id: str, user: Optional[dict] = Depends(get_current
     _check_owner(session, user)
     # The row stays in active_sessions for history/resume; "done" is derived
     # from the session JSON (pick_next_task returns None).
-    return {"data": {"done": True, "ability": _ability_dict(session)}}
+    return {
+        "data": {
+            "done": True,
+            "ability": _ability_dict(session),
+            "mastery": _mastery_dict(session),
+        }
+    }

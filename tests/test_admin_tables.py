@@ -42,6 +42,13 @@ def _seed(client_admin_headers):
     return task
 
 
+def _seed_task_count():
+    """Total tasks expected in the DB: builtin catalog + the _seed() rows."""
+    from coach.seed_bank import SEED_CATALOG
+
+    return len(SEED_CATALOG) + 4
+
+
 def test_table_endpoints_require_auth(client):
     assert client.get("/admin/tables").status_code == 401
     assert client.get("/admin/table/tasks").status_code == 401
@@ -70,7 +77,7 @@ def test_whoami_and_tables_metadata(client):
     names = [t["name"] for t in res.json()["tables"]]
     assert names == ["users", "auth_tokens", "active_sessions", "tasks", "task_attempts", "user_skill_beliefs"]
     tasks_meta = next(t for t in res.json()["tables"] if t["name"] == "tasks")
-    assert tasks_meta["count"] == 4
+    assert tasks_meta["count"] == _seed_task_count()
     assert tasks_meta["pk"] == "id"
     # Sensitive password_hash must never be exposed as a column.
     users_meta = next(t for t in res.json()["tables"] if t["name"] == "users")
@@ -83,7 +90,7 @@ def test_pagination_and_search(client):
     _seed(headers)
 
     page1 = client.get("/admin/table/tasks?page=1&page_size=2", headers=headers).json()
-    assert page1["total"] == 4
+    assert page1["total"] == _seed_task_count()
     assert len(page1["rows"]) == 2
     assert page1["page"] == 1
 

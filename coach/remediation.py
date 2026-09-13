@@ -323,12 +323,19 @@ def plan_followup(
         return None
 
 
-def plan_challenge(session, planner: Optional[RemediationPlanner] = None) -> Optional[dict]:
+def plan_challenge(
+    session,
+    planner: Optional[RemediationPlanner] = None,
+    prefer_family: str = "",
+    prefer_tag: str = "",
+) -> Optional[dict]:
     """Mint a fresh adaptive task keeping an open-ended session going.
 
     Used when the bank is exhausted: difficulty tracks overall ability
-    (~80% P(solve)), avoiding recently-drilled gaps. Returns the generated
-    task (appended to ``session.tasks``) or None on budget/generation failure.
+    (~80% P(solve)), avoiding recently-drilled gaps. ``prefer_family`` /
+    ``prefer_tag`` steer generation toward an under-explored area (scope
+    widening, §5). Returns the generated task (appended to ``session.tasks``)
+    or None on budget/generation failure.
     """
     try:
         planner = planner or RemediationPlanner()
@@ -354,8 +361,13 @@ def plan_challenge(session, planner: Optional[RemediationPlanner] = None) -> Opt
                     recent.append(label[:160])
         except Exception:
             recent = []
-        generated = planner.decomposer.generate_challenge_task(
-            difficulty, avoid_text="\n".join(recent[:8]),
+        generated = _call_challenge(
+            planner.decomposer,
+            difficulty,
+            avoid_text="\n".join(recent[:8]),
+            prefer_family=prefer_family or "",
+            prefer_tag=prefer_tag or "",
+            tags=_target_tags(session, prefer_tag=prefer_tag, prefer_family=prefer_family),
         )
         session.add_generated_task(generated)
         _persist_generated_task(session, generated, None)
@@ -363,6 +375,62 @@ def plan_challenge(session, planner: Optional[RemediationPlanner] = None) -> Opt
     except Exception as exc:
         logger.exception("[challenge] plan_challenge failed (%s: %s)", type(exc).__name__, exc)
         return None
+
+
+def _call_challenge(decomposer, difficulty, avoid_text="", prefer_family="", prefer_tag="", tags=None):
+    """Call generate_challenge_task, passing only kwargs the decomposer accepts.
+
+    Keeps fake/legacy decomposers (which lack the scope-targeting kwargs)
+    working without weakening the real one.
+    """
+    import inspect
+
+    sig = inspect.signature(decomposer.generate_challenge_task)
+    params = set(sig.parameters)
+    kwargs: dict = {}
+    if "avoid_text" in params:
+        kwargs["avoid_text"] = avoid_text
+    if "prefer_family" in params:
+        kwargs["prefer_family"] = prefer_family
+    if "prefer_tag" in params:
+        kwargs["prefer_tag"] = prefer_tag
+    if "tags" in params:
+        kwargs["tags"] = tags
+    return decomposer.generate_challenge_task(difficulty, **kwargs)
+
+
+def _target_tags(session, prefer_tag: str = "", prefer_family: str = "") -> dict | None:
+    """Tags for a scope-widening challenge: prefer_tag primary, else family."""
+    if prefer_tag:
+        return {"primary": prefer_tag, "secondary": []}
+    if prefer_family:
+        return {"primary": prefer_family, "secondary": []}
+    return None
+
+
+def least_covered(session) -> tuple[str, str]:
+    """Least-covered (family, tag) from in-session attempt counts (§5).
+
+    Returns the tag with the fewest in-session observations (ties broken by
+    family coverage then lexicographic order) and its family. Used to steer
+    tag-directed generation when the bank has no eligible task.
+    """
+    from coach.taxonomy import ALL_TAGS, FAMILIES
+
+    try:
+        by_family = {
+            fam: session.get_family_state(fam).questions_answered for fam in FAMILIES
+        }
+        best_family = min(FAMILIES, key=lambda f: (by_family[f], f))
+        candidates = [t for t in ALL_TAGS if t in best_family]
+        if not candidates:
+            candidates = ALL_TAGS
+        best_tag = min(
+            candidates, key=lambda t: (session.get_tag_state(t).questions_answered, t)
+        )
+        return best_family, best_tag
+    except Exception:
+        return "python", "python"
 
 
 def _persist_generated_task(session, generated: dict, parent_task: dict | None) -> None:
@@ -379,6 +447,7 @@ def _persist_generated_task(session, generated: dict, parent_task: dict | None) 
             max_score=generated.get("max_score", 5),
             hints=generated.get("hints", []),
             context_notes="",
+            tags=generated.get("tags"),
             source="generated",
             parent_task_id=(parent_task or {}).get("id") or generated.get("parent_task_id"),
             target_text=generated.get("target_text"),

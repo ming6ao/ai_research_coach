@@ -153,12 +153,21 @@ def learner_engine():
 
 
 def _migrate_skill_beliefs_to_ability(conn) -> None:
-    """Collapse legacy per-skill belief rows to one overall-ability row.
+    """Migrate legacy per-skill beliefs to the hierarchical (level, key) rows.
 
     Old DBs hold one ``user_skill_beliefs`` row per (candidate, skill).
-    The fresh design keeps a single row per candidate, so keep the row with
-    the most answered questions per candidate and delete the rest. Also
-    drops the ``skill`` column when present so fresh ORM writes converge.
+    The fresh design stores one row per ``(candidate, level, key)``:
+
+    - Rows whose legacy ``skill`` name matches a known family are kept as
+      ``('family', <name>)``.
+    - Remaining legacy per-skill rows collapse to one ``('global', 'overall')``
+      row per candidate (keep the row with the most answered questions).
+    - Rows without a legacy skill (already overall) become
+      ``('global', 'overall')``.
+    - Duplicate ``(candidate, level, key)`` rows collapse keeping the most
+      answered, then a unique index is created (SQLite cannot add a UNIQUE
+      constraint via ``ALTER TABLE``).
+
     Best-effort: failures are swallowed so startup never breaks.
     """
     try:
@@ -167,26 +176,83 @@ def _migrate_skill_beliefs_to_ability(conn) -> None:
         return
     if not cols:
         return
-    if "skill" not in cols:
-        return
     try:
-        rows = conn.exec_driver_sql(
-            "SELECT id, candidate FROM user_skill_beliefs ORDER BY questions_answered DESC"
-        ).fetchall()
-        seen: set[str] = set()
-        for row_id, candidate in rows:
-            if candidate in seen:
-                conn.exec_driver_sql(
-                    "DELETE FROM user_skill_beliefs WHERE id = ?", (row_id,)
-                )
-            else:
-                seen.add(candidate)
-        cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(user_skill_beliefs)").fetchall()]
+        from coach.taxonomy import FAMILIES
+
+        if "level" not in cols:
+            conn.exec_driver_sql(
+                "ALTER TABLE user_skill_beliefs ADD COLUMN level TEXT DEFAULT 'global'"
+            )
+        if "key" not in cols:
+            conn.exec_driver_sql(
+                "ALTER TABLE user_skill_beliefs ADD COLUMN key TEXT DEFAULT 'overall'"
+            )
+
         if "skill" in cols:
+            # Partition rows by their legacy skill value.
+            rows = conn.exec_driver_sql(
+                "SELECT id, candidate, skill, questions_answered FROM user_skill_beliefs"
+            ).fetchall()
+            families = set(FAMILIES)
+            keep_ids: set[str] = set()
+            per_candidate: dict[str, tuple[str, int]] = {}
+            for row_id, candidate, skill, qa in rows:
+                qa = qa or 0
+                if skill and str(skill).strip() in families:
+                    keep_ids.add(row_id)
+                    conn.exec_driver_sql(
+                        "UPDATE user_skill_beliefs SET level = 'family', key = ? WHERE id = ?",
+                        (str(skill).strip(), row_id),
+                    )
+                else:
+                    cur = per_candidate.get(candidate)
+                    if cur is None or qa > cur[1]:
+                        per_candidate[candidate] = (row_id, qa)
+            for candidate, (keep_id, _qa) in per_candidate.items():
+                conn.exec_driver_sql(
+                    "UPDATE user_skill_beliefs SET level = 'global', key = 'overall' WHERE id = ?",
+                    (keep_id,),
+                )
+                keep_ids.add(keep_id)
+            # Delete every remaining junk row (keep global + family rows only).
+            for (row_id,) in conn.exec_driver_sql("SELECT id FROM user_skill_beliefs").fetchall():
+                if row_id not in keep_ids:
+                    conn.exec_driver_sql(
+                        "DELETE FROM user_skill_beliefs WHERE id = ?", (row_id,)
+                    )
             try:
                 conn.exec_driver_sql("ALTER TABLE user_skill_beliefs DROP COLUMN skill")
             except Exception:
                 pass
+        else:
+            # No legacy skill column: normalize NULL/empty level/key values.
+            conn.exec_driver_sql(
+                "UPDATE user_skill_beliefs SET level = 'global' WHERE level IS NULL OR level = ''"
+            )
+            conn.exec_driver_sql(
+                "UPDATE user_skill_beliefs SET key = 'overall' WHERE key IS NULL OR key = ''"
+            )
+
+        # Collapse any duplicate (candidate, level, key) rows (most answered wins).
+        dup_rows = conn.exec_driver_sql(
+            "SELECT candidate, level, key FROM user_skill_beliefs "
+            "GROUP BY candidate, level, key HAVING COUNT(*) > 1"
+        ).fetchall()
+        for candidate, level, key in dup_rows:
+            best = conn.exec_driver_sql(
+                "SELECT id FROM user_skill_beliefs WHERE candidate = ? AND level = ? AND key = ? "
+                "ORDER BY questions_answered DESC, updated_at DESC LIMIT 1",
+                (candidate, level, key),
+            ).fetchone()
+            if best:
+                conn.exec_driver_sql(
+                    "DELETE FROM user_skill_beliefs WHERE candidate = ? AND level = ? AND key = ? AND id != ?",
+                    (candidate, level, key, best[0]),
+                )
+        conn.exec_driver_sql(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_skill_beliefs "
+            "ON user_skill_beliefs (candidate, level, key)"
+        )
     except Exception:
         pass
 
@@ -229,10 +295,25 @@ def create_schema():
                 conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN context_notes TEXT DEFAULT ''")
             if "target_text" not in cols:
                 conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN target_text TEXT")
+            if "tags_json" not in cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE tasks ADD COLUMN tags_json TEXT DEFAULT "
+                    "'{\"primary\": \"python\", \"secondary\": []}'"
+                )
+            if "task_type" not in cols:
+                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'implement'")
         except Exception:
             pass
+    # Seed the builtin question bank (idempotent, hermetic: no network/model
+    # calls). Runs once per DB file; failures never break startup.
     with _schema_lock:
         _schema_done.add(key)
+    try:
+        from coach.seed_bank import seed_question_bank
+
+        seed_question_bank()
+    except Exception:
+        pass
     return engine
 
 

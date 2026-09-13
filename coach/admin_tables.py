@@ -80,6 +80,8 @@ TABLE_REGISTRY: dict[str, dict[str, Any]] = {
             {"name": "max_score", "kind": "number", "searchable": False, "editable": True},
             {"name": "hints_json", "kind": "json", "searchable": False, "editable": True},
             {"name": "context_notes", "kind": "text", "searchable": True, "editable": True},
+            {"name": "tags_json", "kind": "json", "searchable": False, "editable": True},
+            {"name": "task_type", "kind": "text", "searchable": False, "editable": True},
             {"name": "source", "kind": "text", "searchable": False, "editable": False},
             {"name": "parent_task_id", "kind": "text", "searchable": False, "editable": False},
             {"name": "target_text", "kind": "text", "searchable": False, "editable": False},
@@ -107,6 +109,8 @@ TABLE_REGISTRY: dict[str, dict[str, Any]] = {
         "columns": [
             {"name": "id", "kind": "text", "searchable": False, "editable": False},
             {"name": "candidate", "kind": "text", "searchable": True, "editable": False},
+            {"name": "level", "kind": "text", "searchable": False, "editable": False},
+            {"name": "key", "kind": "text", "searchable": False, "editable": False},
             {"name": "mean", "kind": "number", "searchable": False, "editable": True},
             {"name": "variance", "kind": "number", "searchable": False, "editable": True},
             {"name": "questions_answered", "kind": "number", "searchable": False, "editable": True},
@@ -267,6 +271,7 @@ def _orm_to_list_dict(name: str, m) -> dict[str, Any]:
         d = task_to_dict(m)
         # task_to_dict nests hints; expose the raw JSON + flat scalars for the grid.
         d["hints_json"] = _preview(m.hints_json or "[]")
+        d["tags_json"] = _preview(m.tags_json or "{}")
         d["created_at"] = m.created_at.isoformat() if m.created_at else None
         for k in ("prompt", "scaffold", "context_notes", "target_text"):
             if isinstance(d.get(k), str):
@@ -286,6 +291,8 @@ def _orm_to_list_dict(name: str, m) -> dict[str, Any]:
     return {
         "id": m.id,
         "candidate": m.candidate,
+        "level": m.level,
+        "key": m.key,
         "mean": m.mean,
         "variance": m.variance,
         "questions_answered": m.questions_answered,
@@ -300,6 +307,7 @@ def _orm_to_full_dict(name: str, m) -> dict[str, Any]:
         d["scaffold"] = m.scaffold
         d["context_notes"] = m.context_notes or ""
         d["hints_json"] = m.hints_json or "[]"
+        d["tags_json"] = m.tags_json or "{}"
         d["target_text"] = m.target_text
     if name == "task_attempts":
         d["hints_used_json"] = m.hints_used_json or "[]"
@@ -458,6 +466,25 @@ def _update_task(task_id: str, fields: dict[str, Any]) -> Optional[dict[str, Any
             m.hints_json = json.dumps(parsed)
         if "context_notes" in fields:
             m.context_notes = str(fields["context_notes"] or "").strip()[:2000]
+        if "tags_json" in fields:
+            from coach.taxonomy import validate as validate_tags
+
+            raw = fields["tags_json"]
+            if isinstance(raw, str):
+                try:
+                    raw = json.loads(raw)
+                except Exception:
+                    raise ValueError("tags_json must be valid JSON.")
+            try:
+                m.tags_json = json.dumps(validate_tags(raw))
+            except ValueError as e:
+                raise ValueError(str(e))
+        if "task_type" in fields:
+            from coach.taxonomy import TASK_TYPES
+
+            if fields["task_type"] not in TASK_TYPES:
+                raise ValueError(f"task_type must be one of {TASK_TYPES}.")
+            m.task_type = fields["task_type"]
         if "is_public" in fields:
             v = fields["is_public"]
             m.is_public = 1 if v in (True, 1, "1", "true", "True") else 0

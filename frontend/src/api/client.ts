@@ -8,6 +8,11 @@ export interface Hint {
   pre_revealed: boolean;
 }
 
+export interface TaskTags {
+  primary: string;
+  secondary: string[];
+}
+
 export interface Task {
   id: string;
   type: 'code';
@@ -16,6 +21,8 @@ export interface Task {
   scaffold?: string;
   hints?: Hint[];
   context_notes?: string;
+  tags?: TaskTags;
+  task_type?: string;
   remediation?: { focus?: string; kind?: string; root_task_id?: string };
 }
 
@@ -51,6 +58,19 @@ export interface AbilityState {
   questions_answered: number;
 }
 
+export interface MasteryEntry {
+  score: number;
+  confidence: number;
+  questions_answered: number;
+  family?: string;
+}
+
+export interface MasteryBlock {
+  global: MasteryEntry;
+  families: Record<string, MasteryEntry>;
+  tags: Record<string, MasteryEntry>;
+}
+
 export interface StartResponse {
   id: string;
   candidate: string;
@@ -65,12 +85,14 @@ export interface SubmitResponse {
   next_task: Task | null;
   remaining: number;
   ability_update: AbilityUpdate | null;
+  mastery?: MasteryBlock;
   already_answered: boolean;
 }
 
 export interface CompleteResponse {
   done: boolean;
   ability: AbilityState;
+  mastery?: MasteryBlock;
 }
 
 export interface ResumeResponse {
@@ -81,6 +103,7 @@ export interface ResumeResponse {
   current_task: Task | null;
   results: FeedbackEntry[];
   ability: AbilityState;
+  mastery?: MasteryBlock;
 }
 
 export interface FeedbackEntry {
@@ -92,6 +115,7 @@ export interface FeedbackEntry {
   feedback: string;
   coach?: CoachContent;
   hints_used?: string[];
+  tags?: TaskTags;
 }
 
 export interface UnifiedSession {
@@ -222,6 +246,25 @@ export interface AdminWhoami {
   is_admin: boolean;
 }
 
+export interface CoverageEntryInfo {
+  seed_tasks: string[];
+  asked_total: number;
+  candidates: Record<string, number>;
+}
+
+export interface CoverageFamilyInfo extends CoverageEntryInfo {
+  tags: string[];
+}
+
+export interface CoverageTagInfo extends CoverageEntryInfo {
+  family: string | null;
+}
+
+export interface AdminCoverageReport {
+  families: Record<string, CoverageFamilyInfo>;
+  tags: Record<string, CoverageTagInfo>;
+}
+
 export interface AdminTableQuery {
   page?: number;
   page_size?: number;
@@ -299,6 +342,11 @@ export const apiClient = {
 
   adminTables: () =>
     adminApi<{ tables: AdminTableMeta[] }>('/tables', undefined, 'GET'),
+
+  adminCoverage: () =>
+    adminApi<{ data: AdminCoverageReport }>('/coverage', undefined, 'GET').then(
+      (r) => r.data,
+    ),
 
   adminTableRows: (table: string, query: AdminTableQuery = {}) =>
     adminApi<AdminTablePage>(`/table/${encodeURIComponent(table)}${buildAdminTableQuery(query)}`, undefined, 'GET'),

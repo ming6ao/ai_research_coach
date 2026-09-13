@@ -35,6 +35,8 @@ class TaskCreateRequest(BaseModel):
     hints: list[dict[str, Any]] = Field(default_factory=list)
     is_public: bool = False
     context_notes: Optional[str] = Field(default=None, max_length=2000)
+    tags: Optional[dict[str, Any]] = None
+    task_type: Optional[str] = Field(default=None, max_length=32)
 
 
 class TaskPatchRequest(BaseModel):
@@ -45,3 +47,5 @@ class TaskPatchRequest(BaseModel):
     hints: Optional[list[dict[str, Any]]] = None
     is_public: Optional[bool] = None
     context_notes: Optional[str] = Field(default=None, max_length=2000)
+    tags: Optional[dict[str, Any]] = None
+    task_type: Optional[str] = Field(default=None, max_length=32)

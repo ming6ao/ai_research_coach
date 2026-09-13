@@ -61,11 +61,15 @@ def pick_next_task(
         return task_view(nxt, session)
 
     # 4. Bank exhausted -> mint a fresh adaptive challenge so the session
-    # keeps going indefinitely (user exits explicitly via Finish).
+    # keeps going indefinitely (user exits explicitly via Finish). Steer it
+    # toward the least-covered family/tag so scope keeps widening (§5).
     try:
-        from coach.remediation import plan_challenge
+        from coach.remediation import least_covered, plan_challenge
 
-        challenge = plan_challenge(session)
+        prefer_family, prefer_tag = least_covered(session)
+        challenge = plan_challenge(
+            session, prefer_family=prefer_family, prefer_tag=prefer_tag
+        )
         if challenge is not None:
             return task_view(challenge, session)
     except Exception:
