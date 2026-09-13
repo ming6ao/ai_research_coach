@@ -111,6 +111,24 @@ def test_share_is_anonymous_and_strips_answers(client):
     assert step["user_answer"] == ""
 
 
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        ({"X-Guest-Id": "sharer-guest-0001", "Origin": "http://localhost:5173"}, "http://localhost:5173/shared/"),
+        ({"X-Guest-Id": "sharer-guest-0001"}, "/shared/"),
+    ],
+)
+def test_share_url_is_absolute_from_origin_else_relative(client, monkeypatch, headers, expected):
+    monkeypatch.delenv("FRONTEND_URL", raising=False)
+    started = _start(client, headers=headers)
+    task = started["current_task"]
+    _answer(client, started["id"], task["id"], headers=headers)
+
+    share = _share(client, started["id"], headers=headers)
+    assert share["url"].startswith(expected)
+    assert share["token"] in share["url"]
+
+
 def test_resume_is_copy_on_write_and_keeps_candidates_isolated(client):
     a_headers = {"X-Guest-Id": "sharer-guest-0001"}
     b_headers = {"X-Guest-Id": "resumer-guest-0002"}

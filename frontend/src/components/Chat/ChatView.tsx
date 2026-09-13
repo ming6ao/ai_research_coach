@@ -186,7 +186,7 @@ export function ChatView() {
     setShareState('copying');
     try {
       const share = await apiClient.shareSession(sessionId);
-      await navigator.clipboard.writeText(share.url);
+      await navigator.clipboard.writeText(new URL(share.url, window.location.origin).toString());
       setShareState('copied');
     } catch {
       setShareState('error');

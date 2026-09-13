@@ -494,6 +494,7 @@ def complete_session(session_id: str, user: Optional[dict] = Depends(get_current
 def share_session(
     session_id: str,
     req: ShareRequest,
+    request: Request,
     user: Optional[dict] = Depends(get_current_user),
 ):
     from coach.session import Session
@@ -514,7 +515,11 @@ def share_session(
     token = create_share(session_id, boundary, snapshot, session.candidate)
 
     frontend_url = os.getenv("FRONTEND_URL", "").rstrip("/")
-    url = f"{frontend_url}/shared/{token}"
+    if not frontend_url:
+        origin = request.headers.get("origin", "").strip().rstrip("/")
+        if origin and origin.lower() != "null":
+            frontend_url = origin
+    url = f"{frontend_url}/shared/{token}" if frontend_url else f"/shared/{token}"
     return {"data": {"token": token, "url": url, "step_index": boundary}}
 
 
