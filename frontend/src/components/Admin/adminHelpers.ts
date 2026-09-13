@@ -26,6 +26,21 @@ export function maskSensitive(table: string, column: string, value: unknown): st
   return truncateCell(value);
 }
 
+/** Color-coded badge classes for task provenance (the ``source`` column). */
+export function sourceBadgeClasses(value: unknown): string {
+  const v = String(value ?? '');
+  const palette: Record<string, string> = {
+    seed: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500',
+    seed_llm: 'border-sky-500/40 bg-sky-500/10 text-sky-500',
+    generated: 'border-amber-500/40 bg-amber-500/10 text-amber-500',
+    user: 'border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-500',
+  };
+  const cls =
+    palette[v] ??
+    'border-[var(--color-border-default)] bg-[var(--color-bg-tertiary)]/60 text-[var(--color-text-muted)]';
+  return `inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${cls}`;
+}
+
 export function totalPages(total: number, pageSize: number): number {
   if (pageSize <= 0) return 0;
   return Math.max(1, Math.ceil(total / pageSize));

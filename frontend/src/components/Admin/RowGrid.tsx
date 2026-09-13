@@ -1,5 +1,5 @@
 import type { AdminTableMeta, AdminTableQuery } from '../../api/client';
-import { maskSensitive, truncateCell } from './adminHelpers';
+import { maskSensitive, sourceBadgeClasses, truncateCell } from './adminHelpers';
 
 interface Props {
   meta: AdminTableMeta | null;
@@ -69,9 +69,15 @@ export function RowGrid({
                     className="max-w-64 truncate border-b border-[var(--color-border-default)] px-2 py-1.5 text-[var(--color-text-secondary)]"
                     title={truncateCell(row[c.name], 500)}
                   >
-                    {c.sensitive
-                      ? maskSensitive(activeTable, c.name, row[c.name])
-                      : truncateCell(row[c.name])}
+                    {c.name === 'source' ? (
+                      <span className={sourceBadgeClasses(row[c.name])}>
+                        {String(row[c.name] ?? '')}
+                      </span>
+                    ) : c.sensitive ? (
+                      maskSensitive(activeTable, c.name, row[c.name])
+                    ) : (
+                      truncateCell(row[c.name])
+                    )}
                   </td>
                 ))}
                 <td className="border-b border-[var(--color-border-default)] px-2 py-1.5">

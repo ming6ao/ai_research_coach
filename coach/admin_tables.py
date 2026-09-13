@@ -75,6 +75,7 @@ TABLE_REGISTRY: dict[str, dict[str, Any]] = {
         "default_sort": "created_at",
         "columns": [
             {"name": "id", "kind": "text", "searchable": True, "editable": False},
+            {"name": "source", "kind": "text", "searchable": True, "editable": False},
             {"name": "owner", "kind": "text", "searchable": True, "editable": False},
             {"name": "prompt", "kind": "text", "searchable": True, "editable": True},
             {"name": "scaffold", "kind": "text", "searchable": False, "editable": True},
@@ -84,7 +85,6 @@ TABLE_REGISTRY: dict[str, dict[str, Any]] = {
             {"name": "context_notes", "kind": "text", "searchable": True, "editable": True},
             {"name": "tags_json", "kind": "json", "searchable": False, "editable": True},
             {"name": "task_type", "kind": "text", "searchable": False, "editable": True},
-            {"name": "source", "kind": "text", "searchable": False, "editable": False},
             {"name": "parent_task_id", "kind": "text", "searchable": False, "editable": False},
             {"name": "target_text", "kind": "text", "searchable": False, "editable": False},
             {"name": "is_public", "kind": "bool", "searchable": False, "editable": True},

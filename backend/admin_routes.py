@@ -134,6 +134,38 @@ def delete_table_row(table_name: str, row_id: str, user: dict = Depends(_require
     return {"ok": True, "table": table_name, "row_id": row_id, **result}
 
 
+@admin_router.get("/stale-seeds/preview")
+def stale_seeds_preview(user: dict = Depends(_require_admin)):
+    """Dry-run: which stale seed rows + their dependents would be deleted."""
+    from coach.admin import stale_seed_cleanup
+
+    return {"ok": True, **stale_seed_cleanup(preview=True)}
+
+
+@admin_router.delete("/stale-seeds")
+def stale_seeds_delete(user: dict = Depends(_require_admin)):
+    """Delete stale seed rows and everything referencing them (admin-only)."""
+    from coach.admin import stale_seed_cleanup
+
+    return {"ok": True, **stale_seed_cleanup(preview=False)}
+
+
+@admin_router.get("/guest-data/preview")
+def guest_data_preview(user: dict = Depends(_require_admin)):
+    """Dry-run: which guest-scoped rows would be deleted."""
+    from coach.admin import guest_data_cleanup
+
+    return {"ok": True, **guest_data_cleanup(preview=True)}
+
+
+@admin_router.delete("/guest-data")
+def guest_data_delete(user: dict = Depends(_require_admin)):
+    """Delete all guest-scoped rows (sessions, steps, beliefs, owned tasks)."""
+    from coach.admin import guest_data_cleanup
+
+    return {"ok": True, **guest_data_cleanup(preview=False)}
+
+
 @admin_router.get("/candidate/{candidate}/summary")
 def candidate_summary_endpoint(candidate: str, user: dict = Depends(_require_user)):
     """Dry-run preview: per-table row counts for a candidate (owner or admin)."""
