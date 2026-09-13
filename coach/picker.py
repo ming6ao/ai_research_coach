@@ -38,7 +38,11 @@ LAMBDA_TAG = 0.001
 BREADTH_PENALTY = 0.010
 
 
-def next_task(session: Session, sample_top_n: Optional[int] = None) -> Optional[dict]:
+def next_task(
+    session: Session,
+    sample_top_n: Optional[int] = None,
+    family: Optional[str] = None,
+) -> Optional[dict]:
     """Select next task maximizing expected information gain per unit time.
 
     Generated remediation tasks are excluded: they are injected directly by the
@@ -47,11 +51,18 @@ def next_task(session: Session, sample_top_n: Optional[int] = None) -> Optional[
     When ``sample_top_n`` is set (> 1), uniformly sample from the top-N
     highest-utility tasks instead of always returning the single best. This
     keeps the "Random question" entry point varied while staying adaptive.
+
+    When ``family`` is set, only bank tasks whose primary tag maps to that
+    family are eligible (used to seed a session with a question in an area).
     """
     available = [
         t for t in session.tasks
         if t["id"] not in session.asked_task_ids and not t.get("generated")
     ]
+    if family:
+        available = [
+            t for t in available if family_of((t.get("tags") or {}).get("primary")) == family
+        ]
     if not available:
         return None
 

@@ -4,10 +4,9 @@ import { useAuthStore } from './stores/authStore';
 import { setAuthToken } from './api/client';
 import { Header } from './components/Header/Header';
 import { ChatView } from './components/Chat/ChatView';
-import { WelcomeView } from './components/Chat/WelcomeView';
+import { HomeView } from './components/Home/HomeView';
 import { AuthModal } from './components/Auth/AuthModal';
 import { AdminView } from './components/Admin/AdminView';
-import { LearnerProgressView } from './components/Progress/LearnerProgressView';
 
 function OfflineBanner() {
   const [online, setOnline] = useState(() => navigator.onLine);
@@ -43,7 +42,7 @@ function Splash() {
 }
 
 export default function App() {
-  const { progressView, sessionId, error } = useAssessmentStore();
+  const { sessionId, error } = useAssessmentStore();
   const { authLoading, restore } = useAuthStore();
   const [authModal, setAuthModal] = useState<null | 'login' | 'signup'>(null);
   const [restored, setRestored] = useState(false);
@@ -76,12 +75,10 @@ export default function App() {
 
       {showAdmin ? (
         <AdminView onClose={() => setShowAdmin(false)} />
-      ) : progressView ? (
-        <LearnerProgressView />
       ) : sessionId ? (
         <ChatView />
       ) : (
-        <WelcomeView />
+        <HomeView />
       )}
 
       {error && !sessionId && (

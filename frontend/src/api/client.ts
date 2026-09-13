@@ -95,6 +95,13 @@ export interface CompleteResponse {
   mastery?: MasteryBlock;
 }
 
+export interface OverviewResponse {
+  candidate: string;
+  ability: AbilityState | null;
+  mastery: MasteryBlock | null;
+  sessions: UnifiedSession[];
+}
+
 export interface ResumeResponse {
   id: string;
   candidate: string;
@@ -132,6 +139,7 @@ export interface AuthUser {
 }
 
 const TOKEN_KEY = 'ai_coach_token';
+const GUEST_KEY = 'ai_coach_guest_id';
 
 /** Private-mode-safe localStorage wrapper (shared by token + session id). */
 export const storage = {
@@ -177,11 +185,29 @@ export function getAuthToken(): string | null {
   return authToken;
 }
 
+/**
+ * Stable per-browser anonymous identity (guests).
+ *
+ * Generated once and kept in localStorage so mastery and session history
+ * persist across sessions/reloads in the same browser. Sent as the
+ * ``X-Guest-Id`` header whenever the request has no Bearer token.
+ */
+export function getGuestId(): string {
+  let id = storage.get(GUEST_KEY);
+  if (!id || !/^[A-Za-z0-9_-]{8,64}$/.test(id)) {
+    id = crypto.randomUUID().replace(/-/g, '').slice(0, 24);
+    storage.set(GUEST_KEY, id);
+  }
+  return id;
+}
+
 async function request<T>(base: string, path: string, body?: unknown, method?: string): Promise<T> {
   const effectiveMethod = method ?? (body !== undefined ? 'POST' : 'GET');
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (authToken) {
     headers['Authorization'] = `Bearer ${authToken}`;
+  } else {
+    headers['X-Guest-Id'] = getGuestId();
   }
   const res = await fetch(`${base}${path}`, {
     method: effectiveMethod,
@@ -299,10 +325,14 @@ export function buildAdminTableQuery(query: AdminTableQuery): string {
 }
 
 export const apiClient = {
-  start: (initial_question?: string, opts?: { randomFirst?: boolean }) =>
+  start: (initial_question?: string, opts?: { randomFirst?: boolean; family?: string }) =>
     v1<StartResponse>(
       '/sessions',
-      { initial_question, random_first: opts?.randomFirst ?? undefined },
+      {
+        initial_question,
+        random_first: opts?.randomFirst ?? undefined,
+        family: opts?.family ?? undefined,
+      },
     ),
 
   submit: (session_id: string, task_id: string, answer: string, hints_used: string[] = []) =>
@@ -310,6 +340,9 @@ export const apiClient = {
 
   complete: (session_id: string) =>
     v1<CompleteResponse>(`/sessions/${encodeURIComponent(session_id)}/completion`, {}),
+
+  overview: () =>
+    v1<OverviewResponse>('/me/overview', undefined, 'GET'),
 
   listSessions: async () => {
     const res = await request<{ data: UnifiedSession[]; meta: { total: number } }>(

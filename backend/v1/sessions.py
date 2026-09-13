@@ -9,13 +9,12 @@ Shapes (all wrapped in ``{"data": ...}``):
 - POST   /api/v1/sessions/{id}/completion  {}
 """
 
-import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from backend.auth import get_current_user
-from backend.dependencies import get_store
+from backend.dependencies import get_store, resolve_candidate
 from backend.v1.schemas import AnswerSubmitRequest, SessionCreateRequest
 
 router = APIRouter(prefix="/sessions", tags=["v1:sessions"])
@@ -24,10 +23,9 @@ router = APIRouter(prefix="/sessions", tags=["v1:sessions"])
 RANDOM_FIRST_TOP_N = 5
 
 
-def _candidate_for(user: Optional[dict]) -> str:
-    if user is not None:
-        return user["email"]
-    return f"guest-{uuid.uuid4().hex[:8]}"
+def _candidate_for(user: Optional[dict], request) -> str:
+    """Stable identity: signed-in email or per-browser guest id."""
+    return resolve_candidate(user, request)
 
 
 def _ability_dict(session) -> dict:
@@ -141,13 +139,28 @@ def _check_owner(session, user: Optional[dict], guest_ok: bool = False) -> None:
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, summary="Start coaching session")
-def create_session(req: SessionCreateRequest, user: Optional[dict] = Depends(get_current_user)):
+def create_session(
+    req: SessionCreateRequest,
+    user: Optional[dict] = Depends(get_current_user),
+    request: Request = None,
+):
     from coach.selection import pick_next_task
     from coach.session import Session, task_view
 
     store = get_store()
-    candidate = _candidate_for(user)
+    candidate = _candidate_for(user, request)
     is_guest = candidate.startswith("guest-")
+
+    family: Optional[str] = None
+    if req.family:
+        from coach.taxonomy import FAMILIES
+
+        family = (req.family or "").strip()
+        if family not in FAMILIES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown family '{family}'. Expected one of: {', '.join(FAMILIES)}.",
+            )
 
     session_id = store.create(candidate)
     scoped_tasks = None
@@ -178,6 +191,12 @@ def create_session(req: SessionCreateRequest, user: Optional[dict] = Depends(get
 
     if custom_task:
         first_task = task_view(custom_task, session)
+    elif req.family:
+        first_task = pick_next_task(
+            candidate, session, family=family, sample_top_n=RANDOM_FIRST_TOP_N
+        )
+        if first_task is None:
+            first_task = pick_next_task(candidate, session)
     elif req.random_first:
         first_task = pick_next_task(candidate, session, sample_top_n=RANDOM_FIRST_TOP_N)
     else:

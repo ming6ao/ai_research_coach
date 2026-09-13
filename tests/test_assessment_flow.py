@@ -66,23 +66,24 @@ def client(tmp_path, monkeypatch):
     return TestClient(app)
 
 
-def _start(client, initial_question=None, task_ids=None):
+def _start(client, initial_question=None, task_ids=None, headers=None):
     body = {}
     if initial_question:
         body["initial_question"] = initial_question
     if task_ids:
         body["task_ids"] = task_ids
-    res = client.post("/api/v1/sessions", json=body)
+    res = client.post("/api/v1/sessions", json=body, headers=headers or {})
     assert res.status_code == 201
     data = res.json()["data"]
     assert "mode" not in data
     return data
 
 
-def _answer(client, session_id, task_id, answer="def f(): pass", hints_used=None):
+def _answer(client, session_id, task_id, answer="def f(): pass", hints_used=None, headers=None):
     res = client.post(
         f"/api/v1/sessions/{session_id}/answers",
         json={"task_id": task_id, "answer": answer, "hints_used": hints_used or []},
+        headers=headers or {},
     )
     assert res.status_code == 200
     return res.json()["data"]
@@ -161,3 +162,55 @@ def test_get_and_delete_session(client):
 
     assert client.delete(f"/api/v1/sessions/{started['id']}").status_code == 204
     assert client.get(f"/api/v1/sessions/{started['id']}").status_code == 404
+
+
+def test_start_session_with_family_seed(client):
+    """POST /sessions {family} seeds with a random question in that family."""
+    from coach.taxonomy import family_of
+
+    res = client.post("/api/v1/sessions", json={"family": "dl_arch"})
+    assert res.status_code == 201
+    task = res.json()["data"]["current_task"]
+    assert task is not None
+    primary = (task["tags"] or {}).get("primary")
+    assert family_of(primary) == "dl_arch"
+
+
+def test_start_session_with_unknown_family_rejected(client):
+    res = client.post("/api/v1/sessions", json={"family": "not_a_family"})
+    assert res.status_code == 422
+
+
+def test_overview_returns_persisted_progress(client):
+    headers = {"X-Guest-Id": "overview-guest-0001"}
+    started = _start(client, headers=headers)
+    task = started["current_task"]
+    _answer(client, started["id"], task["id"], headers=headers)
+
+    res = client.get("/api/v1/me/overview", headers=headers)
+    assert res.status_code == 200
+    data = res.json()["data"]
+    assert data["candidate"] == "guest-overview-guest-0001"
+    assert data["ability"] is not None
+    assert data["ability"]["questions_answered"] == 1
+    assert data["mastery"] is not None
+    assert "families" in data["mastery"]
+    assert len(data["sessions"]) >= 1
+    assert data["sessions"][0]["id"] == started["id"]
+
+
+def test_guest_id_keeps_candidate_stable(client):
+    """A stable X-Guest-Id header gives one persistent guest identity."""
+    headers = {"X-Guest-Id": "browser-guest-0001"}
+    first = client.post("/api/v1/sessions", json={}, headers=headers)
+    assert first.status_code == 201
+    task = first.json()["data"]["current_task"]
+    _answer(client, first.json()["data"]["id"], task["id"], headers=headers)
+
+    second = client.post("/api/v1/sessions", json={}, headers=headers)
+    assert second.status_code == 201
+
+    overview = client.get("/api/v1/me/overview", headers=headers).json()["data"]
+    assert overview["candidate"] == "guest-browser-guest-0001"
+    assert overview["ability"]["questions_answered"] == 1
+    assert len(overview["sessions"]) == 2

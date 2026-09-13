@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { apiClient, storage } from '../api/client';
-import type { Task, EvaluationResult, FeedbackEntry, ResumeResponse, CoachContent, AbilityState, MasteryBlock, TaskTags } from '../api/client';
+import type { Task, EvaluationResult, FeedbackEntry, ResumeResponse, CoachContent, AbilityState, MasteryBlock, TaskTags, OverviewResponse } from '../api/client';
 
 export interface ResultWithFeedback {
   task_id: string;
@@ -23,15 +23,17 @@ interface AssessmentState {
   results: ResultWithFeedback[];
   ability: AbilityState | null;
   mastery: MasteryBlock | null;
-  progressView: boolean;
+  overview: OverviewResponse | null;
+  overviewLoading: boolean;
   loading: boolean;
   error: string | null;
   initialQuestion: string | null;
 
-  startAssessment: (initialQuestion?: string, opts?: { randomFirst?: boolean }) => Promise<void>;
+  startAssessment: (initialQuestion?: string, opts?: { randomFirst?: boolean; family?: string }) => Promise<void>;
   resumeSession: (response: ResumeResponse) => void;
   submitAnswer: (taskId: string, answer: string, hintsUsed?: string[]) => Promise<void>;
   completeSession: () => Promise<void>;
+  loadOverview: () => Promise<void>;
   reset: () => void;
 }
 
@@ -73,14 +75,14 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
   results: [],
   ability: null,
   mastery: null,
-  progressView: false,
+  overview: null,
+  overviewLoading: false,
   loading: false,
   error: null,
   initialQuestion: null,
 
   resumeSession: (res: ResumeResponse) => {
     const results = res.results.map(toResultWithFeedback);
-    const done = res.current_task === null && results.length > 0;
     set({
       sessionId: res.id,
       candidate: res.candidate,
@@ -90,7 +92,6 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       results,
       ability: toAbility(res),
       mastery: res.mastery ?? null,
-      progressView: done,
     });
     storage.set(SESSION_KEY, res.id);
   },
@@ -109,7 +110,6 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         results: [],
         ability: null,
         mastery: null,
-        progressView: false,
         initialQuestion: initialQuestion?.trim() || null,
       });
     } catch (e: unknown) {
@@ -178,13 +178,27 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       set({
         ability,
         mastery: res.mastery ?? get().mastery,
-        progressView: true,
       });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       set({ error: msg });
     } finally {
       set({ loading: false });
+      // Beliefs are persisted server-side per answer; navigate back to the
+      // merged home page, which re-fetches the candidate's progress.
+      get().reset();
+    }
+  },
+
+  loadOverview: async () => {
+    set({ overviewLoading: true });
+    try {
+      const overview = await apiClient.overview();
+      set({ overview });
+    } catch {
+      set({ overview: null });
+    } finally {
+      set({ overviewLoading: false });
     }
   },
 
@@ -199,7 +213,6 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       results: [],
       ability: null,
       mastery: null,
-      progressView: false,
       error: null,
       initialQuestion: null,
     });

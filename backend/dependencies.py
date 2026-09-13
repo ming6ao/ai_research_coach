@@ -1,9 +1,13 @@
 """Session state management for the FastAPI backend.
 
 Persists active sessions to SQLite so users can resume after page refresh.
+Also resolves a candidate identity: a signed-in user is keyed by email; a
+guest is keyed by a stable per-browser ``X-Guest-Id`` header (when present)
+so anonymous mastery carries across sessions in the same browser.
 """
 
 import json
+import re
 import sqlite3
 import uuid
 from typing import Any, Dict, List, Optional
@@ -20,6 +24,26 @@ from datetime import datetime, timezone
 
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# Guest ids from the browser are client-supplied; keep them to safe characters.
+_GUEST_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+
+
+def resolve_candidate(user: Optional[dict], request) -> str:
+    """Stable learner identity: signed-in email or a per-browser guest id.
+
+    Guests send an ``X-Guest-Id`` header (generated once and kept in
+    ``localStorage`` by the frontend) so their mastery and session history
+    persist across sessions/reloads in the same browser. A missing or
+    malformed header falls back to a fresh ephemeral guest id.
+    """
+    if user is not None:
+        return user["email"]
+    guest_id = (request.headers.get("X-Guest-Id") or "").strip()
+    if _GUEST_ID_RE.match(guest_id):
+        return f"guest-{guest_id}"
+    return f"guest-{uuid.uuid4().hex[:8]}"
 
 
 class SessionState:

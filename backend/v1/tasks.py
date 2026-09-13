@@ -10,14 +10,15 @@ bespoke /admin/tasks* endpoints (single owner-or-admin-guarded CRUD).
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from backend.auth import get_current_user, is_admin
+from backend.dependencies import resolve_candidate
 from backend.v1.pagination import PageParams, paginate
 from backend.v1.schemas import TaskCreateRequest, TaskPatchRequest
 
-# Reused session helpers (candidate resolution + LLM context notes).
-from backend.v1.sessions import _candidate_for, _describe_context
+# Reused session helper (LLM context notes).
+from backend.v1.sessions import _describe_context
 
 router = APIRouter(prefix="/tasks", tags=["v1:tasks"])
 
@@ -73,7 +74,11 @@ def list_tasks(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, summary="Create task")
-def create_task(req: TaskCreateRequest, user: Optional[dict] = Depends(get_current_user)):
+def create_task(
+    req: TaskCreateRequest,
+    user: Optional[dict] = Depends(get_current_user),
+    request: Request = None,
+):
     from coach.tasks import create_task as _create_task
     from coach.taxonomy import validate as validate_tags
 
@@ -83,7 +88,7 @@ def create_task(req: TaskCreateRequest, user: Optional[dict] = Depends(get_curre
         tags = validate_tags(req.tags)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    candidate = _candidate_for(user)
+    candidate = resolve_candidate(user, request)
     is_guest = candidate.startswith("guest-")
     task = _create_task(
         prompt=req.prompt.strip(),
