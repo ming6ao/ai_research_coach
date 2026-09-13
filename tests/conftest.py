@@ -13,6 +13,18 @@ from sqlalchemy.orm import sessionmaker
 
 from coach.db import Base
 from coach import tasks as _tasks  # noqa: F401  (register tables)
+import coach.db as db
+
+
+@pytest.fixture(autouse=True)
+def _isolated_db(tmp_path, monkeypatch):
+    """Never let tests touch the real data/coach.db.
+
+    Every test gets its own throwaway SQLite file; tests that need a specific
+    path (or a fresh file per case) can still override DB_PATH afterwards.
+    """
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test-coach.db")
+    monkeypatch.delenv("LEARNING_PARTNER_DB_URL", raising=False)
 
 
 @pytest.fixture()
