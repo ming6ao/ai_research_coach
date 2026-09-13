@@ -137,6 +137,10 @@ class Session:
         """Return the candidate's overall ability belief."""
         return self.get_skill_state()
 
+    def ensure_area_beliefs(self) -> None:
+        """Load persisted per-family/tag statistics into this session."""
+        self._restore_area_beliefs()
+
     def add_generated_task(self, task: dict) -> None:
         """Persist a generated remediation task in the session and track it."""
         self.tasks.append(task)
@@ -207,31 +211,48 @@ class Session:
         return None
 
     def to_dict(self):
+        """Compact episode-header state (trajectory lives in ``session_steps``).
+
+        ``results``, ``skill_states``, ``family_states``, and ``tag_states``
+        are intentionally omitted: step data and per-level beliefs are
+        persisted in ``session_steps`` / ``user_skill_beliefs``.
+        """
         return {
             "candidate": self.candidate,
             "tasks": self.tasks,
             "index": self.index,
-            "results": [r.to_dict() for r in self.results],
             "ability": self.ability.to_dict(),
-            "skill_states": {k: v.to_dict() for k, v in self.skill_states.items()},
             "asked_task_ids": list(self.asked_task_ids),
             "viewed_hints": self.viewed_hints,
             "generated_task_ids": list(self.generated_task_ids),
-            "family_states": {k: v.to_dict() for k, v in self.family_states.items()},
-            "tag_states": {k: v.to_dict() for k, v in self.tag_states.items()},
         }
 
     @classmethod
     def from_dict(cls, d):
-        s = cls(candidate=d["candidate"], tasks=d["tasks"], index=d["index"])
-        s.results = [EvaluationResult.from_dict(r) for r in d["results"]]
-        if "ability" in d and isinstance(d["ability"], dict):
+        """Rebuild a Session from a compact (or legacy full) state dict.
+
+        Tolerates legacy full-form blobs (results / skill_states /
+        family_states / tag_states) so old rows keep working; the in-memory
+        ``results`` are normally hydrated from ``session_steps`` afterwards.
+        """
+        s = cls(
+            candidate=d.get("candidate", ""),
+            tasks=d.get("tasks") or [],
+            index=d.get("index", 0),
+        )
+        if isinstance(d.get("ability"), dict):
             s.ability = SkillState.from_dict(d["ability"])
-        s.skill_states = {
-            k: SkillState.from_dict(v) for k, v in d.get("skill_states", {}).items()
-        }
-        # Legacy sessions without an ability snapshot collapse skill_states.
-        if "ability" not in d and s.skill_states:
+        s.asked_task_ids = set(d.get("asked_task_ids", []) or [])
+        s.viewed_hints = dict(d.get("viewed_hints", {}) or {})
+        s.generated_task_ids = set(d.get("generated_task_ids", []) or [])
+        for r in d.get("results") or []:
+            try:
+                s.results.append(EvaluationResult.from_dict(r))
+            except Exception:
+                pass
+        # Legacy sessions without a compact ability snapshot collapse
+        # skill_states into the overall ability (most-answered wins).
+        if not isinstance(d.get("ability"), dict) and s.skill_states:
             try:
                 best = max(
                     s.skill_states.values(),
@@ -246,14 +267,12 @@ class Session:
                 )
             except Exception:
                 pass
-        s.asked_task_ids = set(d.get("asked_task_ids", []))
-        s.viewed_hints = dict(d.get("viewed_hints", {}))
-        s.generated_task_ids = set(d.get("generated_task_ids", []))
+            s.skill_states = {}
         s.family_states = {
-            k: AreaState.from_dict(v) for k, v in d.get("family_states", {}).items()
+            k: AreaState.from_dict(v) for k, v in (d.get("family_states", {}) or {}).items()
         }
         s.tag_states = {
-            k: AreaState.from_dict(v) for k, v in d.get("tag_states", {}).items()
+            k: AreaState.from_dict(v) for k, v in (d.get("tag_states", {}) or {}).items()
         }
         return s
 

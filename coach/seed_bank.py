@@ -952,11 +952,12 @@ def _seed_rows() -> list[dict]:
 def _attempts_by_tag() -> dict[str, dict[str, int]]:
     """Per-tag/per-family -> {candidate: attempt_count} across all tasks.
 
-    Derived from ``task_attempts`` joined on the task's tags (primary or
+    Derived from ``session_steps`` joined on the task's tags (primary or
     secondary). Used by ``coverage_report`` for per-candidate asked counts.
     """
     from coach.db import create_schema, learner_session
-    from coach.tasks import TaskAttemptModel, TaskModel, parse_tags
+    from coach.steps import SessionStepModel
+    from coach.tasks import TaskModel, parse_tags
     from sqlalchemy import select
 
     create_schema()
@@ -964,7 +965,7 @@ def _attempts_by_tag() -> dict[str, dict[str, int]]:
     try:
         tasks = session.execute(select(TaskModel.id, TaskModel.tags_json)).all()
         attempts = session.execute(
-            select(TaskAttemptModel.candidate, TaskAttemptModel.task_id)
+            select(SessionStepModel.candidate, SessionStepModel.task_id)
         ).all()
         tag_map: dict[str, list[str]] = {}
         for task_id, tags_json in tasks:

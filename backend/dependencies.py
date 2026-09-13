@@ -47,39 +47,94 @@ def resolve_candidate(user: Optional[dict], request) -> str:
 
 
 class SessionState:
-    """SQLite-backed session state store."""
+    """SQLite-backed session state store.
 
-    def create(self, candidate: str) -> str:
+    ``active_sessions`` is the episode header: ``session_json`` holds a compact
+    live state (tasks, index, asked ids, hints, ability) — the trajectory
+    itself lives in ``session_steps`` (see ``coach.steps``). ``feedback_json``
+    no longer exists; review records are derived from steps.
+    """
+
+    def create(
+        self,
+        candidate: str,
+        *,
+        resumed_from_share: str | None = None,
+        fork_of: str | None = None,
+        meta_json: dict | None = None,
+    ) -> str:
         sid = uuid.uuid4().hex[:12]
         now = _utcnow()
         with _connect() as conn:
             conn.execute(
-                "INSERT INTO active_sessions (session_id, candidate, session_json, feedback_json, updated_at) VALUES (?, ?, ?, ?, ?)",
-                (sid, candidate, "{}", "[]", now),
+                "INSERT INTO active_sessions "
+                "(session_id, candidate, session_json, status, resumed_from_share, fork_of, meta_json, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    sid,
+                    candidate,
+                    "{}",
+                    "active",
+                    resumed_from_share,
+                    fork_of,
+                    json.dumps(meta_json or {}),
+                    now,
+                ),
             )
         return sid
 
     def get(self, session_id: str) -> Optional[Dict[str, Any]]:
         with _connect() as conn:
             row = conn.execute(
-                "SELECT session_json, feedback_json FROM active_sessions WHERE session_id = ?",
+                "SELECT session_json, status, resumed_from_share, fork_of "
+                "FROM active_sessions WHERE session_id = ?",
                 (session_id,),
             ).fetchone()
         if row is None:
             return None
-        state = json.loads(row[0])
-        state["_feedback_list"] = json.loads(row[1])
+        session_json, status, resumed_from_share, fork_of = row
+        try:
+            state = json.loads(session_json or "{}")
+        except Exception:
+            state = {}
+        if not isinstance(state, dict):
+            state = {}
+        state["_status"] = status
+        state["_resumed_from_share"] = resumed_from_share
+        state["_fork_of"] = fork_of
         return state
 
     def save(self, session_id: str, state: Dict[str, Any], feedback_list: List[Dict] = None):
+        """Persist the compact session state (steps are stored separately).
+
+        ``feedback_list`` is accepted for backward compatibility and ignored —
+        review records now live in ``session_steps``.
+        """
         now = _utcnow()
         with _connect() as conn:
             conn.execute(
-                "UPDATE active_sessions SET session_json = ?, feedback_json = ?, updated_at = ? WHERE session_id = ?",
-                (json.dumps(state), json.dumps(feedback_list or []), now, session_id),
+                "UPDATE active_sessions SET session_json = ?, updated_at = ? WHERE session_id = ?",
+                (json.dumps(state), now, session_id),
+            )
+
+    def set_resumed_from_share(self, session_id: str, token: str | None) -> None:
+        with _connect() as conn:
+            conn.execute(
+                "UPDATE active_sessions SET resumed_from_share = ?, updated_at = ? WHERE session_id = ?",
+                (token, _utcnow(), session_id),
+            )
+
+    def set_status(self, session_id: str, status: str) -> None:
+        with _connect() as conn:
+            conn.execute(
+                "UPDATE active_sessions SET status = ?, updated_at = ? WHERE session_id = ?",
+                (status, _utcnow(), session_id),
             )
 
     def delete(self, session_id: str):
+        from coach.steps import delete_session_data
+
+        delete_session_data(session_id)
         with _connect() as conn:
             conn.execute("DELETE FROM active_sessions WHERE session_id = ?", (session_id,))
 

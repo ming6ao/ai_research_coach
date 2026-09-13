@@ -68,7 +68,7 @@ def test_owner_can_wipe_self(client):
 
     summary = client.get("/admin/candidate/alice@x.com/summary", headers=_h(token)).json()
     assert summary["active_sessions"] == 1
-    assert summary["task_attempts"] == 1
+    assert summary["session_steps"] == 1
     assert summary["ability_beliefs"] == 1
     assert summary["owned_tasks"] == 1
     assert summary["total"] == 4
@@ -96,7 +96,7 @@ def test_admin_can_wipe_other_candidate_and_system_task(client):
     assert res.status_code == 200
     assert res.json()["deleted"]["total"] > 0
 
-    # System seed row: admin-only delete with cascade of its attempts.
+    # System seed row: admin-only delete with cascade of its steps.
     res = client.delete(f"/api/v1/tasks/{system_task['id']}", headers=_h(admin))
     assert res.status_code == 200
     assert res.json()["data"] == {

@@ -45,10 +45,23 @@ CREATE TABLE IF NOT EXISTS active_sessions (
     session_id TEXT PRIMARY KEY,
     candidate TEXT NOT NULL,
     session_json TEXT NOT NULL,
-    feedback_json TEXT DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'active',
+    resumed_from_share TEXT,
+    fork_of TEXT,
+    meta_json TEXT DEFAULT '{}',
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_active_sessions_candidate ON active_sessions (candidate);
+CREATE TABLE IF NOT EXISTS trajectory_shares (
+    id TEXT PRIMARY KEY,
+    source_session_id TEXT NOT NULL,
+    step_index INTEGER NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_trajectory_shares_source ON trajectory_shares (source_session_id);
 CREATE TABLE IF NOT EXISTS oauth_states (
     state TEXT PRIMARY KEY,
     expires_at TEXT NOT NULL
@@ -56,9 +69,10 @@ CREATE TABLE IF NOT EXISTS oauth_states (
 CREATE INDEX IF NOT EXISTS idx_oauth_states_expiry ON oauth_states (expires_at);
 """
 
-# Tables from the removed knowledge-graph / learner model. Dropped on
-# startup so databases created before the removal converge to the fresh
-# design (no data is preserved — see the removal plan).
+# Tables from the removed knowledge-graph / learner model and legacy logs.
+# Dropped on startup so databases created before the removal converge to the
+# fresh design (no data is preserved — see the removal plan). ``task_attempts``
+# is superseded by ``session_steps`` (RL-shaped per-step rows).
 _DROPPED_TABLES = (
     "knowledge_nodes",
     "knowledge_edges",
@@ -69,6 +83,7 @@ _DROPPED_TABLES = (
     "learner_frontier",
     "assessment_targets",
     "assessment_tasks",
+    "task_attempts",
 )
 
 # Columns from the removed per-task frozen graph and skill tags. Best-effort
@@ -260,6 +275,7 @@ def _migrate_skill_beliefs_to_ability(conn) -> None:
 def create_schema():
     """Create all tables (idempotent) and drop removed ones. Returns engine."""
     from coach import tasks as _tasks  # noqa: F401  (register task tables)
+    from coach import steps as _steps  # noqa: F401  (register session_steps)
 
     url = learner_db_url()
     key = f"orm:{url}"
@@ -289,6 +305,7 @@ def create_schema():
         except Exception:
             pass
         _migrate_skill_beliefs_to_ability(conn)
+        _migrate_active_sessions(conn)
         try:
             cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(tasks)").fetchall()]
             if "context_notes" not in cols:
@@ -314,7 +331,55 @@ def create_schema():
         seed_question_bank()
     except Exception:
         pass
+    # Backfill session_steps from legacy JSON blobs (deterministic replay) so
+    # old sessions become exportable episodes. Best-effort.
+    try:
+        from coach.steps import backfill_session_steps
+
+        backfill_session_steps()
+    except Exception:
+        pass
     return engine
+
+
+def _migrate_active_sessions(conn) -> None:
+    """Add episode-header columns to ``active_sessions`` and drop ``feedback_json``.
+
+    ``session_json`` keeps its name but its content becomes a compact live
+    state; per-step data moves to ``session_steps``. Best-effort so startup
+    never breaks.
+    """
+    try:
+        cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(active_sessions)").fetchall()]
+    except Exception:
+        return
+    for col, ddl in (
+        ("status", "ALTER TABLE active_sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"),
+        ("resumed_from_share", "ALTER TABLE active_sessions ADD COLUMN resumed_from_share TEXT"),
+        ("fork_of", "ALTER TABLE active_sessions ADD COLUMN fork_of TEXT"),
+        ("meta_json", "ALTER TABLE active_sessions ADD COLUMN meta_json TEXT DEFAULT '{}'"),
+    ):
+        if col not in cols:
+            try:
+                conn.exec_driver_sql(ddl)
+            except Exception:
+                pass
+    if "feedback_json" in cols:
+        # Only drop the legacy column once every session has been backfilled
+        # into session_steps (or has no legacy results to migrate); otherwise
+        # the backfill would lose the per-step records.
+        try:
+            remaining = conn.exec_driver_sql(
+                "SELECT COUNT(*) FROM active_sessions "
+                "WHERE feedback_json != '[]' OR session_json LIKE '%\"results\"%'"
+            ).fetchone()[0]
+        except Exception:
+            remaining = 1
+        if not remaining:
+            try:
+                conn.exec_driver_sql("ALTER TABLE active_sessions DROP COLUMN feedback_json")
+            except Exception:
+                pass
 
 
 def learner_session() -> Session:

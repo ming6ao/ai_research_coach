@@ -75,7 +75,7 @@ def test_whoami_and_tables_metadata(client):
     res = client.get("/admin/tables", headers=_h(admin))
     assert res.status_code == 200
     names = [t["name"] for t in res.json()["tables"]]
-    assert names == ["users", "auth_tokens", "active_sessions", "tasks", "task_attempts", "user_skill_beliefs"]
+    assert names == ["users", "auth_tokens", "active_sessions", "tasks", "session_steps", "user_skill_beliefs"]
     tasks_meta = next(t for t in res.json()["tables"] if t["name"] == "tasks")
     assert tasks_meta["count"] == _seed_task_count()
     assert tasks_meta["pk"] == "id"
@@ -164,8 +164,8 @@ def test_row_delete_with_cascade(client):
     assert res.status_code == 200
     assert res.json()["deleted"] == 1
     assert get_task(bob_task["id"]) is None
-    # The cascaded attempt is gone too.
-    attempts = client.get("/admin/table/task_attempts", headers=headers).json()
+    # The cascaded step is gone too.
+    attempts = client.get("/admin/table/session_steps", headers=headers).json()
     assert attempts["total"] == 0
 
     assert client.delete("/admin/table/tasks/does-not-exist", headers=headers).status_code == 404

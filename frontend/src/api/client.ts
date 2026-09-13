@@ -132,6 +132,18 @@ export interface UnifiedSession {
   updated_at: string;
 }
 
+export interface SharedTrajectory {
+  token: string;
+  step_index: number;
+  steps: FeedbackEntry[];
+}
+
+export interface ShareResponse {
+  token: string;
+  url: string;
+  step_index: number;
+}
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -356,6 +368,21 @@ export const apiClient = {
 
   deleteSession: (id: string) =>
     v1<void>(`/sessions/${encodeURIComponent(id)}`, undefined, 'DELETE'),
+
+  shareSession: (id: string, stepIndex?: number) =>
+    v1<ShareResponse>(`/sessions/${encodeURIComponent(id)}/share`, { step_index: stepIndex }),
+
+  openShared: (token: string) =>
+    v1<SharedTrajectory>(`/shared/${encodeURIComponent(token)}`, undefined, 'GET'),
+
+  resumeShared: (token: string) =>
+    v1<ResumeResponse>(`/shared/${encodeURIComponent(token)}/resume`, {}),
+
+  revokeShare: (token: string) =>
+    v1<void>(`/shared/${encodeURIComponent(token)}`, undefined, 'DELETE'),
+
+  redoStep: (id: string, stepIndex: number, answer: string, hintsUsed: string[] = []) =>
+    v1<SubmitResponse>(`/sessions/${encodeURIComponent(id)}/redo`, { step_index: stepIndex, answer, hints_used: hintsUsed }),
 
   clearOwnData: () =>
     v1<{ deleted: number }>(`/me/data`, undefined, 'DELETE'),

@@ -3,7 +3,7 @@
 Candidate-scoped rows live in several places:
 
 - ``active_sessions`` (raw sqlite, ``candidate`` column)
-- ``task_attempts`` (ORM, ``candidate`` column)
+- ``session_steps`` (ORM, ``candidate`` column)
 - ``user_skill_beliefs`` (ORM, ``candidate`` column)
 - ``tasks`` (ORM, ``owner`` column)
 """
@@ -27,12 +27,13 @@ def candidate_summary(candidate: str) -> dict:
 
     session = learner_session()
     try:
-        from coach.tasks import SkillBeliefModel, TaskAttemptModel, TaskModel
+        from coach.steps import SessionStepModel
+        from coach.tasks import SkillBeliefModel, TaskModel
 
-        attempts = (
+        steps = (
             session.scalar(
-                select(func.count(TaskAttemptModel.id)).where(
-                    TaskAttemptModel.candidate == candidate
+                select(func.count(SessionStepModel.id)).where(
+                    SessionStepModel.candidate == candidate
                 )
             )
             or 0
@@ -56,11 +57,11 @@ def candidate_summary(candidate: str) -> dict:
     finally:
         session.close()
 
-    total = sessions + attempts + beliefs + owned_tasks
+    total = sessions + steps + beliefs + owned_tasks
     return {
         "candidate": candidate,
         "active_sessions": sessions,
-        "task_attempts": attempts,
+        "session_steps": steps,
         "ability_beliefs": beliefs,
         "owned_tasks": owned_tasks,
         "total": total,
@@ -72,7 +73,7 @@ def clear_candidate_everything(candidate: str) -> dict:
     create_schema()
     deleted: dict[str, int] = {
         "active_sessions": 0,
-        "task_attempts": 0,
+        "session_steps": 0,
         "ability_beliefs": 0,
         "owned_tasks": 0,
     }
@@ -85,11 +86,12 @@ def clear_candidate_everything(candidate: str) -> dict:
 
     session = learner_session()
     try:
-        from coach.tasks import SkillBeliefModel, TaskAttemptModel, TaskModel
+        from coach.steps import SessionStepModel
+        from coach.tasks import SkillBeliefModel, TaskModel
 
-        deleted["task_attempts"] = (
-            session.query(TaskAttemptModel)
-            .filter(TaskAttemptModel.candidate == candidate)
+        deleted["session_steps"] = (
+            session.query(SessionStepModel)
+            .filter(SessionStepModel.candidate == candidate)
             .delete(synchronize_session=False)
         )
         deleted["ability_beliefs"] = (
@@ -114,30 +116,31 @@ def clear_candidate_everything(candidate: str) -> dict:
 
 
 def stats_summary() -> dict:
-    """Counts for the admin stats bar: tasks, attempts, beliefs, sessions."""
+    """Counts for the admin stats bar: tasks, steps, beliefs, sessions."""
     create_schema()
     with sqlite_conn() as conn:
         row = conn.execute("SELECT COUNT(*) FROM active_sessions").fetchone()
         sessions = row[0] if row else 0
     session = learner_session()
     try:
-        from coach.tasks import SkillBeliefModel, TaskAttemptModel, TaskModel
+        from coach.steps import SessionStepModel
+        from coach.tasks import SkillBeliefModel, TaskModel
 
         tasks_total = session.scalar(select(func.count(TaskModel.id))) or 0
-        attempts = session.scalar(select(func.count(TaskAttemptModel.id))) or 0
+        steps = session.scalar(select(func.count(SessionStepModel.id))) or 0
         beliefs = session.scalar(select(func.count(SkillBeliefModel.id))) or 0
     finally:
         session.close()
     return {
         "tasks_total": tasks_total,
-        "task_attempts": attempts,
+        "session_steps": steps,
         "ability_beliefs": beliefs,
         "active_sessions": sessions,
     }
 
 
 def list_candidates(limit: int = 500) -> list[dict]:
-    """Distinct candidates seen in sessions/attempts/tasks (for admin UI)."""
+    """Distinct candidates seen in sessions/steps/tasks (for admin UI)."""
     create_schema()
     seen: dict[str, None] = {}
     with sqlite_conn() as conn:
@@ -153,10 +156,11 @@ def list_candidates(limit: int = 500) -> list[dict]:
             pass
     session = learner_session()
     try:
-        from coach.tasks import SkillBeliefModel, TaskAttemptModel, TaskModel
+        from coach.steps import SessionStepModel
+        from coach.tasks import SkillBeliefModel, TaskModel
 
         for model, col in (
-            (TaskAttemptModel, TaskAttemptModel.candidate),
+            (SessionStepModel, SessionStepModel.candidate),
             (SkillBeliefModel, SkillBeliefModel.candidate),
             (TaskModel, TaskModel.owner),
         ):

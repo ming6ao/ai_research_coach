@@ -28,6 +28,16 @@ class AnswerSubmitRequest(BaseModel):
     hints_used: list[str] = Field(default_factory=list, max_length=50)
 
 
+class ShareRequest(BaseModel):
+    step_index: Optional[int] = Field(default=None, ge=0)
+
+
+class RedoRequest(BaseModel):
+    step_index: int = Field(ge=0)
+    answer: str = Field(min_length=1, max_length=50000)
+    hints_used: list[str] = Field(default_factory=list, max_length=50)
+
+
 class TaskCreateRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=8000)
     scaffold: Optional[str] = Field(default=None, max_length=16000)

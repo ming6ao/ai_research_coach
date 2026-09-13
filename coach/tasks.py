@@ -68,23 +68,6 @@ class TaskModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
-class TaskAttemptModel(Base):
-    __tablename__ = "task_attempts"
-    __table_args__ = (
-        Index("ix_task_attempts_candidate", "candidate"),
-        Index("ix_task_attempts_task", "task_id"),
-    )
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    candidate: Mapped[str] = mapped_column(String(255), nullable=False)
-    task_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    fraction: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    max_score: Mapped[float] = mapped_column(Float, nullable=False, default=5.0)
-    hints_used_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-
-
 class SkillBeliefModel(Base):
     """Persistent Gaussian belief over a candidate's ability at one level.
 
@@ -321,28 +304,31 @@ def record_attempt(
     max_score: float,
     hints_used: Optional[list] = None,
 ) -> str:
-    from coach.db import create_schema
+    """Record a scored attempt as a ``session_steps`` row (compat shim).
 
-    create_schema()
-    session = learner_session()
-    try:
-        aid = str(uuid.uuid4())
-        session.add(
-            TaskAttemptModel(
-                id=aid,
-                candidate=candidate,
-                task_id=task_id,
-                fraction=max(0.0, min(1.0, fraction)),
-                score=score,
-                max_score=max_score,
-                hints_used_json=json.dumps(hints_used or []),
-                created_at=_utcnow_naive(),
-            )
-        )
-        session.commit()
-        return aid
-    finally:
-        session.close()
+    ``session_id`` is optional (legacy callers); a synthetic episode id is
+    used so rows stay unique under ``uq_session_steps``. Coverage/admin
+    aggregate by candidate so a step without a real episode is still counted.
+    """
+    from coach.steps import insert_step
+
+    return insert_step(
+        session_id=f"legacy-{uuid.uuid4().hex[:8]}",
+        candidate=candidate,
+        step_index=0,
+        task={"id": task_id, "max_score": max_score or 5},
+        role="bank",
+        user_answer="",
+        score=score or 0.0,
+        max_score=max_score or 5.0,
+        fraction=fraction or 0.0,
+        reward=fraction or 0.0,
+        hints_used=hints_used,
+        state_before=None,
+        state_after=None,
+        result={"score": score or 0.0, "max_score": max_score or 5.0},
+        coaching=None,
+    )
 
 
 def _belief_row(session, candidate: str, level: str, key: str):
@@ -479,14 +465,16 @@ def list_tasks_for_admin(
         rows = session.scalars(stmt).all()
         if not rows:
             return []
+        from coach.steps import SessionStepModel
+
         counts = dict(
             session.execute(
                 select(
-                    TaskAttemptModel.task_id,
-                    func.count(TaskAttemptModel.id),
+                    SessionStepModel.task_id,
+                    func.count(SessionStepModel.id),
                 )
-                .where(TaskAttemptModel.task_id.in_([m.id for m in rows]))
-                .group_by(TaskAttemptModel.task_id)
+                .where(SessionStepModel.task_id.in_([m.id for m in rows]))
+                .group_by(SessionStepModel.task_id)
             ).all()
         )
         out = []
@@ -503,27 +491,25 @@ def list_tasks_for_admin(
 
 
 def delete_task(task_id: str) -> dict:
-    """Delete one task row plus its attempts (cascade).
+    """Delete one task row plus its steps (cascade).
 
     Returns ``{"deleted_task": 0|1, "deleted_attempts": n}``.
     """
+    from coach.steps import delete_steps_for_task
+
     from coach.db import create_schema
 
     create_schema()
     session = learner_session()
     try:
-        attempts = (
-            session.query(TaskAttemptModel)
-            .filter(TaskAttemptModel.task_id == task_id)
-            .delete(synchronize_session=False)
-        )
+        steps = delete_steps_for_task(task_id)
         task = session.get(TaskModel, task_id)
         if task is None:
             session.rollback()
             return {"deleted_task": 0, "deleted_attempts": 0}
         session.delete(task)
         session.commit()
-        return {"deleted_task": 1, "deleted_attempts": attempts}
+        return {"deleted_task": 1, "deleted_attempts": steps}
     except Exception:
         session.rollback()
         raise

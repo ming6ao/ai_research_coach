@@ -30,7 +30,7 @@ TABLE_NAMES = (
     "auth_tokens",
     "active_sessions",
     "tasks",
-    "task_attempts",
+    "session_steps",
     "user_skill_beliefs",
 )
 
@@ -63,8 +63,10 @@ TABLE_REGISTRY: dict[str, dict[str, Any]] = {
         "columns": [
             {"name": "session_id", "kind": "text", "searchable": True, "editable": False},
             {"name": "candidate", "kind": "text", "searchable": True, "editable": False},
+            {"name": "status", "kind": "text", "searchable": False, "editable": False},
             {"name": "session_json", "kind": "json", "searchable": False, "editable": False},
-            {"name": "feedback_json", "kind": "json", "searchable": False, "editable": False},
+            {"name": "resumed_from_share", "kind": "text", "searchable": False, "editable": False},
+            {"name": "fork_of", "kind": "text", "searchable": False, "editable": False},
             {"name": "updated_at", "kind": "datetime", "searchable": False, "editable": False},
         ],
     },
@@ -89,17 +91,18 @@ TABLE_REGISTRY: dict[str, dict[str, Any]] = {
             {"name": "created_at", "kind": "datetime", "searchable": False, "editable": False},
         ],
     },
-    "task_attempts": {
+    "session_steps": {
         "pk": "id",
         "default_sort": "created_at",
         "columns": [
             {"name": "id", "kind": "text", "searchable": True, "editable": False},
+            {"name": "session_id", "kind": "text", "searchable": True, "editable": False},
             {"name": "candidate", "kind": "text", "searchable": True, "editable": False},
+            {"name": "step_index", "kind": "number", "searchable": False, "editable": False},
             {"name": "task_id", "kind": "text", "searchable": True, "editable": False},
-            {"name": "fraction", "kind": "number", "searchable": False, "editable": True},
-            {"name": "score", "kind": "number", "searchable": False, "editable": True},
-            {"name": "max_score", "kind": "number", "searchable": False, "editable": True},
-            {"name": "hints_used_json", "kind": "json", "searchable": False, "editable": False},
+            {"name": "role", "kind": "text", "searchable": False, "editable": False},
+            {"name": "reward", "kind": "number", "searchable": False, "editable": False},
+            {"name": "inherited", "kind": "bool", "searchable": False, "editable": False},
             {"name": "created_at", "kind": "datetime", "searchable": False, "editable": False},
         ],
     },
@@ -122,7 +125,7 @@ TABLE_REGISTRY: dict[str, dict[str, Any]] = {
 # Extra exact-match filters the UI may pass per table (besides free-text q).
 FILTERABLE = {
     "tasks": ("owner",),
-    "task_attempts": ("candidate", "task_id"),
+    "session_steps": ("candidate", "task_id", "session_id"),
     "user_skill_beliefs": ("candidate",),
     "active_sessions": ("candidate",),
     "auth_tokens": ("user_id",),
@@ -191,7 +194,7 @@ def list_rows(
     allowed_filters = set(FILTERABLE.get(name, ()))
     filters = {k: v for k, v in filters.items() if k in allowed_filters}
 
-    if name in ("tasks", "task_attempts", "user_skill_beliefs"):
+    if name in ("tasks", "session_steps", "user_skill_beliefs"):
         rows, total = _list_orm_rows(name, page, page_size, q, sort, order, filters)
     else:
         rows, total = _list_raw_rows(name, page, page_size, q, sort, order, filters)
@@ -201,7 +204,7 @@ def list_rows(
 def get_row(name: str, row_id: str) -> Optional[dict[str, Any]]:
     """Full row by primary key (no truncation)."""
     _registry(name)
-    if name in ("tasks", "task_attempts", "user_skill_beliefs"):
+    if name in ("tasks", "session_steps", "user_skill_beliefs"):
         return _get_orm_row(name, row_id)
     return _get_raw_row(name, row_id)
 
@@ -217,8 +220,8 @@ def update_row(name: str, row_id: str, fields: dict[str, Any]) -> Optional[dict[
         raise ValueError("No editable fields provided.")
     if name == "tasks":
         return _update_task(row_id, fields)
-    if name == "task_attempts":
-        return _update_attempt(row_id, fields)
+    if name == "session_steps":
+        return _update_step(row_id, fields)
     if name == "user_skill_beliefs":
         return _update_belief(row_id, fields)
     if name == "users":
@@ -236,7 +239,7 @@ def delete_row(name: str, row_id: str) -> dict[str, Any]:
             return {"deleted": 0}
         result = delete_task(row_id)
         return {"deleted": result.get("deleted_task", 0), **result}
-    if name in ("task_attempts", "user_skill_beliefs"):
+    if name in ("session_steps", "user_skill_beliefs"):
         return {"deleted": _delete_orm_row(name, row_id)}
     return _delete_raw_row(name, row_id)
 
@@ -245,21 +248,28 @@ def delete_row(name: str, row_id: str) -> dict[str, Any]:
 
 
 def _orm_model(name: str):
-    from coach.tasks import SkillBeliefModel, TaskAttemptModel, TaskModel
+    from coach.steps import SessionStepModel
+    from coach.tasks import SkillBeliefModel, TaskModel
 
     return {
         "tasks": TaskModel,
-        "task_attempts": TaskAttemptModel,
+        "session_steps": SessionStepModel,
         "user_skill_beliefs": SkillBeliefModel,
     }[name]
 
 
 def _orm_search_cols(name: str):
-    from coach.tasks import SkillBeliefModel, TaskAttemptModel, TaskModel
+    from coach.steps import SessionStepModel
+    from coach.tasks import SkillBeliefModel, TaskModel
 
     return {
         "tasks": (TaskModel.prompt, TaskModel.owner, TaskModel.id, TaskModel.context_notes),
-        "task_attempts": (TaskAttemptModel.candidate, TaskAttemptModel.task_id, TaskAttemptModel.id),
+        "session_steps": (
+            SessionStepModel.candidate,
+            SessionStepModel.session_id,
+            SessionStepModel.task_id,
+            SessionStepModel.id,
+        ),
         "user_skill_beliefs": (SkillBeliefModel.candidate,),
     }[name]
 
@@ -277,15 +287,16 @@ def _orm_to_list_dict(name: str, m) -> dict[str, Any]:
             if isinstance(d.get(k), str):
                 d[k] = _preview(d[k])
         return d
-    if name == "task_attempts":
+    if name == "session_steps":
         return {
             "id": m.id,
+            "session_id": m.session_id,
             "candidate": m.candidate,
+            "step_index": m.step_index,
             "task_id": m.task_id,
-            "fraction": m.fraction,
-            "score": m.score,
-            "max_score": m.max_score,
-            "hints_used_json": _preview(m.hints_used_json or "[]"),
+            "role": m.role,
+            "reward": m.reward,
+            "inherited": bool(m.inherited),
             "created_at": m.created_at.isoformat() if m.created_at else None,
         }
     return {
@@ -309,8 +320,12 @@ def _orm_to_full_dict(name: str, m) -> dict[str, Any]:
         d["hints_json"] = m.hints_json or "[]"
         d["tags_json"] = m.tags_json or "{}"
         d["target_text"] = m.target_text
-    if name == "task_attempts":
-        d["hints_used_json"] = m.hints_used_json or "[]"
+    if name == "session_steps":
+        d["task_snapshot_json"] = _preview(m.task_snapshot_json or "{}")
+        d["state_before_json"] = _preview(m.state_before_json or "{}")
+        d["state_after_json"] = _preview(m.state_after_json or "{}")
+        d["result_json"] = _preview(m.result_json or "{}")
+        d["coaching_json"] = _preview(m.coaching_json or "{}")
     return d
 
 
@@ -497,24 +512,20 @@ def _update_task(task_id: str, fields: dict[str, Any]) -> Optional[dict[str, Any
         session.close()
 
 
-def _update_attempt(attempt_id: str, fields: dict[str, Any]) -> Optional[dict[str, Any]]:
+def _update_step(step_id: str, fields: dict[str, Any]) -> Optional[dict[str, Any]]:
     from coach.db import create_schema, learner_session
-    from coach.tasks import TaskAttemptModel
+    from coach.steps import SessionStepModel
 
     create_schema()
     session = learner_session()
     try:
-        m = session.get(TaskAttemptModel, attempt_id)
+        m = session.get(SessionStepModel, step_id)
         if m is None:
             return None
-        if "fraction" in fields:
-            m.fraction = _check_range("fraction", fields["fraction"], 0.0, 1.0)
-        if "score" in fields:
-            m.score = _check_range("score", fields["score"], 0.0, 1000.0)
-        if "max_score" in fields:
-            m.max_score = _check_range("max_score", fields["max_score"], 0.01, 1000.0)
+        if "reward" in fields:
+            m.reward = _check_range("reward", fields["reward"], 0.0, 1.0)
         session.commit()
-        return _orm_to_full_dict("task_attempts", m)
+        return _orm_to_full_dict("session_steps", m)
     except Exception:
         session.rollback()
         raise
@@ -576,13 +587,13 @@ def _update_user(user_id: str, fields: dict[str, Any]) -> Optional[dict[str, Any
 _RAW_SELECT = {
     "users": "SELECT id, email, display_name, created_at FROM users",
     "auth_tokens": "SELECT token, user_id, created_at, expires_at FROM auth_tokens",
-    "active_sessions": "SELECT session_id, candidate, session_json, feedback_json, updated_at FROM active_sessions",
+    "active_sessions": "SELECT session_id, candidate, status, session_json, resumed_from_share, fork_of, updated_at FROM active_sessions",
 }
 
 _RAW_COLS = {
     "users": ("id", "email", "display_name", "created_at"),
     "auth_tokens": ("token", "user_id", "created_at", "expires_at"),
-    "active_sessions": ("session_id", "candidate", "session_json", "feedback_json", "updated_at"),
+    "active_sessions": ("session_id", "candidate", "status", "session_json", "resumed_from_share", "fork_of", "updated_at"),
 }
 
 _RAW_PK = {"users": "id", "auth_tokens": "token", "active_sessions": "session_id"}
@@ -632,9 +643,8 @@ def _list_raw_rows(name, page, page_size, q, sort, order, filters):
     out = []
     for r in rows:
         d = dict(zip(cols, r))
-        for k in ("session_json", "feedback_json"):
-            if isinstance(d.get(k), str):
-                d[k] = _preview(d[k])
+        if isinstance(d.get("session_json"), str):
+            d["session_json"] = _preview(d["session_json"])
         out.append(d)
     return out, total
 
@@ -662,6 +672,10 @@ def _delete_raw_row(name: str, row_id: str) -> dict[str, Any]:
             usr = conn.execute("DELETE FROM users WHERE id = ?", (row_id,))
             conn.commit()
             return {"deleted": usr.rowcount or 0, "deleted_tokens": tok.rowcount or 0}
+        if name == "active_sessions":
+            from coach.steps import delete_session_data
+
+            delete_session_data(row_id)
         cur = conn.execute(f"DELETE FROM {name} WHERE {pk} = ?", (row_id,))
         conn.commit()
         return {"deleted": cur.rowcount or 0}

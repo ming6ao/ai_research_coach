@@ -7,15 +7,23 @@ Shapes (all wrapped in ``{"data": ...}``):
 - DELETE /api/v1/sessions/{id}       -> 204
 - POST   /api/v1/sessions/{id}/answers     {task_id, answer, hints_used?}
 - POST   /api/v1/sessions/{id}/completion  {}
+- POST   /api/v1/sessions/{id}/share       {step_index?}  -> {token, url}
+- POST   /api/v1/sessions/{id}/redo        {step_index, answer, hints_used?}
+
+Trajectory data lives in ``session_steps`` (RL-shaped per-step rows); the
+``active_sessions`` row holds only the compact live state. Shares / resume
+follow the Copy-on-Write design (docs/collaboration-design.md).
 """
 
+import os
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from backend.auth import get_current_user
 from backend.dependencies import get_store, resolve_candidate
-from backend.v1.schemas import AnswerSubmitRequest, SessionCreateRequest
+from backend.v1.schemas import AnswerSubmitRequest, RedoRequest, SessionCreateRequest, ShareRequest
 
 router = APIRouter(prefix="/sessions", tags=["v1:sessions"])
 
@@ -65,6 +73,70 @@ def _save_area_beliefs(session) -> None:
             )
     except Exception:
         pass
+
+
+def _load_session(store, session_id: str):
+    """Load a session, hydrate its results from steps, and return (session, state)."""
+    from coach.session import Session
+    from coach.shares import effective_steps
+
+    state = store.get(session_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    session = Session.from_dict(state["session"])
+    for st in effective_steps(session_id, state):
+        try:
+            from coach.judge import EvaluationResult
+
+            session.results.append(EvaluationResult.from_dict(st.get("result") or {}))
+        except Exception:
+            pass
+    return session, state
+
+
+def _materialize_prefix(session, session_id: str, state: dict) -> bool:
+    """CoW fork: materialize a resumed session's share prefix as inherited steps.
+
+    Returns True when a prefix was materialized (the session is now
+    self-contained); False when the session was not resumed / already forked.
+    """
+    from coach.judge import EvaluationResult
+    from coach.shares import get_share
+    from coach.steps import insert_step
+
+    token = state.get("_resumed_from_share")
+    if not token:
+        return False
+    share = get_share(token)
+    if share is None:
+        return False
+    steps = share["snapshot"].get("steps", [])
+    for i, st in enumerate(steps):
+        insert_step(
+            session_id,
+            session.candidate,
+            i,
+            st.get("task_snapshot") or {},
+            st.get("role") or "bank",
+            st.get("user_answer") or "",
+            st.get("score") or 0.0,
+            st.get("max_score") or 5.0,
+            st.get("fraction") or 0.0,
+            st.get("reward") or 0.0,
+            st.get("hints_used") or [],
+            st.get("state_before") or {},
+            st.get("state_after") or {},
+            st.get("result") or {},
+            st.get("coaching") or {},
+            inherited=True,
+        )
+    for st in steps:
+        try:
+            session.results.append(EvaluationResult.from_dict(st.get("result") or {}))
+        except Exception:
+            pass
+    get_store().set_resumed_from_share(session_id, None)
+    return True
 
 
 _COMBINED_CACHE: dict[str, tuple[str, dict]] = {}
@@ -209,13 +281,10 @@ def create_session(
 @router.get("/{session_id}", summary="Get session with current task")
 def get_session(session_id: str, user: Optional[dict] = Depends(get_current_user)):
     from coach.selection import pick_next_task
-    from coach.session import Session
+    from coach.shares import effective_steps, feedback_from_steps
 
     store = get_store()
-    state = store.get(session_id)
-    if state is None:
-        raise HTTPException(status_code=404, detail="Session not found.")
-    session = Session.from_dict(state["session"])
+    session, state = _load_session(store, session_id)
     _check_owner(session, user, guest_ok=True)
     if user is None and not session.candidate.startswith("guest-"):
         raise HTTPException(
@@ -223,9 +292,10 @@ def get_session(session_id: str, user: Optional[dict] = Depends(get_current_user
             detail="Guests can only open their own sessions. Log in to open this one.",
         )
     task = pick_next_task(session.candidate, session)
+    steps = effective_steps(session_id, state)
     return {
         "data": _session_view(
-            session_id, session, task, state.get("_feedback_list", [])
+            session_id, session, task, feedback_from_steps(steps)
         )
     }
 
@@ -254,42 +324,54 @@ def submit_answer(
     from coach.judge import LLMJudge
     from coach.score import bayesian_update, effective_score, measurement_variance
     from coach.selection import pick_next_task
-    from coach.session import Session, SkillState, task_view
+    from coach.session import SkillState, task_view
+    from coach.steps import belief_state, insert_step
     from coach.taxonomy import family_of
 
     store = get_store()
-    state = store.get(session_id)
-    if state is None:
-        raise HTTPException(status_code=404, detail="Session not found.")
-
-    session = Session.from_dict(state["session"])
-    feedback_list = state.get("_feedback_list", [])
+    session, state = _load_session(store, session_id)
     _check_owner(session, user)
+
+    _materialize_prefix(session, session_id, state)
 
     task = next((t for t in session.tasks if t["id"] == req.task_id), None)
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task {req.task_id} not found.")
 
-    existing = next((r for r in session.results if r.task_id == req.task_id), None)
-    if existing is not None:
-        return {
-            "data": {
-                "result": existing.to_dict(),
-                "coach": existing.coach,
-                "next_task": pick_next_task(session.candidate, session),
-                "remaining": len(session.tasks) - session.index,
-                "ability_update": None,
-                "mastery": _mastery_dict(session),
-                "already_answered": True,
+    if req.task_id in session.asked_task_ids:
+        existing = next((r for r in session.results if r.task_id == req.task_id), None)
+        if existing is not None:
+            from coach.shares import feedback_from_steps
+
+            steps = []
+            try:
+                from coach.steps import list_steps
+
+                steps = list_steps(session_id)
+            except Exception:
+                pass
+            return {
+                "data": {
+                    "result": existing.to_dict(),
+                    "coach": existing.coach,
+                    "next_task": pick_next_task(session.candidate, session),
+                    "remaining": len(session.tasks) - session.index,
+                    "ability_update": None,
+                    "mastery": _mastery_dict(session),
+                    "already_answered": True,
+                }
             }
-        }
 
     result, coach = LLMJudge().evaluate(task, req.answer)
 
     requested = session.viewed_hints.get(req.task_id, [])
     viewed = list(dict.fromkeys(list(req.hints_used or []) + requested))
+    session.viewed_hints[req.task_id] = viewed
 
     state_obj = session.get_ability()
+    session.ensure_area_beliefs()
+    before = belief_state(session)
+
     penalty = hint_penalty(task, viewed)
     observation = effective_score(result.fraction, penalty)
     obs_variance = measurement_variance(task.get("difficulty", 1), state_obj.score)
@@ -319,14 +401,33 @@ def submit_answer(
         fam_state = session.get_family_state(family)
         session.family_states[family] = fam_state.update(difficulty, observation)
 
+    after = belief_state(session)
+
+    role = "bank"
+    if task.get("generated"):
+        role = str(task.get("generated_kind") or "remediate")
+    insert_step(
+        session_id,
+        session.candidate,
+        session.index,
+        task,
+        role,
+        req.answer,
+        result.score,
+        result.max_score,
+        result.fraction,
+        observation,
+        viewed,
+        before,
+        after,
+        result.to_dict(),
+        coach.to_dict(),
+        inherited=False,
+    )
+
     try:
-        from coach.tasks import record_attempt as _record_attempt
         from coach.tasks import save_skill_belief as _save_belief
 
-        _record_attempt(
-            session.candidate, task["id"], observation,
-            result.score, result.max_score, viewed,
-        )
         _save_belief(
             session.candidate, new_score, new_variance,
             state_obj.questions_answered + 1,
@@ -334,19 +435,6 @@ def submit_answer(
         _save_area_beliefs(session)
     except Exception:
         pass
-
-    feedback_list.append({
-        "task_id": task["id"],
-        "prompt": task["prompt"],
-        "type": "code",
-        "user_answer": req.answer,
-        "result": result.to_dict(),
-        "feedback": coach.feedback,
-        "coach": coach.to_dict(),
-        "hints_used": viewed,
-        "tags": task.get("tags"),
-        "scored": True,
-    })
 
     session.asked_task_ids.add(req.task_id)
     session.results.append(result)
@@ -369,8 +457,7 @@ def submit_answer(
         nxt = next_task_bank(session)
         next_task = task_view(nxt, session) if nxt else None
 
-    state["session"] = session.to_dict()
-    store.save(session_id, state, feedback_list)
+    store.save(session_id, {"session": session.to_dict()})
 
     return {
         "data": {
@@ -390,11 +477,7 @@ def complete_session(session_id: str, user: Optional[dict] = Depends(get_current
     from coach.session import Session
 
     store = get_store()
-    state = store.get(session_id)
-    if state is None:
-        raise HTTPException(status_code=404, detail="Session not found.")
-
-    session = Session.from_dict(state["session"])
+    session, _state = _load_session(store, session_id)
     _check_owner(session, user)
     # The row stays in active_sessions for history/resume; "done" is derived
     # from the session JSON (pick_next_task returns None).
@@ -403,5 +486,185 @@ def complete_session(session_id: str, user: Optional[dict] = Depends(get_current
             "done": True,
             "ability": _ability_dict(session),
             "mastery": _mastery_dict(session),
+        }
+    }
+
+
+@router.post("/{session_id}/share", summary="Share a trajectory prefix")
+def share_session(
+    session_id: str,
+    req: ShareRequest,
+    user: Optional[dict] = Depends(get_current_user),
+):
+    from coach.session import Session
+    from coach.shares import build_share_snapshot, create_share, effective_steps
+
+    store = get_store()
+    session, state = _load_session(store, session_id)
+    _check_owner(session, user)
+    session.ensure_area_beliefs()
+
+    steps = effective_steps(session_id, state)
+    boundary = len(steps)
+    if req.step_index is not None:
+        boundary = max(0, min(int(req.step_index), len(steps)))
+    prefix = steps[:boundary]
+
+    snapshot = build_share_snapshot(session, prefix)
+    token = create_share(session_id, boundary, snapshot, session.candidate)
+
+    frontend_url = os.getenv("FRONTEND_URL", "").rstrip("/")
+    url = f"{frontend_url}/shared/{token}"
+    return {"data": {"token": token, "url": url, "step_index": boundary}}
+
+
+@router.post("/{session_id}/redo", summary="Redo a shared prefix step (CoW fork)")
+def redo_step(
+    session_id: str,
+    req: RedoRequest,
+    user: Optional[dict] = Depends(get_current_user),
+):
+    from coach.hints import hint_penalty
+    from coach.judge import LLMJudge
+    from coach.score import bayesian_update, effective_score, measurement_variance
+    from coach.selection import pick_next_task
+    from coach.session import Session, SkillState
+    from coach.shares import get_share
+    from coach.steps import belief_state, insert_step
+    from coach.taxonomy import family_of
+
+    store = get_store()
+    session, state = _load_session(store, session_id)
+    _check_owner(session, user)
+
+    token = state.get("_resumed_from_share")
+    if not token:
+        raise HTTPException(
+            status_code=400,
+            detail="Only an unreforged shared prefix can be redone (continue or fork first).",
+        )
+    share = get_share(token)
+    if share is None:
+        raise HTTPException(status_code=404, detail="Share not found.")
+    steps = share["snapshot"].get("steps", [])
+    k = req.step_index
+    if k < 0 or k >= len(steps):
+        raise HTTPException(status_code=400, detail="step_index out of range.")
+
+    # Materialize the prefix before the edited step as inherited history.
+    for i, st in enumerate(steps):
+        if i >= k:
+            break
+        insert_step(
+            session_id,
+            session.candidate,
+            i,
+            st.get("task_snapshot") or {},
+            st.get("role") or "bank",
+            st.get("user_answer") or "",
+            st.get("score") or 0.0,
+            st.get("max_score") or 5.0,
+            st.get("fraction") or 0.0,
+            st.get("reward") or 0.0,
+            st.get("hints_used") or [],
+            st.get("state_before") or {},
+            st.get("state_after") or {},
+            st.get("result") or {},
+            st.get("coaching") or {},
+            inherited=True,
+        )
+
+    task = steps[k].get("task_snapshot") or {}
+    result, coach = LLMJudge().evaluate(task, req.answer)
+
+    requested = session.viewed_hints.get(task.get("id"), [])
+    viewed = list(dict.fromkeys(list(req.hints_used or []) + requested))
+    session.viewed_hints[task.get("id")] = viewed
+
+    state_obj = session.get_ability()
+    session.ensure_area_beliefs()
+    before = belief_state(session)
+
+    penalty = hint_penalty(task, viewed)
+    observation = effective_score(result.fraction, penalty)
+    obs_variance = measurement_variance(task.get("difficulty", 1), state_obj.score)
+    new_score, new_variance = bayesian_update(
+        state_obj.score, state_obj.variance, observation, obs_variance
+    )
+
+    session.ability = SkillState(
+        score=new_score,
+        variance=new_variance,
+        questions_answered=state_obj.questions_answered + 1,
+        evidence=state_obj.evidence + [result.rationale],
+        hints_used=state_obj.hints_used + viewed,
+    )
+    primary_tag = (task.get("tags") or {}).get("primary")
+    family = family_of(primary_tag) if primary_tag else None
+    difficulty = task.get("difficulty", 1)
+    if primary_tag:
+        tag_state = session.get_tag_state(primary_tag)
+        session.tag_states[primary_tag] = tag_state.update(difficulty, observation)
+    if family:
+        fam_state = session.get_family_state(family)
+        session.family_states[family] = fam_state.update(difficulty, observation)
+    after = belief_state(session)
+
+    insert_step(
+        session_id,
+        session.candidate,
+        k,
+        task,
+        "redo",
+        req.answer,
+        result.score,
+        result.max_score,
+        result.fraction,
+        observation,
+        viewed,
+        before,
+        after,
+        result.to_dict(),
+        coach.to_dict(),
+        inherited=False,
+    )
+
+    try:
+        from coach.tasks import save_skill_belief as _save_belief
+
+        _save_belief(
+            session.candidate, new_score, new_variance,
+            state_obj.questions_answered + 1,
+        )
+        _save_area_beliefs(session)
+    except Exception:
+        pass
+
+    session.asked_task_ids.add(task.get("id"))
+    session.index = k + 1
+    session.results = [r for r in session.results if r.task_id != task.get("id")]
+    session.results.append(result)
+    store.set_resumed_from_share(session_id, None)
+
+    try:
+        next_task = pick_next_task(session.candidate, session)
+    except Exception:
+        next_task = None
+
+    store.save(session_id, {"session": session.to_dict()})
+
+    return {
+        "data": {
+            "result": result.to_dict(),
+            "coach": coach.to_dict(),
+            "next_task": next_task,
+            "remaining": len(session.tasks) - session.index,
+            "ability_update": {
+                "new_score": new_score,
+                "new_confidence": session.get_ability().confidence,
+                "hints_used": viewed,
+            },
+            "mastery": _mastery_dict(session),
+            "already_answered": False,
         }
     }
