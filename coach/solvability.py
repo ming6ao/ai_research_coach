@@ -24,13 +24,12 @@ def p_solve(
     node_mastery: float | None = None,
     node_uncertainty: float | None = None,
     difficulty: int = 2,
-    hint_penalty: float = 0.0,
 ) -> float:
     """Estimate probability the candidate solves a task.
 
     Logistic in (ability - difficulty): ability is the mean of the overall
     belief and node mastery; difficulty maps 1..5 onto the 0..1 scale.
-    Uncertainty and hint load discount the estimate.
+    Uncertainty discounts the estimate.
     """
     ability = max(0.0, min(1.0, ability_mean))
     if node_mastery is not None:
@@ -43,7 +42,6 @@ def p_solve(
     p = 1.0 / (1.0 + math.exp(-logit))
     if node_uncertainty is not None:
         p *= 1.0 - 0.25 * max(0.0, min(1.0, node_uncertainty))
-    p -= hint_penalty
     return max(0.02, min(0.98, p))
 
 

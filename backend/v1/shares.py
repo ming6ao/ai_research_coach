@@ -71,7 +71,6 @@ def resume_share(
                 "variance": b["variance"],
                 "questions_answered": b["questions_answered"],
                 "evidence": [],
-                "hints_used": [],
             }
     except Exception:
         ability = None
@@ -82,7 +81,6 @@ def resume_share(
         "index": s.get("index", len(snapshot.get("steps", []))),
         "ability": ability,
         "asked_task_ids": s.get("asked_task_ids", []),
-        "viewed_hints": s.get("viewed_hints", {}),
         "generated_task_ids": s.get("generated_task_ids", []),
     }
     session = Session.from_dict(session_dict)
@@ -96,7 +94,7 @@ def resume_share(
     store.save(session_id, {"session": session.to_dict()})
 
     try:
-        task = pick_next_task(candidate, session)
+        task = pick_next_task(candidate, session, session_id=session_id)
     except Exception:
         task = None
 

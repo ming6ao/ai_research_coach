@@ -50,7 +50,7 @@ class SessionState:
     """SQLite-backed session state store.
 
     ``active_sessions`` is the episode header: ``session_json`` holds a compact
-    live state (tasks, index, asked ids, hints, ability) — the trajectory
+    live state (tasks, index, asked ids, ability) — the trajectory
     itself lives in ``session_steps`` (see ``coach.steps``). ``feedback_json``
     no longer exists; review records are derived from steps.
     """

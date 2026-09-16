@@ -2,7 +2,7 @@
    API calls (/api) are never cached; cross-origin requests pass through.
    Bump CACHE_VERSION when app assets change to refresh the cache. */
 
-const CACHE_VERSION = 'ai-coach-v4';
+const CACHE_VERSION = 'ai-coach-v5';
 const PRECACHE = [
   '/',
   '/index.html',

@@ -117,7 +117,7 @@ def test_whoami_and_tables_metadata(client):
     assert "password_hash" not in [c["name"] for c in users_meta["columns"]]
 
 
-def test_tasks_registry_exposes_cluster_and_followups(client):
+def test_tasks_registry_exposes_parts_and_version_fields(client):
     from coach.tasks import create_task
 
     admin = _login(ADMIN)
@@ -127,34 +127,38 @@ def test_tasks_registry_exposes_cluster_and_followups(client):
     meta = client.get("/admin/tables", headers=headers).json()["tables"]
     tasks_meta = next(t for t in meta if t["name"] == "tasks")
     cols = {c["name"] for c in tasks_meta["columns"]}
-    assert {"cluster_id", "followups_json"} <= cols
+    assert {"parts_json", "version_index", "depends_on_task_id", "version_root_id"} <= cols
+    assert not ({"hints_json", "cluster_id", "followups_json"} & cols)
 
-    # A seeded task carries both in the list and detail views.
+    # A block seed carries parts and a successor carries version links.
     rows = client.get("/admin/table/tasks?page_size=100", headers=headers).json()["rows"]
-    seed_row = next(r for r in rows if r["id"] == "seed_softmax")
-    assert seed_row["cluster_id"] == "dl_architectures"
-    assert '"task_id": "seed_attention"' in seed_row["followups_json"]
+    block_row = next(r for r in rows if r["id"] == "seed_transformer_decode")
+    assert '"key": "softmax"' in block_row["parts_json"]
+    successor_row = next(r for r in rows if r["id"] == "seed_transformer_decode_mask")
+    assert successor_row["version_index"] == 2
+    assert successor_row["depends_on_task_id"] == "seed_transformer_decode"
 
-    detail = client.get("/admin/table/tasks/seed_softmax", headers=headers).json()
-    assert detail["row"]["cluster_id"] == "dl_architectures"
+    detail = client.get("/admin/table/tasks/seed_transformer_decode", headers=headers).json()
+    assert '"key": "attention"' in detail["row"]["parts_json"]
 
-    # Editable through the admin API (validated against the link shape).
+    # Editable through the admin API (parts validated, version fields writable).
     created = create_task(
         prompt="New task?", owner="alice@x.com",
-        cluster_id="eval_mlops", followups=[{"task_id": "seed_kfold", "kind": "sibling"}],
+        parts=[{"key": "f", "prompt": "def f(): ...", "tags": {"primary": "python"},
+                "max_score": 5, "difficulty": 2}],
     )
     res = client.patch(
         f"/admin/table/tasks/{created['id']}",
-        json={"cluster_id": "llm_stack", "followups_json": '[{"task_id": "seed_kv_cache", "kind": "sibling"}]'},
+        json={"depends_on_task_id": "seed_transformer_decode", "version_index": 2},
         headers=headers,
     )
     assert res.status_code == 200
-    assert res.json()["row"]["cluster_id"] == "llm_stack"
-    assert res.json()["row"]["followups_json"] == '[{"task_id": "seed_kv_cache", "kind": "sibling"}]'
+    assert res.json()["row"]["depends_on_task_id"] == "seed_transformer_decode"
+    assert res.json()["row"]["version_index"] == 2
 
     bad = client.patch(
         f"/admin/table/tasks/{created['id']}",
-        json={"followups_json": "not json"},
+        json={"parts_json": "not json"},
         headers=headers,
     )
     assert bad.status_code == 400

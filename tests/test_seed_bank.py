@@ -10,36 +10,50 @@ from coach.taxonomy import ALL_TAGS, FAMILIES, family_of
 def test_catalog_covers_every_tag_and_family():
     covered = set()
     for seed in SEED_CATALOG:
-        tags = seed["tags"]
-        covered.add(tags["primary"])
-        covered.update(tags["secondary"])
         assert seed.get("context_notes"), f"{seed['slug']} needs context_notes"
+        parts = seed.get("parts") or []
+        for part in parts:
+            tags = part["tags"]
+            covered.add(tags["primary"])
+            covered.update(tags["secondary"])
+        tags = seed.get("tags") or {}
+        covered.add(tags.get("primary"))
+        covered.update(tags.get("secondary") or [])
     assert set(ALL_TAGS) <= set(covered)
     for fam in FAMILIES:
         assert any(family_of(tag) == fam for tag in covered), f"family {fam} uncovered"
 
 
-def test_every_seed_has_cluster_and_resolvable_followups():
-    slugs = {f"seed_{s['slug']}" for s in SEED_CATALOG}
+def test_every_block_has_parts_and_version_links_resolve():
+    slugs = {s["slug"] for s in SEED_CATALOG}
     for seed in SEED_CATALOG:
-        assert seed.get("cluster"), f"{seed['slug']} needs a cluster"
-        assert isinstance(seed.get("followups"), list), f"{seed['slug']} needs followups"
-        for link in seed["followups"]:
-            assert link.get("task_id") in slugs, f"{seed['slug']} -> {link}"
-            assert link.get("kind") in ("prereq", "sibling"), link
+        depends = seed.get("depends_on")
+        if depends is None:
+            # Root version: a code block with parts, or a legacy single-part task.
+            assert isinstance(seed.get("parts"), list), f"{seed['slug']} needs parts"
+            assert seed["parts"], f"{seed['slug']} needs at least one part"
+            assert depends not in slugs
+        else:
+            assert depends in slugs, f"{seed['slug']} -> missing {depends}"
+            assert depends != seed["slug"], f"{seed['slug']} self-references"
 
 
-def test_seeded_rows_persist_cluster_and_followups(tmp_path, monkeypatch):
+def test_seeded_rows_persist_parts_and_version_links(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "seed_fu.db")
     from coach.tasks import get_task
 
     seed_question_bank()
     first = get_task(f"seed_{SEED_CATALOG[0]['slug']}")
-    assert first["cluster_id"] == SEED_CATALOG[0]["cluster"]
-    assert first["followups"][0]["task_id"].startswith("seed_")
-    # Every follow-up target resolves to a real seeded row.
-    for link in SEED_CATALOG[0]["followups"]:
-        assert get_task(link["task_id"]) is not None
+    assert first["parts"], "block rows persist their parts"
+    assert first["max_score"] == sum(p["max_score"] for p in first["parts"])
+
+    successor = next(s for s in SEED_CATALOG if s.get("depends_on"))
+    row = get_task(f"seed_{successor['slug']}")
+    assert row["depends_on_task_id"] == f"seed_{successor['depends_on']}"
+    assert row["version_index"] == 2
+    assert row["version_root_id"] == f"seed_{successor['depends_on']}"
+    # The predecessor row exists.
+    assert get_task(f"seed_{successor['depends_on']}") is not None
 
 
 def test_seed_question_bank_idempotent(tmp_path, monkeypatch):

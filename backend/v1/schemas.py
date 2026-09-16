@@ -25,7 +25,6 @@ class SessionCreateRequest(BaseModel):
 class AnswerSubmitRequest(BaseModel):
     task_id: str = Field(min_length=1, max_length=128)
     answer: str = Field(min_length=1, max_length=50000)
-    hints_used: list[str] = Field(default_factory=list, max_length=50)
 
 
 class ShareRequest(BaseModel):
@@ -35,7 +34,6 @@ class ShareRequest(BaseModel):
 class RedoRequest(BaseModel):
     step_index: int = Field(ge=0)
     answer: str = Field(min_length=1, max_length=50000)
-    hints_used: list[str] = Field(default_factory=list, max_length=50)
 
 
 class TaskCreateRequest(BaseModel):
@@ -43,13 +41,14 @@ class TaskCreateRequest(BaseModel):
     scaffold: Optional[str] = Field(default=None, max_length=16000)
     difficulty: int = Field(default=2, ge=1, le=5)
     max_score: int = Field(default=5, ge=1, le=100)
-    hints: list[dict[str, Any]] = Field(default_factory=list)
+    parts: Optional[list[dict[str, Any]]] = None
     is_public: bool = False
     context_notes: Optional[str] = Field(default=None, max_length=2000)
     tags: Optional[dict[str, Any]] = None
     task_type: Optional[str] = Field(default=None, max_length=32)
-    cluster_id: Optional[str] = Field(default=None, max_length=64)
-    followups: Optional[list[dict[str, Any]]] = None
+    version_index: Optional[int] = Field(default=None, ge=1)
+    depends_on_task_id: Optional[str] = Field(default=None, max_length=128)
+    version_root_id: Optional[str] = Field(default=None, max_length=128)
 
 
 class TaskPatchRequest(BaseModel):
@@ -57,13 +56,14 @@ class TaskPatchRequest(BaseModel):
     scaffold: Optional[str] = Field(default=None, max_length=16000)
     difficulty: Optional[int] = Field(default=None, ge=1, le=5)
     max_score: Optional[int] = Field(default=None, ge=1, le=100)
-    hints: Optional[list[dict[str, Any]]] = None
+    parts: Optional[list[dict[str, Any]]] = None
     is_public: Optional[bool] = None
     context_notes: Optional[str] = Field(default=None, max_length=2000)
     tags: Optional[dict[str, Any]] = None
     task_type: Optional[str] = Field(default=None, max_length=32)
-    cluster_id: Optional[str] = Field(default=None, max_length=64)
-    followups: Optional[list[dict[str, Any]]] = None
+    version_index: Optional[int] = Field(default=None, ge=1)
+    depends_on_task_id: Optional[str] = Field(default=None, max_length=128)
+    version_root_id: Optional[str] = Field(default=None, max_length=128)
 
 
 class AdminSeedCreateRequest(BaseModel):
@@ -72,9 +72,10 @@ class AdminSeedCreateRequest(BaseModel):
     scaffold: Optional[str] = Field(default=None, max_length=16000)
     difficulty: int = Field(default=2, ge=1, le=5)
     max_score: int = Field(default=5, ge=1, le=100)
-    hints: list[dict[str, Any]] = Field(default_factory=list)
+    parts: Optional[list[dict[str, Any]]] = None
     tags: Optional[dict[str, Any]] = None
     task_type: Optional[str] = Field(default=None, max_length=32)
     context_notes: Optional[str] = Field(default=None, max_length=2000)
-    cluster_id: Optional[str] = Field(default=None, max_length=64)
-    followups: Optional[list[dict[str, Any]]] = None
+    version_index: Optional[int] = Field(default=None, ge=1)
+    depends_on_task_id: Optional[str] = Field(default=None, max_length=128)
+    version_root_id: Optional[str] = Field(default=None, max_length=128)

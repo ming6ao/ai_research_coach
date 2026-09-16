@@ -86,9 +86,13 @@ _DROPPED_TABLES = (
     "task_attempts",
 )
 
-# Columns from the removed per-task frozen graph and skill tags. Best-effort
-# DROP COLUMN; failures are swallowed so startup never breaks.
-_DROPPED_TASK_COLUMNS = ("graph_json", "target_node_id", "target_node_slug", "expected_time_min", "skill")
+# Columns from the removed per-task frozen graph, skill tags, hints, curated
+# follow-ups, and thematic clusters. Best-effort DROP COLUMN; failures are
+# swallowed so startup never breaks.
+_DROPPED_TASK_COLUMNS = (
+    "graph_json", "target_node_id", "target_node_slug", "expected_time_min",
+    "skill", "hints_json", "cluster_id", "followups_json",
+)
 
 # Tables reset_database() wipes (learner/app data) vs. preserves (identity/auth).
 _WIPED_TABLES = ("tasks", "session_steps", "user_skill_beliefs", "active_sessions", "trajectory_shares")
@@ -323,12 +327,14 @@ def create_schema():
                 )
             if "task_type" not in cols:
                 conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'implement'")
-            if "cluster_id" not in cols:
-                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN cluster_id TEXT")
-            if "followups_json" not in cols:
-                conn.exec_driver_sql(
-                    "ALTER TABLE tasks ADD COLUMN followups_json TEXT DEFAULT '[]'"
-                )
+            if "parts_json" not in cols:
+                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN parts_json TEXT DEFAULT '[]'")
+            if "version_index" not in cols:
+                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN version_index INTEGER DEFAULT 1")
+            if "depends_on_task_id" not in cols:
+                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN depends_on_task_id TEXT")
+            if "version_root_id" not in cols:
+                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN version_root_id TEXT")
         except Exception:
             pass
     # Seed the builtin question bank (idempotent, hermetic: no network/model

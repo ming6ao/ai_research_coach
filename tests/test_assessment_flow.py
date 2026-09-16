@@ -1,8 +1,8 @@
 """End-to-end coaching flow test with a fake judge (via the v1 API).
 
-Verifies that viewing hints reduces the effective mastery for a task even when
-the submitted code is perfect, that answers return the coaching + next task in
-a {data} envelope, and that completion returns the progress snapshot.
+Verifies that per-part scoring updates beliefs and that answers return the
+coaching + next task in a {data} envelope, and that completion returns the
+progress snapshot.
 """
 
 from __future__ import annotations
@@ -17,15 +17,22 @@ from coach.judge import EvaluationResult, CoachContent, CoachStep
 class FakeJudge:
     """Judge that always awards full marks with a canned rationale."""
 
-    def evaluate(self, task, answer):
-        max_score = task.get("max_score", 5)
+    def evaluate(self, task, answer, previous_code=None):
+        from coach.judge import score_targets
+
+        targets = score_targets(task)
+        parts = [
+            {"key": p["key"], "score": float(p["max_score"]), "rationale": "Perfect part."}
+            for p in targets
+        ]
+        max_score = sum(int(p["max_score"]) for p in targets)
         coach = CoachContent(
             feedback="Great job!",
             misconception="You had no misconception; the solution is sound.",
             steps=[CoachStep("Confirm the approach", "The implementation is correct.", None)],
         )
         result = EvaluationResult(
-            task["id"], max_score, max_score, "Perfect.", coach.to_dict()
+            task["id"], max_score, max_score, "Perfect.", coach.to_dict(), parts
         )
         return result, coach
 
@@ -43,10 +50,6 @@ def client(tmp_path, monkeypatch):
         owner="system",
         difficulty=2,
         max_score=5,
-        hints=[
-            {"id": "h1", "text": "Training loss falls while validation rises.", "weight": 0.05, "reveal_threshold": 0.75},
-            {"id": "h2", "text": "Find the first local minimum of val loss.", "weight": 0.08, "reveal_threshold": 0.65},
-        ],
         source="seed",
         is_public=True,
         task_id="seed_ml_01",
@@ -56,7 +59,6 @@ def client(tmp_path, monkeypatch):
         owner="system",
         difficulty=2,
         max_score=5,
-        hints=[{"id": "h1", "text": "Keep largest magnitudes.", "weight": 0.05, "reveal_threshold": 0.75}],
         source="seed",
         is_public=True,
         task_id="seed_sys_01",
@@ -79,32 +81,52 @@ def _start(client, initial_question=None, task_ids=None, headers=None):
     return data
 
 
-def _answer(client, session_id, task_id, answer="def f(): pass", hints_used=None, headers=None):
+def _answer(client, session_id, task_id, answer="def f(): pass", headers=None):
     res = client.post(
         f"/api/v1/sessions/{session_id}/answers",
-        json={"task_id": task_id, "answer": answer, "hints_used": hints_used or []},
+        json={"task_id": task_id, "answer": answer},
         headers=headers or {},
     )
     assert res.status_code == 200
     return res.json()["data"]
 
 
-def test_hints_reduce_mastery_for_perfect_code(client):
-    no_hints = _start(client, task_ids=["seed_ml_01"])
-    task = no_hints["current_task"]
-    assert task is not None
-    assert task["hints"], "task should carry hints"
+def test_block_tasks_carry_no_hints_and_per_part_scoring_updates_beliefs(client):
+    """A code block has no hints; a full-mark submission updates per-part tags."""
+    from coach.tasks import create_task as _create
 
-    data = _answer(client, no_hints["id"], task["id"])
-    score_without_hints = data["ability_update"]["new_score"]
+    block = _create(
+        prompt="Implement a two-part block.",
+        owner="system",
+        source="seed",
+        is_public=True,
+        parts=[
+            {"key": "mean", "prompt": "def mean(xs): ...", "tags": {"primary": "linear_regression"},
+             "max_score": 5, "difficulty": 2},
+            {"key": "variance", "prompt": "def variance(xs): ...", "tags": {"primary": "distributions"},
+             "max_score": 5, "difficulty": 2},
+        ],
+        task_id="seed_block_01",
+    )
+    started = _start(client, task_ids=["seed_block_01"])
+    task = started["current_task"]
+    assert "hints" not in task
+    assert len(task["parts"]) == 2
+    assert task["max_score"] == 10
 
-    with_hints = _start(client, task_ids=["seed_ml_01"])
-    task2 = with_hints["current_task"]
-    all_hint_ids = [h["id"] for h in task2["hints"]]
-    data2 = _answer(client, with_hints["id"], task2["id"], hints_used=all_hint_ids)
-    score_with_hints = data2["ability_update"]["new_score"]
+    data = _answer(client, started["id"], task["id"])
+    assert data["result"]["score"] == 10
+    assert len(data["result"]["parts"]) == 2
+    assert data["ability_update"] is not None
 
-    assert score_with_hints < score_without_hints
+    from coach.tasks import get_area_beliefs
+
+    candidate = started["candidate"]
+    beliefs = get_area_beliefs(candidate)
+    assert ("tag", "linear_regression") in beliefs
+    assert ("tag", "distributions") in beliefs
+    assert beliefs[("tag", "linear_regression")]["questions_answered"] == 1
+    assert beliefs[("tag", "distributions")]["questions_answered"] == 1
 
 
 def test_submit_returns_coaching_and_next_task(client):

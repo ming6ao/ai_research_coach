@@ -3,7 +3,6 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 
 from coach.area_score import AreaState
-from coach.hints import select_hints
 from coach.score import INITIAL_SCORE, INITIAL_VARIANCE, confidence_from_variance
 from coach.judge import EvaluationResult
 from coach.taxonomy import family_of
@@ -36,7 +35,6 @@ class SkillState:
     variance: float = INITIAL_VARIANCE
     questions_answered: int = 0
     evidence: List[str] = field(default_factory=list)
-    hints_used: List[str] = field(default_factory=list)
 
     @property
     def confidence(self) -> float:
@@ -49,7 +47,6 @@ class SkillState:
             "confidence": self.confidence,
             "questions_answered": self.questions_answered,
             "evidence": self.evidence,
-            "hints_used": self.hints_used,
         }
 
     @classmethod
@@ -59,7 +56,6 @@ class SkillState:
             variance=d.get("variance", INITIAL_VARIANCE),
             questions_answered=d.get("questions_answered", 0),
             evidence=d.get("evidence", []),
-            hints_used=d.get("hints_used", []),
         )
 
 
@@ -80,7 +76,6 @@ class Session:
     ability: SkillState = field(default_factory=SkillState)
     skill_states: Dict[str, SkillState] = field(default_factory=dict)
     asked_task_ids: Set[str] = field(default_factory=set)
-    viewed_hints: Dict[str, List[str]] = field(default_factory=dict)
     generated_task_ids: Set[str] = field(default_factory=set)
     family_states: Dict[str, AreaState] = field(default_factory=dict)
     tag_states: Dict[str, AreaState] = field(default_factory=dict)
@@ -106,7 +101,6 @@ class Session:
                     variance=best.variance,
                     questions_answered=best.questions_answered,
                     evidence=list(best.evidence),
-                    hints_used=list(best.hints_used),
                 )
             except Exception:
                 pass
@@ -223,7 +217,6 @@ class Session:
             "index": self.index,
             "ability": self.ability.to_dict(),
             "asked_task_ids": list(self.asked_task_ids),
-            "viewed_hints": self.viewed_hints,
             "generated_task_ids": list(self.generated_task_ids),
         }
 
@@ -243,7 +236,6 @@ class Session:
         if isinstance(d.get("ability"), dict):
             s.ability = SkillState.from_dict(d["ability"])
         s.asked_task_ids = set(d.get("asked_task_ids", []) or [])
-        s.viewed_hints = dict(d.get("viewed_hints", {}) or {})
         s.generated_task_ids = set(d.get("generated_task_ids", []) or [])
         for r in d.get("results") or []:
             try:
@@ -263,7 +255,6 @@ class Session:
                     variance=best.variance,
                     questions_answered=best.questions_answered,
                     evidence=list(best.evidence),
-                    hints_used=list(best.hints_used),
                 )
             except Exception:
                 pass
@@ -277,15 +268,40 @@ class Session:
         return s
 
 
+def _compose_block_scaffold(task: dict) -> str | None:
+    """Compose a task-level scaffold from part prompts when none is stored.
+
+    One stub per part: ``def name(...)`` parsed from the part's prompt, or
+    ``def {key}(*args): ...`` as a fallback.
+    """
+    parts = task.get("parts") or []
+    if not parts:
+        return None
+    stubs: list[str] = []
+    for part in parts:
+        m = re.search(r"def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)", part.get("prompt", ""))
+        if m:
+            name, params = m.group(1), m.group(2)
+            stubs.append(f"def {name}({params}):\n    # TODO: implement {name}\n    pass\n")
+        else:
+            key = str(part.get("key") or "f")
+            stubs.append(f"def {key}(*args):\n    # TODO: implement {key}\n    pass\n")
+    return "\n\n".join(stubs)
+
+
 def build_code_stub(task: dict) -> str | None:
     """Build an editor scaffold for a code task.
 
-    Scaffold-mode tasks already carry a `scaffold`. For function-mode tasks
-    (no scaffold) we generate a stub from the signature mentioned in the prompt
-    so the coding area is pre-filled instead of blank.
+    Scaffold-mode tasks already carry a `scaffold`. Code blocks without one
+    get their scaffold composed per part. For function-mode tasks (no
+    scaffold, no parts) we generate a stub from the signature mentioned in
+    the prompt so the coding area is pre-filled instead of blank.
     """
     if task.get("scaffold"):
         return task["scaffold"]
+    composed = _compose_block_scaffold(task)
+    if composed:
+        return composed
     m = re.search(r"def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)", task.get("prompt", ""))
     if m:
         name, params = m.group(1), m.group(2)
@@ -293,25 +309,51 @@ def build_code_stub(task: dict) -> str | None:
     return None
 
 
-def task_view(task: dict, session: Session) -> dict | None:
-    """Build the client-facing view of a task (hints pre-revealed by ability)."""
+def _version_total(task: dict, session: Session) -> int:
+    """Total number of versions in this task's version chain."""
+    root_id = task.get("version_root_id") or task.get("id")
+    indexes = {
+        (t.get("version_index") or 1)
+        for t in session.tasks
+        if (t.get("version_root_id") or t.get("id")) == root_id
+    }
+    return max(indexes) if indexes else 1
+
+
+def task_view(
+    task: dict, session: Session, previous_code: Optional[str] = None
+) -> dict | None:
+    """Build the client-facing view of a task.
+
+    Code blocks emit their ``parts`` and aggregate ``max_score``; version
+    successors additionally carry ``previous_code`` (the predecessor's
+    submitted answer), ``version_index``, ``version_total``, and
+    ``depends_on_task_id``.
+    """
     if task is None:
         return None
-    ability = session.get_ability().score
     view = {
         "id": task["id"],
         "type": "code",
         "prompt": task["prompt"],
         "difficulty": task.get("difficulty", 1),
+        "max_score": task.get("max_score", 5),
         "scaffold": build_code_stub(task),
-        "hints": select_hints(task, ability),
         "tags": task.get("tags") or {"primary": "python", "secondary": []},
         "task_type": task.get("task_type") or "implement",
     }
+    parts = task.get("parts") or []
+    if parts:
+        view["parts"] = parts
+    if previous_code:
+        view["previous_code"] = previous_code
+    if task.get("version_index") and task["version_index"] > 1:
+        view["version_index"] = task["version_index"]
+        view["version_total"] = _version_total(task, session)
+    if task.get("depends_on_task_id"):
+        view["depends_on_task_id"] = task["depends_on_task_id"]
     if task.get("context_notes"):
         view["context_notes"] = task["context_notes"]
-    if task.get("cluster_id"):
-        view["cluster_id"] = task["cluster_id"]
     if task.get("generated"):
         kind = str(task.get("generated_kind") or "remediate")
         label = {"remediate": "drill", "escalate": "escalation", "pivot": "pivot"}.get(kind, kind)

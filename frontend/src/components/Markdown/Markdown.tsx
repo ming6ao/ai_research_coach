@@ -5,13 +5,18 @@ import { normalizeMarkdownFences, splitMathChildren } from '../../lib/markdown';
 interface Props {
   text: string;
   className?: string;
+  /** Body copy (default) vs a larger, higher-contrast reading size for questions. */
+  size?: 'sm' | 'lg';
 }
 
-export function Markdown({ text, className = '' }: Props) {
+const SIZE_CLASSES: Record<NonNullable<Props['size']>, string> = {
+  sm: 'text-sm leading-6 text-[var(--color-text-secondary)]',
+  lg: 'text-[17px] leading-7 text-[var(--color-text-primary)]',
+};
+
+export function Markdown({ text, className = '', size = 'sm' }: Props) {
   return (
-    <div
-      className={`text-sm leading-6 text-[var(--color-text-secondary)] ${className}`}
-    >
+    <div className={`${SIZE_CLASSES[size]} ${className}`}>
       <ReactMarkdown
         components={{
           pre({ children }) {

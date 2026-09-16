@@ -77,7 +77,7 @@ def _seed_stale_rows():
             (
                 "sess_clean",
                 "guest-xyz",
-                '{"session": {"candidate": "guest-xyz"}, "current_task_id": "seed_softmax"}',
+                '{"session": {"candidate": "guest-xyz"}, "current_task_id": "seed_transformer_decode"}',
                 "2026-01-01 00:00:00",
             ),
         )
@@ -140,7 +140,7 @@ def test_stale_seeds_delete_cascade(client):
 
     for tid in ("mr_rc_scaling", "mr_rc_softmax", "seed_seed_oversample", "remed_child"):
         assert get_task(tid) is None
-    assert get_task("seed_softmax") is not None
+    assert get_task("seed_transformer_decode") is not None
 
 
 def test_stale_seeds_delete_is_idempotent(client):

@@ -23,7 +23,17 @@ html, body, #root {
   padding: 0;
   background-color: var(--color-bg-primary);
   color: var(--color-text-primary);
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+/* Comfortable base size: every rem-based utility (text-sm, text-base, …)
+   scales up ~6% while arbitrary px sizes (labels, chips) stay put. */
+html {
+  font-size: 17px;
+}
+
+body {
+  line-height: 1.55;
 }
 
 ::-webkit-scrollbar {

@@ -29,7 +29,7 @@ incorrectly or revealed a gap described below. Create ONE simpler coding task \
 that drills directly into that gap so the candidate can rebuild the missing \
 skill with a small, focused exercise.
 
-Return JSON with exactly five keys:
+Return JSON with exactly four keys:
   "prompt": the new, simpler coding task prompt (2-6 sentences, self-contained,
     with a clear function signature or spec). Reduce scope versus the original;
     isolate only the gap. Do not reveal the answer.
@@ -39,9 +39,7 @@ Return JSON with exactly five keys:
   "difficulty": an integer in [1, 5] strictly at or below the original task's
     difficulty, reflecting the reduced scope.
   "context_notes": 2-4 plain English sentences describing the prerequisites,
-    what builds on what, and common confusions for THIS task.
-  "hints": 1-3 ordered hints, each an object {"id", "text", "weight" (0..1),
-    "reveal_threshold" (0..1, optional)}. Text must not reveal the answer."""
+    what builds on what, and common confusions for THIS task."""
 
 _ESCALATE_SYSTEM_PROMPT = """\
 You are a tutor for a learning system. The candidate just SOLVED a simpler \
@@ -50,7 +48,7 @@ toward the original task: same skill/gap family but a harder variant (more \
 general input, an extra edge case, or a removed simplification). Do not \
 repeat the solved drill verbatim and do not reveal the answer.
 
-Return JSON with exactly five keys:
+Return JSON with exactly four keys:
   "prompt": the new, harder coding task prompt (2-6 sentences, self-contained,
     with a clear function signature or spec).
   "scaffold": a Python code stub for the candidate to fill in (the exact
@@ -59,9 +57,7 @@ Return JSON with exactly five keys:
   "difficulty": an integer in [1, 5], at or above the drill's difficulty \
 (prefer one step harder unless that would exceed the root difficulty + 1).
   "context_notes": 2-4 plain English sentences describing the prerequisites,
-    what builds on what, and common confusions for THIS task.
-  "hints": 1-3 ordered hints, each an object {"id", "text", "weight" (0..1),
-    "reveal_threshold" (0..1, optional)}. Text must not reveal the answer."""
+    what builds on what, and common confusions for THIS task."""
 
 _PIVOT_SYSTEM_PROMPT = """\
 You are a tutor for a learning system. The candidate just solved the drill \
@@ -71,7 +67,7 @@ DIFFERENT prerequisite or commonly-confused concept of the same root task \
 difficulty similar to the last solved task. Do not repeat prior drills and \
 do not reveal the answer.
 
-Return JSON with exactly five keys:
+Return JSON with exactly four keys:
   "prompt": the new coding task prompt (2-6 sentences, self-contained, with
     a clear function signature or spec) isolating the new prerequisite.
   "scaffold": a Python code stub for the candidate to fill in (the exact
@@ -80,9 +76,7 @@ Return JSON with exactly five keys:
   "difficulty": an integer in [1, 5], similar to the last solved task's \
 difficulty.
   "context_notes": 2-4 plain English sentences describing the prerequisites,
-    what builds on what, and common confusions for THIS task.
-  "hints": 1-3 ordered hints, each an object {"id", "text", "weight" (0..1),
-    "reveal_threshold" (0..1, optional)}. Text must not reveal the answer."""
+    what builds on what, and common confusions for THIS task."""
 
 _CHALLENGE_SYSTEM_PROMPT = """\
 You are a tutor for a learning system. The candidate has worked through the \
@@ -91,7 +85,7 @@ difficulty that keeps the session going: pick an important AI/ML coding \
 skill the candidate has not just drilled (see recent gaps to avoid \
 repetition), self-contained with a clear function signature or spec.
 
-Return JSON with exactly five keys:
+Return JSON with exactly four keys:
   "prompt": the new coding task prompt (2-6 sentences, self-contained, with
     a clear function signature or spec). Do not reveal the answer.
   "scaffold": a Python code stub for the candidate to fill in (the exact
@@ -99,9 +93,7 @@ Return JSON with exactly five keys:
     body — never the solution).
   "difficulty": an integer in [1, 5], near the requested difficulty.
   "context_notes": 2-4 plain English sentences describing the prerequisites,
-    what builds on what, and common confusions for THIS task.
-  "hints": 1-3 ordered hints, each an object {"id", "text", "weight" (0..1),
-    "reveal_threshold" (0..1, optional)}. Text must not reveal the answer."""
+    what builds on what, and common confusions for THIS task."""
 
 _FOLLOWUP_PROMPTS = {
     "remediate": _FOLLOWUP_SYSTEM_PROMPT,
@@ -117,18 +109,6 @@ _FOLLOWUP_SCHEMA = types.Schema(
         "scaffold": types.Schema(type=types.Type.STRING),
         "difficulty": types.Schema(type=types.Type.INTEGER),
         "context_notes": types.Schema(type=types.Type.STRING),
-        "hints": types.Schema(
-            type=types.Type.ARRAY,
-            items=types.Schema(
-                type=types.Type.OBJECT,
-                properties={
-                    "id": types.Schema(type=types.Type.STRING),
-                    "text": types.Schema(type=types.Type.STRING),
-                    "weight": types.Schema(type=types.Type.NUMBER),
-                    "reveal_threshold": types.Schema(type=types.Type.NUMBER),
-                },
-            ),
-        ),
     },
     required=["prompt", "difficulty"],
 )
@@ -226,46 +206,6 @@ def _scaffold_for(prompt: str, original_task: dict | None) -> str | None:
         name, params = m2.group(1), m2.group(2)
         return f"def {name}({params}):\n    # TODO: implement {name}\n    pass\n"
     return None
-
-
-def _sanitize_hints(raw: list | None, task_id: str) -> list[dict]:
-    """Sanitize LLM-authored hints into the seed hint shape.
-
-    Returns 1-3 hints with guaranteed ``id`` + ``text`` and clamped numeric
-    fields, matching the seed-bank structure (``coach/hints.py`` indexes by
-    ``id``). Model output is sanitized, not trusted: entries without a usable
-    id/text are dropped and numeric fields are clamped to [0, 1].
-    """
-    from coach.score import DEFAULT_HINT_WEIGHT
-
-    if not isinstance(raw, list):
-        return []
-    out: list[dict] = []
-    for i, h in enumerate(raw):
-        if not isinstance(h, dict):
-            continue
-        text = str(h.get("text") or "").strip()
-        if not text:
-            continue
-        hid = str(h.get("id") or "").strip()
-        if not hid:
-            hid = f"{task_id}-h{i + 1}"
-        weight = h.get("weight", DEFAULT_HINT_WEIGHT)
-        try:
-            weight = float(weight)
-        except (TypeError, ValueError):
-            weight = DEFAULT_HINT_WEIGHT
-        hint = {"id": hid, "text": text, "weight": max(0.0, min(1.0, weight))}
-        threshold = h.get("reveal_threshold")
-        if threshold is not None:
-            try:
-                hint["reveal_threshold"] = max(0.0, min(1.0, float(threshold)))
-            except (TypeError, ValueError):
-                pass
-        out.append(hint)
-        if len(out) >= 3:
-            break
-    return out
 
 
 class TaskDecomposer:
@@ -462,7 +402,6 @@ class TaskDecomposer:
                 root_difficulty=(original_task or {}).get("root_difficulty", orig_diff),
                 tags=(original_task or {}).get("tags"),
                 context_notes=str(payload.get("context_notes") or ""),
-                hints=_sanitize_hints(payload.get("hints"), task_id),
             )
         except Exception as exc:
             logger.exception(
@@ -537,7 +476,6 @@ class TaskDecomposer:
                 task_id, difficulty, prompt, "open-ended challenge", scaffold,
                 kind="challenge", tags=tags or ({"primary": prefer_tag} if prefer_tag else None),
                 context_notes=str(payload.get("context_notes") or ""),
-                hints=_sanitize_hints(payload.get("hints"), task_id),
             )
             task["target_text"] = ""
             return task
@@ -555,7 +493,7 @@ class TaskDecomposer:
         Used by ``python -m coach.seed_bank --fill-gaps`` to mint tasks for
         tags with zero/lowest seed coverage. The tag is pre-attached as the
         primary tag. Returns a SeedTask-shaped dict
-        (``prompt/scaffold/difficulty/max_score/hints/tags/task_type/context_notes``).
+        (``prompt/scaffold/difficulty/max_score/tags/task_type/context_notes``).
 
         Raises ``RuntimeError`` when the API key is missing or generation
         fails (the CLI surfaces the error and moves on).
@@ -602,7 +540,6 @@ class TaskDecomposer:
                 "scaffold": scaffold,
                 "difficulty": difficulty,
                 "max_score": 5,
-                "hints": [],
                 "tags": validate_tags({"primary": tag, "secondary": []}),
                 "task_type": "implement",
                 "context_notes": str(payload.get("context_notes") or "").strip()[:2000],
@@ -628,7 +565,6 @@ class TaskDecomposer:
         root_difficulty: int | None = None,
         tags: dict | None = None,
         context_notes: str = "",
-        hints: list | None = None,
     ) -> dict:
         task: dict = {
             "id": task_id,
@@ -636,7 +572,6 @@ class TaskDecomposer:
             "difficulty": difficulty,
             "prompt": prompt,
             "max_score": 5,
-            "hints": hints or [],
             "generated": True,
             "generated_kind": kind,
             "target_text": target_text,

@@ -57,7 +57,9 @@ def next_task(
     """
     available = [
         t for t in session.tasks
-        if t["id"] not in session.asked_task_ids and not t.get("generated")
+        if t["id"] not in session.asked_task_ids
+        and not t.get("generated")
+        and not t.get("depends_on_task_id")
     ]
     if family:
         available = [
@@ -119,7 +121,11 @@ def _utility(task: dict, session: Session) -> float:
 
 
 def expected_time(task: dict) -> float:
-    """Expected minutes to complete a task (static prior)."""
+    """Expected minutes to complete a task (static prior).
+
+    Code blocks scale linearly with their number of parts: an N-part block
+    costs about N single-question tasks.
+    """
     prompt_words = len(task.get("prompt", "").split())
     minutes = (
         TIME_BASE_MIN
@@ -128,4 +134,7 @@ def expected_time(task: dict) -> float:
     )
     if not task.get("scaffold"):
         minutes += TIME_NO_SCAFFOLD_EXTRA
+    parts = task.get("parts") or []
+    if parts:
+        minutes *= max(1, len(parts))
     return minutes

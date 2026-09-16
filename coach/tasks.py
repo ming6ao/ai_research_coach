@@ -4,9 +4,16 @@ Tasks live in the shared SQLite file (``data/coach.db``) via the SQLAlchemy
 ``Base`` in ``coach.db``.
 
 Each task optionally carries ``context_notes``: 2-4 plain-English sentences
-(e.g. "A is a prerequisite of B, which is often confused with C") generated
-once at creation time. There is no knowledge graph, no nodes/edges, and no
-skill tags — every task is eligible for every candidate.
+generated once at creation time. There is no knowledge graph, no nodes/edges,
+and no skill tags — every task is eligible for every candidate.
+
+A task may be a **code block**: a task-level ``scaffold`` covering a set of
+related functions (``parts_json``). A part is
+``{key, prompt, tags, max_score, difficulty}``; parts carry no scaffold and no
+hints. Tasks can be linked into **version chains** via ``depends_on_task_id`` /
+``version_root_id``: a later version modifies the same code and is evaluated
+on its own criteria, with the predecessor's submitted answer carried forward
+as context.
 
 Visibility: a candidate sees system seed rows (``owner='system'``,
 ``is_public=1``), their own rows, and any public rows. Guests create
@@ -57,15 +64,16 @@ class TaskModel(Base):
     scaffold: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     difficulty: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
     max_score: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
-    hints_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    parts_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     context_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
     tags_json: Mapped[str] = mapped_column(Text, nullable=False, default='{"primary": "python", "secondary": []}')
     task_type: Mapped[str] = mapped_column(String(32), nullable=False, default="implement")
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     parent_task_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     target_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    cluster_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    followups_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    version_index: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    depends_on_task_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    version_root_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     is_public: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
@@ -120,43 +128,117 @@ def serialize_tags(tags: dict | None) -> str:
     return json.dumps(tags if isinstance(tags, dict) else {"primary": "python", "secondary": []})
 
 
-def parse_followups(followups_json: Optional[str]) -> list[dict]:
-    """Parse a stored ``followups_json`` value into a list of link dicts.
+def parse_parts(parts_json: Optional[str]) -> list[dict]:
+    """Parse a stored ``parts_json`` value into a list of part dicts.
 
-    Each entry is ``{"task_id": str, "kind": "prereq"|"sibling"}``. Malformed
-    input collapses to ``[]`` so a follow-up lookup can never crash.
+    A part is ``{key, prompt, tags, max_score, difficulty}``. Malformed input
+    collapses to ``[]``; numeric fields are clamped and unknown tags fall
+    back to the default tags so a reader can never crash on bad data
+    (strict validation happens at write time).
     """
     try:
-        parsed = json.loads(followups_json or "[]")
+        parsed = json.loads(parts_json or "[]")
     except Exception:
-        parsed = []
+        return []
     if not isinstance(parsed, list):
         return []
     out: list[dict] = []
+    seen: set[str] = set()
     for item in parsed:
         if not isinstance(item, dict):
             continue
-        task_id = str(item.get("task_id") or "").strip()
-        if not task_id:
+        key = str(item.get("key") or "").strip()
+        prompt = str(item.get("prompt") or "").strip()
+        if not key or not prompt or key in seen:
             continue
+        seen.add(key)
         out.append({
-            "task_id": task_id,
-            "kind": "sibling" if str(item.get("kind") or "") not in ("prereq", "sibling") else str(item.get("kind")),
+            "key": key,
+            "prompt": prompt,
+            "tags": parse_tags(json.dumps(item.get("tags")) if not isinstance(item.get("tags"), str) else item.get("tags")),
+            "max_score": max(1, min(100, int(item.get("max_score") or 5))),
+            "difficulty": max(1, min(5, int(item.get("difficulty") or 1))),
         })
     return out
 
 
+def serialize_parts(parts: Optional[list]) -> str:
+    """Serialize a validated parts list for storage."""
+    return json.dumps(parts or [])
+
+
+def validate_parts(parts) -> list[dict]:
+    """Validate a parts list; returns the normalized list. Raises ValueError.
+
+    Every part needs a unique ``key``, a non-empty ``prompt``,
+    taxonomy-validated ``tags``, a ``max_score`` in 1..100 and a
+    ``difficulty`` in 1..5.
+    """
+    from coach.taxonomy import validate as validate_tags
+
+    if parts is None:
+        return []
+    if not isinstance(parts, list):
+        raise ValueError("parts must be a list.")
+    out: list[dict] = []
+    seen: set[str] = set()
+    for item in parts:
+        if not isinstance(item, dict):
+            raise ValueError("Each part must be an object.")
+        key = str(item.get("key") or "").strip()
+        if not key:
+            raise ValueError("Each part needs a key.")
+        if key in seen:
+            raise ValueError(f"Duplicate part key: {key!r}.")
+        prompt = str(item.get("prompt") or "").strip()
+        if not prompt:
+            raise ValueError(f"Part {key!r} needs a prompt.")
+        seen.add(key)
+        try:
+            tags = validate_tags(item.get("tags"))
+        except ValueError as e:
+            raise ValueError(f"Part {key!r}: {e}")
+        try:
+            max_score = max(1, min(100, int(item.get("max_score") or 5)))
+        except (TypeError, ValueError):
+            raise ValueError(f"Part {key!r} max_score must be an integer 1..100.")
+        try:
+            difficulty = max(1, min(5, int(item.get("difficulty") or 1)))
+        except (TypeError, ValueError):
+            raise ValueError(f"Part {key!r} difficulty must be an integer 1..5.")
+        out.append({
+            "key": key,
+            "prompt": prompt,
+            "tags": tags,
+            "max_score": max_score,
+            "difficulty": difficulty,
+        })
+    return out
+
+
+def derive_block_tags(parts: list[dict]) -> dict:
+    """Block-level tags from its parts: first part's primary + up to 2 others.
+
+    The belief system consumes each part's own tags; the block-level tags are
+    a display/picker summary derived here when the author omits them.
+    """
+    primaries = [p["tags"]["primary"] for p in parts]
+    if not primaries:
+        return {"primary": "python", "secondary": []}
+    primary = primaries[0]
+    secondary: list[str] = []
+    for tag in primaries[1:]:
+        if tag != primary and tag not in secondary:
+            secondary.append(tag)
+    return {"primary": primary, "secondary": secondary[:2]}
+
+
 def task_to_dict(model: TaskModel) -> dict:
-    try:
-        hints = json.loads(model.hints_json or "[]")
-    except Exception:
-        hints = []
     d: dict[str, Any] = {
         "id": model.id,
         "prompt": model.prompt,
         "difficulty": model.difficulty,
         "max_score": model.max_score,
-        "hints": hints,
         "context_notes": getattr(model, "context_notes", "") or "",
         "tags": parse_tags(getattr(model, "tags_json", "")),
         "task_type": getattr(model, "task_type", "") or "implement",
@@ -164,11 +246,17 @@ def task_to_dict(model: TaskModel) -> dict:
         "is_public": bool(model.is_public),
         "owner": model.owner,
     }
-    if model.cluster_id:
-        d["cluster_id"] = model.cluster_id
-    followups = parse_followups(getattr(model, "followups_json", "") or "[]")
-    if followups:
-        d["followups"] = followups
+    parts = parse_parts(getattr(model, "parts_json", "") or "[]")
+    if parts:
+        d["parts"] = parts
+    version_index = int(getattr(model, "version_index", 1) or 1)
+    if version_index > 1:
+        d["version_index"] = version_index
+    if getattr(model, "depends_on_task_id", None):
+        d["depends_on_task_id"] = model.depends_on_task_id
+    version_root_id = getattr(model, "version_root_id", None)
+    if version_root_id and version_root_id != model.id:
+        d["version_root_id"] = version_root_id
     if model.scaffold:
         d["scaffold"] = model.scaffold
     if model.parent_task_id:
@@ -185,9 +273,8 @@ def create_task(
     prompt: str,
     owner: str = SYSTEM_OWNER,
     scaffold: Optional[str] = None,
-    difficulty: int = 2,
-    max_score: int = 5,
-    hints: Optional[list] = None,
+    difficulty: Optional[int] = None,
+    max_score: Optional[int] = None,
     source: str = "user",
     parent_task_id: Optional[str] = None,
     target_text: Optional[str] = None,
@@ -196,16 +283,23 @@ def create_task(
     context_notes: Optional[str] = None,
     tags: Optional[dict] = None,
     task_type: str = "implement",
-    cluster_id: Optional[str] = None,
-    followups: Optional[list] = None,
+    parts: Optional[list] = None,
+    version_index: Optional[int] = None,
+    depends_on_task_id: Optional[str] = None,
+    version_root_id: Optional[str] = None,
 ) -> dict:
     """Persist a task row and return its dict form.
 
-    ``tags`` is validated against the closed vocabulary
-    (``coach.taxonomy.validate``); invalid tags raise ``ValueError``.
-    ``cluster_id`` groups related questions into a thread; ``followups`` is a
-    list of ``{"task_id", "kind"}`` pointers to related tasks served as
-    curated follow-ups after this task is answered.
+    ``tags`` and each part's ``tags`` are validated against the closed
+    vocabulary (``coach.taxonomy.validate``); invalid tags raise
+    ``ValueError``. A code block may carry ``parts``; when ``tags`` is
+    omitted for a block they are auto-derived from the parts. ``max_score``
+    and ``difficulty`` default to the parts' aggregates when omitted.
+
+    Version chains: when ``depends_on_task_id`` is set the row is a successor
+    — the chain root is resolved from the predecessor (unless
+    ``version_root_id`` is given) and ``version_index`` defaults to the
+    predecessor's index + 1.
     """
     from coach.db import create_schema
 
@@ -214,8 +308,33 @@ def create_task(
 
     if task_type not in TASK_TYPES:
         raise ValueError(f"Unknown task_type: {task_type!r}.")
-    tags = validate_tags(tags)
+    parts = validate_parts(parts)
     tid = task_id or f"task_{uuid.uuid4().hex[:10]}"
+
+    resolved_root = version_root_id
+    resolved_index = version_index
+    if depends_on_task_id:
+        prev = get_task(depends_on_task_id)
+        if prev is None:
+            raise ValueError(f"depends_on_task_id {depends_on_task_id!r} not found.")
+        resolved_root = resolved_root or prev.get("version_root_id") or prev.get("id")
+        resolved_index = resolved_index or (prev.get("version_index") or 1) + 1
+    else:
+        resolved_index = resolved_index or 1
+        resolved_root = resolved_root or tid
+
+    if tags is None:
+        tags = derive_block_tags(parts) if parts else {"primary": "python", "secondary": []}
+    tags = validate_tags(tags)
+
+    if parts:
+        if difficulty is None:
+            difficulty = max(p["difficulty"] for p in parts)
+        if max_score is None:
+            max_score = sum(p["max_score"] for p in parts)
+    difficulty = max(1, min(5, int(difficulty or 2)))
+    max_score = max(1, int(max_score or 5))
+
     session = learner_session()
     try:
         model = TaskModel(
@@ -223,17 +342,18 @@ def create_task(
             owner=owner,
             prompt=prompt,
             scaffold=scaffold,
-            difficulty=max(1, min(5, int(difficulty or 2))),
-            max_score=max_score or 5,
-            hints_json=json.dumps(hints or []),
+            difficulty=difficulty,
+            max_score=max_score,
+            parts_json=serialize_parts(parts),
             context_notes=(context_notes or "").strip()[:2000],
             tags_json=serialize_tags(tags),
             task_type=task_type,
             source=source,
             parent_task_id=parent_task_id,
             target_text=target_text,
-            cluster_id=cluster_id,
-            followups_json=json.dumps(followups or []),
+            version_index=max(1, int(resolved_index or 1)),
+            depends_on_task_id=depends_on_task_id,
+            version_root_id=resolved_root,
             is_public=1 if is_public else 0,
             created_at=_utcnow_naive(),
         )
@@ -248,17 +368,17 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
     """Update whitelisted task columns (v1 PATCH path).
 
     Allowed: prompt, scaffold, difficulty (1-5), max_score (>=1),
-    hints (list), is_public (bool), context_notes (<=2000 chars),
-    tags (validated against the vocabulary), task_type, cluster_id,
-    followups (list of {"task_id", "kind"} pointers).
+    parts (validated list), is_public (bool), context_notes (<=2000 chars),
+    tags (validated against the vocabulary), task_type, version_index,
+    depends_on_task_id, version_root_id.
     Returns the updated dict, or None when the task does not exist.
     """
     from coach.db import create_schema
 
     allowed = {
-        "prompt", "scaffold", "difficulty", "max_score", "hints",
+        "prompt", "scaffold", "difficulty", "max_score", "parts",
         "is_public", "context_notes", "tags", "task_type",
-        "cluster_id", "followups",
+        "version_index", "depends_on_task_id", "version_root_id",
     }
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if "prompt" in updates and not str(updates["prompt"]).strip():
@@ -268,6 +388,8 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
 
     if "tags" in updates:
         updates["tags"] = validate_tags(updates["tags"])
+    if "parts" in updates:
+        updates["parts"] = validate_parts(updates["parts"])
     if "task_type" in updates and updates["task_type"] not in TASK_TYPES:
         raise ValueError(f"Unknown task_type: {updates['task_type']!r}.")
     session = learner_session()
@@ -283,8 +405,8 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
             model.difficulty = max(1, min(5, int(updates["difficulty"])))
         if "max_score" in updates:
             model.max_score = max(1, int(updates["max_score"]))
-        if "hints" in updates:
-            model.hints_json = json.dumps(updates["hints"] or [])
+        if "parts" in updates:
+            model.parts_json = serialize_parts(updates["parts"])
         if "is_public" in updates:
             model.is_public = 1 if updates["is_public"] else 0
         if "context_notes" in updates:
@@ -293,10 +415,12 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
             model.tags_json = serialize_tags(updates["tags"])
         if "task_type" in updates:
             model.task_type = updates["task_type"]
-        if "cluster_id" in updates:
-            model.cluster_id = str(updates["cluster_id"] or "").strip() or None
-        if "followups" in updates:
-            model.followups_json = json.dumps(parse_followups(json.dumps(updates["followups"] or [])))
+        if "version_index" in updates:
+            model.version_index = max(1, int(updates["version_index"] or 1))
+        if "depends_on_task_id" in updates:
+            model.depends_on_task_id = str(updates["depends_on_task_id"] or "").strip() or None
+        if "version_root_id" in updates:
+            model.version_root_id = str(updates["version_root_id"] or "").strip() or None
         session.commit()
         return task_to_dict(model)
     finally:
@@ -355,6 +479,7 @@ def record_attempt(
     ``session_id`` is optional (legacy callers); a synthetic episode id is
     used so rows stay unique under ``uq_session_steps``. Coverage/admin
     aggregate by candidate so a step without a real episode is still counted.
+    ``hints_used`` is accepted for legacy callers but always stored as ``[]``.
     """
     from coach.steps import insert_step
 

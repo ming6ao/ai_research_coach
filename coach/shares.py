@@ -139,6 +139,7 @@ def feedback_from_steps(steps: list[dict]) -> list[dict]:
                 "coach": coaching,
                 "hints_used": st.get("hints_used") or [],
                 "tags": task.get("tags"),
+                "parts": task.get("parts"),
                 "scored": True,
             }
         )

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import json
 
 import coach.db as db
 from coach.db import reset_database
@@ -58,7 +57,7 @@ def _add_app_data():
         session.add(
             SessionStepModel(
                 id="step_1", session_id="s_1", candidate="guest-abc", step_index=0,
-                task_id="seed_softmax", role="bank", reward=0.8, created_at=dt,
+                task_id="seed_transformer_decode", role="bank", reward=0.8, created_at=dt,
             )
         )
         session.add(
@@ -81,7 +80,7 @@ def test_reset_preview_reports_counts(tmp_path, monkeypatch):
     result = reset_database(preview=True)
     assert result["preview"] is True
     assert result["total_deleted"] > 0
-    assert result["wiped"]["tasks"] >= 31  # 30 seeds + 1 custom task
+    assert result["wiped"]["tasks"] >= len(SEED_CATALOG) + 1  # catalog + 1 custom task
     assert result["wiped"]["active_sessions"] == 1
     assert result["wiped"]["session_steps"] == 1
     assert result["wiped"]["user_skill_beliefs"] == 1
@@ -89,7 +88,7 @@ def test_reset_preview_reports_counts(tmp_path, monkeypatch):
     assert "users" in result["preserved"] and "auth_tokens" in result["preserved"]
     # Preview must not mutate anything.
     with db.sqlite_conn() as conn:
-        assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] >= 31
+        assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] >= len(SEED_CATALOG) + 1
 
 
 def test_reset_wipes_app_data_keeps_auth_and_resyncs(tmp_path, monkeypatch):
@@ -111,13 +110,13 @@ def test_reset_wipes_app_data_keeps_auth_and_resyncs(tmp_path, monkeypatch):
         # App data is gone.
         assert conn.execute("SELECT COUNT(*) FROM active_sessions").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM trajectory_shares").fetchone()[0] == 0
-        # Only the catalog seeds remain, with cluster + followups populated.
+        # Only the catalog seeds remain, with parts + version links populated.
         assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == len(SEED_CATALOG)
         assert conn.execute(
             "SELECT COUNT(*) FROM tasks WHERE source != 'seed'"
         ).fetchone()[0] == 0
         assert conn.execute(
-            "SELECT COUNT(*) FROM tasks WHERE cluster_id IS NULL OR followups_json = '[]'"
+            "SELECT COUNT(*) FROM tasks WHERE parts_json = '[]' AND version_index = 1"
         ).fetchone()[0] == 0
 
     session = db.learner_session()
@@ -134,21 +133,31 @@ def test_reset_wipes_app_data_keeps_auth_and_resyncs(tmp_path, monkeypatch):
     for seed in SEED_CATALOG:
         with db.sqlite_conn() as conn:
             row = conn.execute(
-                "SELECT cluster_id, followups_json FROM tasks WHERE id = ?",
+                "SELECT version_index, depends_on_task_id, version_root_id "
+                "FROM tasks WHERE id = ?",
                 (f"seed_{seed['slug']}",),
             ).fetchone()
         assert row is not None, seed["slug"]
-        assert row[0] == seed["cluster"], seed["slug"]
-        assert json.loads(row[1]) == seed["followups"], seed["slug"]
+        if seed.get("depends_on"):
+            assert row[0] == 2
+            assert row[1] == f"seed_{seed['depends_on']}"
+            assert row[2] == f"seed_{seed['depends_on']}"
+        else:
+            assert row[0] == 1
+            assert row[1] is None
+            assert row[2] == f"seed_{seed['slug']}"
 
 
-def test_catalog_has_no_self_loops_and_resolvable_followups():
+def test_catalog_has_no_self_loops_and_resolvable_version_links():
     ids = {f"seed_{s['slug']}" for s in SEED_CATALOG}
     for seed in SEED_CATALOG:
         tid = f"seed_{seed['slug']}"
-        for link in seed["followups"]:
-            assert link["task_id"] != tid, f"{tid} self-references"
-            assert link["task_id"] in ids, f"{tid} -> missing {link['task_id']}"
+        depends = seed.get("depends_on")
+        if depends is None:
+            continue
+        pred = f"seed_{depends}"
+        assert pred != tid, f"{tid} self-references"
+        assert pred in ids, f"{tid} -> missing {pred}"
 
 
 def test_reset_cli_requires_confirm(tmp_path, monkeypatch, capsys):

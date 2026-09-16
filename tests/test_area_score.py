@@ -165,11 +165,17 @@ def test_only_primary_tag_updates_the_estimator():
     import coach.judge as judge_mod
 
     class FakeJudge:
-        def evaluate(self, task, answer):
-            from coach.judge import CoachContent, CoachStep, EvaluationResult
+        def evaluate(self, task, answer, previous_code=None):
+            from coach.judge import CoachContent, CoachStep, EvaluationResult, score_targets
 
+            targets = score_targets(task)
+            parts = [
+                {"key": p["key"], "score": float(p["max_score"]), "rationale": "Perfect part."}
+                for p in targets
+            ]
+            max_score = sum(int(p["max_score"]) for p in targets)
             coach = CoachContent(feedback="ok", misconception="", steps=[CoachStep("t", "e", None)])
-            result = EvaluationResult(task["id"], 5, 5, "Perfect.", coach.to_dict())
+            result = EvaluationResult(task["id"], max_score, max_score, "Perfect.", coach.to_dict(), parts)
             return result, coach
 
     judge_mod.LLMJudge = FakeJudge

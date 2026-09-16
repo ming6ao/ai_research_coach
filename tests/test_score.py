@@ -14,18 +14,15 @@ from coach.score import (
 )
 
 
-def test_effective_score_without_hints_preserves_raw():
-    assert effective_score(0.8, 0.0) == pytest.approx(0.8)
-
-
-def test_effective_score_discounts_hints():
-    assert effective_score(1.0, 0.5) == pytest.approx(0.5)
-    assert effective_score(0.8, 0.2) == pytest.approx(0.6)
+def test_effective_score_preserves_raw_within_range():
+    assert effective_score(0.8) == pytest.approx(0.8)
+    assert effective_score(0.0) == pytest.approx(0.0)
+    assert effective_score(1.0) == pytest.approx(1.0)
 
 
 def test_effective_score_clamps_to_range():
-    assert effective_score(0.3, 0.5) == pytest.approx(0.0)
-    assert effective_score(1.1, 0.0) == pytest.approx(1.0)
+    assert effective_score(-0.3) == pytest.approx(0.0)
+    assert effective_score(1.1) == pytest.approx(1.0)
 
 
 def test_measurement_variance_prefers_matched_difficulty():

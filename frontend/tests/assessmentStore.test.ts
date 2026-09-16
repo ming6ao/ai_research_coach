@@ -25,14 +25,14 @@ test('submit auto-advances to the next task immediately', async () => {
     type: 'code' as const,
     prompt: 'Implement foo',
     difficulty: 2,
-    hints: [],
+    max_score: 5,
   };
   const next = {
     id: 't2',
     type: 'code' as const,
     prompt: 'Implement bar',
     difficulty: 2,
-    hints: [],
+    max_score: 5,
   };
 
   const start = mock.method(apiClient, 'start', async () =>
@@ -79,7 +79,7 @@ test('submit with null next_task leaves no current task (done)', async () => {
     type: 'code' as const,
     prompt: 'Implement foo',
     difficulty: 2,
-    hints: [],
+    max_score: 5,
   };
 
   const start = mock.method(apiClient, 'start', async () =>
@@ -141,7 +141,7 @@ test('completeSession finishes the session and returns to home', async () => {
       total_tasks: 1,
       task_index: 0,
       current_task: {
-        id: 't1', type: 'code' as const, prompt: 'Implement foo', difficulty: 2, hints: [],
+        id: 't1', type: 'code' as const, prompt: 'Implement foo', difficulty: 2, max_score: 5,
       },
     }) as StartResponse,
   );

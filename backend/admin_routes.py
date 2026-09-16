@@ -84,15 +84,16 @@ def create_seed(req: AdminSeedCreateRequest, user: dict = Depends(_require_admin
             scaffold=req.scaffold,
             difficulty=req.difficulty,
             max_score=req.max_score,
-            hints=req.hints or [],
+            parts=req.parts,
             source="seed_admin",
             is_public=True,
             task_id=f"seed_admin_{uuid.uuid4().hex[:8]}",
             context_notes=_describe_context(req.prompt.strip(), req.context_notes),
             tags=tags,
             task_type=req.task_type or "implement",
-            cluster_id=req.cluster_id,
-            followups=req.followups,
+            version_index=req.version_index,
+            depends_on_task_id=req.depends_on_task_id,
+            version_root_id=req.version_root_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))

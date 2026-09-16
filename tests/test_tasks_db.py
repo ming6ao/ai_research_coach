@@ -26,7 +26,7 @@ def test_create_and_list_tasks_endpoint():
     judge_mod.LLMJudge = type(
         "J",
         (),
-        {"evaluate": lambda self, task, ans: (__import__("coach.judge").EvaluationResult(task["id"], 5, 5, "ok", {"feedback": "f", "misconception": "m", "steps": []}), __import__("coach.judge").CoachContent(feedback="f", misconception="m", steps=[]))},
+        {"evaluate": lambda self, task, ans, previous_code=None: (__import__("coach.judge").EvaluationResult(task["id"], 5, 5, "ok", {"feedback": "f", "misconception": "m", "steps": []}), __import__("coach.judge").CoachContent(feedback="f", misconception="m", steps=[]))},
     )
     from backend.main import app
 

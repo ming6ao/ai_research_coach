@@ -2,7 +2,6 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { useAssessmentStore, type ResultWithFeedback } from '../../stores/assessmentStore';
 import { apiClient, type Task } from '../../api/client';
 import { CodeEditor } from '../TaskPanel/CodeEditor';
-import { HintSection } from '../TaskPanel/HintSection';
 import { Markdown } from '../Markdown/Markdown';
 import { Composer } from '../Composer/Composer';
 import { CodeBlock } from '../CodeBlock/CodeBlock';
@@ -133,7 +132,7 @@ function TagChips({ tags }: { tags?: Task['tags'] }) {
   );
 }
 
-function TaskPromptBubble({ prompt, remediation, tags }: { prompt: string; remediation?: Task['remediation']; tags?: Task['tags'] }) {
+function TaskPromptBubble({ prompt, parts, remediation, tags }: { prompt: string; parts?: Task['parts']; remediation?: Task['remediation']; tags?: Task['tags'] }) {
   const label = followUpLabel(remediation);
   return (
     <CoachBubble>
@@ -146,7 +145,18 @@ function TaskPromptBubble({ prompt, remediation, tags }: { prompt: string; remed
             </span>
           )}
         </p>
-        <Markdown text={prompt} />
+        <Markdown text={prompt} size="lg" />
+        {parts && parts.length > 0 && (
+          <ol className="space-y-1 border-l border-[var(--color-border-default)] pl-3">
+            {parts.map((part, i) => (
+              <li key={part.key} className="text-[15px] leading-6 text-[var(--color-text-secondary)]">
+                <span className="font-semibold text-[var(--color-text-primary)]">{i + 1}. {part.key}</span>
+                {' — '}
+                {part.prompt}
+              </li>
+            ))}
+          </ol>
+        )}
         <TagChips tags={tags} />
       </div>
     </CoachBubble>
@@ -177,7 +187,6 @@ export function ChatView() {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const [code, setCode] = useState('');
-  const [viewed, setViewed] = useState<Set<string>>(new Set());
   const [submittedTaskId, setSubmittedTaskId] = useState<string | null>(null);
   const [shareState, setShareState] = useState<'idle' | 'copying' | 'copied' | 'error'>('idle');
 
@@ -195,24 +204,16 @@ export function ChatView() {
 
   const taskId = currentTask?.id ?? null;
   useEffect(() => {
-    setCode(currentTask?.scaffold ?? '');
-    setViewed(new Set((currentTask?.hints ?? []).filter((h) => h.pre_revealed).slice(0, 1).map((h) => h.id)));
+    // A version successor carries its predecessor's code to build on.
+    setCode(currentTask?.previous_code ?? currentTask?.scaffold ?? '');
     setSubmittedTaskId(null);
-  }, [taskId, currentTask?.scaffold, currentTask?.hints]);
-
-  const revealHint = (id: string) => {
-    setViewed((prev) => {
-      const next = new Set(prev);
-      next.add(id);
-      return next;
-    });
-  };
+  }, [taskId, currentTask?.scaffold, currentTask?.previous_code]);
 
   const handleSubmit = (note: string) => {
     if (!currentTask) return;
     setSubmittedTaskId(currentTask.id);
     const answer = note ? `${code}${NOTE_SEPARATOR}${note}` : code;
-    useAssessmentStore.getState().submitAnswer(currentTask.id, answer, Array.from(viewed));
+    useAssessmentStore.getState().submitAnswer(currentTask.id, answer);
   };
 
   useEffect(() => {
@@ -225,7 +226,7 @@ export function ChatView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Single scrollable page: question → hints → editor → composer in one flow */}
+      {/* Single scrollable page: question → parts → editor → composer in one flow */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-2xl space-y-5 px-4 py-6 lg:max-w-4xl xl:max-w-6xl">
           {results.length > 0 && (
@@ -251,23 +252,14 @@ export function ChatView() {
 
           {results.map((r, i) => (
             <Fragment key={`res-${i}`}>
-              <TaskPromptBubble prompt={r.prompt} tags={r.tags} />
+              <TaskPromptBubble prompt={r.prompt} parts={r.parts} tags={r.tags} />
               <UserCodeBubble answer={r.userAnswer} />
               <CoachingBubble r={r} />
             </Fragment>
           ))}
 
           {!waiting && currentTask && (
-            <TaskPromptBubble prompt={currentTask.prompt} remediation={currentTask.remediation} tags={currentTask.tags} />
-          )}
-
-          {!waiting && currentTask && (currentTask.hints?.length ?? 0) > 0 && (
-            <HintSection
-              hints={currentTask.hints ?? []}
-              viewed={viewed}
-              onRevealHint={revealHint}
-              disabled={loading}
-            />
+            <TaskPromptBubble prompt={currentTask.prompt} parts={currentTask.parts} remediation={currentTask.remediation} tags={currentTask.tags} />
           )}
 
           {!waiting && currentTask && (

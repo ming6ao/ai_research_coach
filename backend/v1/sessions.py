@@ -5,10 +5,10 @@ Shapes (all wrapped in ``{"data": ...}``):
 - POST   /api/v1/sessions            -> 201 {id, candidate, total_tasks, task_index, current_task}
 - GET    /api/v1/sessions/{id}       -> {id, candidate, total_tasks, task_index, current_task, results, ability}
 - DELETE /api/v1/sessions/{id}       -> 204
-- POST   /api/v1/sessions/{id}/answers     {task_id, answer, hints_used?}
+- POST   /api/v1/sessions/{id}/answers     {task_id, answer}
 - POST   /api/v1/sessions/{id}/completion  {}
 - POST   /api/v1/sessions/{id}/share       {step_index?}  -> {token, url}
-- POST   /api/v1/sessions/{id}/redo        {step_index, answer, hints_used?}
+- POST   /api/v1/sessions/{id}/redo        {step_index, answer}
 
 Trajectory data lives in ``session_steps`` (RL-shaped per-step rows); the
 ``active_sessions`` row holds only the compact live state. Shares / resume
@@ -253,7 +253,6 @@ def create_session(
             owner=candidate,
             difficulty=2,
             max_score=5,
-            hints=[],
             source="user",
             is_public=is_guest,
             context_notes=_describe_context(prompt),
@@ -291,7 +290,7 @@ def get_session(session_id: str, user: Optional[dict] = Depends(get_current_user
             status_code=403,
             detail="Guests can only open their own sessions. Log in to open this one.",
         )
-    task = pick_next_task(session.candidate, session)
+    task = pick_next_task(session.candidate, session, session_id=session_id)
     steps = effective_steps(session_id, state)
     return {
         "data": _session_view(
@@ -320,8 +319,7 @@ def delete_session(session_id: str, user: Optional[dict] = Depends(get_current_u
 def submit_answer(
     session_id: str, req: AnswerSubmitRequest, user: Optional[dict] = Depends(get_current_user)
 ):
-    from coach.hints import hint_penalty
-    from coach.judge import LLMJudge
+    from coach.judge import LLMJudge, score_targets
     from coach.score import bayesian_update, effective_score, measurement_variance
     from coach.selection import pick_next_task
     from coach.session import SkillState, task_view
@@ -354,7 +352,9 @@ def submit_answer(
                 "data": {
                     "result": existing.to_dict(),
                     "coach": existing.coach,
-                    "next_task": pick_next_task(session.candidate, session),
+                    "next_task": pick_next_task(
+                        session.candidate, session, session_id=session_id
+                    ),
                     "remaining": len(session.tasks) - session.index,
                     "ability_update": None,
                     "mastery": _mastery_dict(session),
@@ -362,44 +362,54 @@ def submit_answer(
                 }
             }
 
-    result, coach = LLMJudge().evaluate(task, req.answer)
+    # A version successor is evaluated against its predecessor's submitted
+    # code, carried forward as context.
+    previous_code = None
+    if task.get("depends_on_task_id"):
+        try:
+            from coach.steps import answer_for_task
 
-    requested = session.viewed_hints.get(req.task_id, [])
-    viewed = list(dict.fromkeys(list(req.hints_used or []) + requested))
-    session.viewed_hints[req.task_id] = viewed
+            previous_code = answer_for_task(session_id, task["depends_on_task_id"])
+        except Exception:
+            previous_code = None
+    result, coach = LLMJudge().evaluate(task, req.answer, previous_code=previous_code)
 
     state_obj = session.get_ability()
     session.ensure_area_beliefs()
     before = belief_state(session)
 
-    penalty = hint_penalty(task, viewed)
-    observation = effective_score(result.fraction, penalty)
+    # Global ability updates once with the aggregate block fraction.
+    observation = effective_score(result.fraction)
     obs_variance = measurement_variance(task.get("difficulty", 1), state_obj.score)
     new_score, new_variance = bayesian_update(
         state_obj.score, state_obj.variance, observation, obs_variance
     )
-
     session.ability = SkillState(
         score=new_score,
         variance=new_variance,
         questions_answered=state_obj.questions_answered + 1,
         evidence=state_obj.evidence + [result.rationale],
-        hints_used=state_obj.hints_used + viewed,
     )
 
-    # Per-area updates: one answer updates exactly the primary tag, its
-    # family, and the global belief (§4.2). Secondary tags never feed the
-    # estimator (coverage/diversity only).
-    task_tags = task.get("tags") or {}
-    primary_tag = task_tags.get("primary")
-    family = family_of(primary_tag) if primary_tag else None
-    difficulty = task.get("difficulty", 1)
-    if primary_tag:
-        tag_state = session.get_tag_state(primary_tag)
-        session.tag_states[primary_tag] = tag_state.update(difficulty, observation)
-    if family:
-        fam_state = session.get_family_state(family)
-        session.family_states[family] = fam_state.update(difficulty, observation)
+    # Per-part belief updates: each part's own score feeds its own primary
+    # tag and family, at the part's own difficulty (§3). Secondary tags never
+    # feed the estimator (coverage/diversity only).
+    targets = score_targets(task)
+    scored_by_key = {p["key"]: p for p in (result.parts or [])}
+    for part in targets:
+        part_max = int(part.get("max_score") or 5)
+        part_score = scored_by_key.get(part["key"], {}).get("score") or part_max * 0.5
+        part_obs = effective_score(part_score / part_max if part_max else 0.0)
+        part_tags = part.get("tags") or {}
+        primary_tag = part_tags.get("primary")
+        family = family_of(primary_tag) if primary_tag else None
+        part_difficulty = int(part.get("difficulty") or task.get("difficulty") or 1)
+        if primary_tag:
+            tag_state = session.get_tag_state(primary_tag)
+            session.tag_states[primary_tag] = tag_state.update(part_difficulty, part_obs)
+        if family:
+            fam_state = session.get_family_state(family)
+            session.family_states[family] = fam_state.update(part_difficulty, part_obs)
 
     after = belief_state(session)
 
@@ -417,7 +427,7 @@ def submit_answer(
         result.max_score,
         result.fraction,
         observation,
-        viewed,
+        [],
         before,
         after,
         result.to_dict(),
@@ -443,13 +453,18 @@ def submit_answer(
     ability_update = {
         "new_score": new_score,
         "new_confidence": session.get_ability().confidence,
-        "hints_used": viewed,
     }
 
     try:
         next_task = pick_next_task(
             session.candidate, session,
-            last_submission={"task": task, "result": result, "coach": coach},
+            last_submission={
+                "task": task,
+                "answer": req.answer,
+                "result": result,
+                "coach": coach,
+            },
+            session_id=session_id,
         )
     except Exception:
         from coach.picker import next_task as next_task_bank
@@ -529,8 +544,7 @@ def redo_step(
     req: RedoRequest,
     user: Optional[dict] = Depends(get_current_user),
 ):
-    from coach.hints import hint_penalty
-    from coach.judge import LLMJudge
+    from coach.judge import LLMJudge, score_targets
     from coach.score import bayesian_update, effective_score, measurement_variance
     from coach.selection import pick_next_task
     from coach.session import Session, SkillState
@@ -582,16 +596,11 @@ def redo_step(
     task = steps[k].get("task_snapshot") or {}
     result, coach = LLMJudge().evaluate(task, req.answer)
 
-    requested = session.viewed_hints.get(task.get("id"), [])
-    viewed = list(dict.fromkeys(list(req.hints_used or []) + requested))
-    session.viewed_hints[task.get("id")] = viewed
-
     state_obj = session.get_ability()
     session.ensure_area_beliefs()
     before = belief_state(session)
 
-    penalty = hint_penalty(task, viewed)
-    observation = effective_score(result.fraction, penalty)
+    observation = effective_score(result.fraction)
     obs_variance = measurement_variance(task.get("difficulty", 1), state_obj.score)
     new_score, new_variance = bayesian_update(
         state_obj.score, state_obj.variance, observation, obs_variance
@@ -602,17 +611,24 @@ def redo_step(
         variance=new_variance,
         questions_answered=state_obj.questions_answered + 1,
         evidence=state_obj.evidence + [result.rationale],
-        hints_used=state_obj.hints_used + viewed,
     )
-    primary_tag = (task.get("tags") or {}).get("primary")
-    family = family_of(primary_tag) if primary_tag else None
-    difficulty = task.get("difficulty", 1)
-    if primary_tag:
-        tag_state = session.get_tag_state(primary_tag)
-        session.tag_states[primary_tag] = tag_state.update(difficulty, observation)
-    if family:
-        fam_state = session.get_family_state(family)
-        session.family_states[family] = fam_state.update(difficulty, observation)
+
+    targets = score_targets(task)
+    scored_by_key = {p["key"]: p for p in (result.parts or [])}
+    for part in targets:
+        part_max = int(part.get("max_score") or 5)
+        part_score = scored_by_key.get(part["key"], {}).get("score") or part_max * 0.5
+        part_obs = effective_score(part_score / part_max if part_max else 0.0)
+        part_tags = part.get("tags") or {}
+        primary_tag = part_tags.get("primary")
+        family = family_of(primary_tag) if primary_tag else None
+        part_difficulty = int(part.get("difficulty") or task.get("difficulty") or 1)
+        if primary_tag:
+            tag_state = session.get_tag_state(primary_tag)
+            session.tag_states[primary_tag] = tag_state.update(part_difficulty, part_obs)
+        if family:
+            fam_state = session.get_family_state(family)
+            session.family_states[family] = fam_state.update(part_difficulty, part_obs)
     after = belief_state(session)
 
     insert_step(
@@ -626,7 +642,7 @@ def redo_step(
         result.max_score,
         result.fraction,
         observation,
-        viewed,
+        [],
         before,
         after,
         result.to_dict(),
@@ -652,7 +668,7 @@ def redo_step(
     store.set_resumed_from_share(session_id, None)
 
     try:
-        next_task = pick_next_task(session.candidate, session)
+        next_task = pick_next_task(session.candidate, session, session_id=session_id)
     except Exception:
         next_task = None
 
@@ -667,7 +683,6 @@ def redo_step(
             "ability_update": {
                 "new_score": new_score,
                 "new_confidence": session.get_ability().confidence,
-                "hints_used": viewed,
             },
             "mastery": _mastery_dict(session),
             "already_answered": False,

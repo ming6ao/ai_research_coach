@@ -1,7 +1,15 @@
-"""LLM judge + coach: scores candidate code and teaches back the gap."""
+"""LLM judge + coach: scores candidate code and teaches back the gap.
+
+A code-block task carries ``parts``; a single submission fills the whole
+block and the judge returns a per-part score for every listed function. The
+aggregate ``EvaluationResult.score`` is the sum of the per-part scores (so
+``fraction`` stays the overall block fraction). Tasks without parts are
+treated as one implicit part.
+"""
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 import json
@@ -18,6 +26,7 @@ class EvaluationResult:
     max_score: float
     rationale: str
     coach: Optional[dict] = None
+    parts: Optional[list] = None
 
     @property
     def fraction(self) -> float:
@@ -31,6 +40,8 @@ class EvaluationResult:
             "rationale": self.rationale,
             "coach": self.coach,
         }
+        if self.parts:
+            d["parts"] = self.parts
         return d
 
     @classmethod
@@ -42,6 +53,7 @@ class EvaluationResult:
             d["max_score"],
             d["rationale"],
             d.get("coach"),
+            d.get("parts"),
         )
 
 
@@ -102,25 +114,38 @@ _STEP_SCHEMA = types.Schema(
     required=["title", "explanation"],
 )
 
+_PART_SCHEMA = types.Schema(
+    type=types.Type.OBJECT,
+    properties={
+        "key": types.Schema(type=types.Type.STRING),
+        "score": types.Schema(type=types.Type.NUMBER),
+        "rationale": types.Schema(type=types.Type.STRING),
+    },
+    required=["key", "score", "rationale"],
+)
+
 _SCHEMA = types.Schema(
     type=types.Type.OBJECT,
     properties={
-        "score": types.Schema(type=types.Type.NUMBER),
+        "parts": types.Schema(type=types.Type.ARRAY, items=_PART_SCHEMA),
         "rationale": types.Schema(type=types.Type.STRING),
         "feedback": types.Schema(type=types.Type.STRING),
         "misconception": types.Schema(type=types.Type.STRING),
         "steps": types.Schema(type=types.Type.ARRAY, items=_STEP_SCHEMA),
     },
-    required=["score", "rationale", "feedback", "misconception", "steps"],
+    required=["parts", "rationale", "feedback", "misconception", "steps"],
 )
 
 _SYSTEM_PROMPT = """\
 You are a strict technical judge AND a patient coach for AI/ML coding tasks. \
-Evaluate the candidate's code solution for correctness, edge-case handling, \
-and clarity. Return a JSON object with five keys:
+The task asks the candidate to implement one or more functions (the "parts" \
+list in the user message, each with its own max score). Evaluate each listed \
+function independently for correctness, edge-case handling, and clarity. \
+Return a JSON object with five keys:
 
-  "score": a number from 0 to {max_score} (in whole-number increments), \
-where 0 is completely wrong/empty, {max_score} is correct and complete;
+  "parts": an array with exactly one entry per part key, each entry \
+{"key", "score", "rationale"} where "key" matches the given key exactly and \
+"score" is a number from 0 to that part's max (in whole-number increments);
   "rationale": a concise explanation of strengths and weaknesses \
 (this will appear in a report as evidence, so be specific but brief);
   "feedback": a short (2-4 sentence) summary of the result for the user;
@@ -144,17 +169,56 @@ inside "rationale" and "feedback", with a blank line before and after each \
 code block (the opening fence must start on its own line)."""
 
 
+def score_targets(task: dict) -> list[dict]:
+    """The parts to score: the task's parts, or one implicit part.
+
+    A legacy single-question task (no parts) is treated as one implicit part
+    whose key is the function named in the prompt (or "solution").
+    """
+    parts = task.get("parts") or []
+    if parts:
+        return [dict(p) for p in parts]
+    m = re.search(r"def\s+([A-Za-z_]\w*)\s*\(", task.get("prompt", ""))
+    key = m.group(1) if m else "solution"
+    return [
+        {
+            "key": key,
+            "prompt": task.get("prompt", ""),
+            "tags": task.get("tags") or {"primary": "python", "secondary": []},
+            "max_score": int(task.get("max_score") or 5),
+            "difficulty": int(task.get("difficulty") or 1),
+        }
+    ]
+
+
 class LLMJudge:
-    def evaluate(self, task: dict, answer: str) -> tuple[EvaluationResult, CoachContent]:
-        max_score = task.get("max_score", 5)
-        prompt = task.get("prompt", "")
+    @staticmethod
+    def _score_targets(task: dict) -> list[dict]:
+        """Alias kept for the belief loop in the submit path."""
+        return score_targets(task)
+
+    def evaluate(
+        self, task: dict, answer: str, previous_code: Optional[str] = None
+    ) -> tuple[EvaluationResult, CoachContent]:
+        targets = self._score_targets(task)
+        max_score = sum(int(p.get("max_score") or 5) for p in targets)
         client = _client()
 
         system = _SYSTEM_PROMPT.format(max_score=max_score)
-        user = (
-            f"Task:\n{prompt}\n\n"
-            f"Candidate's code:\n```\n{answer}\n```"
+        parts_block = "\n".join(
+            f"{i + 1}. {p['key']} (max {int(p.get('max_score') or 5)}):\n{p.get('prompt', '')}"
+            for i, p in enumerate(targets)
         )
+        user = (
+            f"Task:\n{task.get('prompt', '')}\n\n"
+            f"Parts to implement:\n{parts_block}\n\n"
+        )
+        if previous_code:
+            user += (
+                "Previous implementation this builds on:\n"
+                f"```\n{previous_code}\n```\n\n"
+            )
+        user += f"Candidate's code:\n```\n{answer}\n```"
 
         try:
             resp = client.models.generate_content(
@@ -167,8 +231,31 @@ class LLMJudge:
                 },
             )
             payload = json.loads(resp.text)
-            score = float(payload["score"])
-            score = max(0.0, min(score, max_score))
+            raw_parts = payload.get("parts") or []
+            by_key = {
+                str(p.get("key") or ""): p
+                for p in raw_parts
+                if isinstance(p, dict)
+            }
+            scored: list[dict] = []
+            total = 0.0
+            for p in targets:
+                part_max = int(p.get("max_score") or 5)
+                rp = by_key.get(p["key"])
+                if rp is None:
+                    score = part_max * 0.5
+                    part_rationale = ""
+                else:
+                    try:
+                        score = float(rp.get("score") or 0.0)
+                    except (TypeError, ValueError):
+                        score = 0.0
+                    part_rationale = str(rp.get("rationale") or "") if isinstance(rp, dict) else ""
+                score = max(0.0, min(score, part_max))
+                total += score
+                scored.append(
+                    {"key": p["key"], "score": score, "rationale": part_rationale}
+                )
             rationale = str(payload.get("rationale", ""))
             steps = [
                 CoachStep(
@@ -184,9 +271,13 @@ class LLMJudge:
                 steps=steps,
             )
             return EvaluationResult(
-                task["id"], score, max_score, rationale, coach.to_dict()
+                task["id"], total, max_score, rationale, coach.to_dict(), scored
             ), coach
         except Exception:
+            scored = [
+                {"key": p["key"], "score": int(p.get("max_score") or 5) * 0.5, "rationale": ""}
+                for p in targets
+            ]
             fallback = CoachContent(
                 feedback="We could not evaluate your answer. Please try again.",
                 misconception="",
@@ -194,7 +285,8 @@ class LLMJudge:
             )
             return (
                 EvaluationResult(
-                    task["id"], max_score * 0.5, max_score, "Unable to evaluate", fallback.to_dict()
+                    task["id"], max_score * 0.5, max_score, "Unable to evaluate",
+                    fallback.to_dict(), scored,
                 ),
                 fallback,
             )

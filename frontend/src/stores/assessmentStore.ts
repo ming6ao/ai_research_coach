@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { apiClient, storage } from '../api/client';
-import type { Task, EvaluationResult, FeedbackEntry, ResumeResponse, CoachContent, AbilityState, MasteryBlock, TaskTags, OverviewResponse } from '../api/client';
+import type { Task, TaskPart, EvaluationResult, FeedbackEntry, ResumeResponse, CoachContent, AbilityState, MasteryBlock, TaskTags, OverviewResponse } from '../api/client';
 
 export interface ResultWithFeedback {
   task_id: string;
@@ -12,6 +12,7 @@ export interface ResultWithFeedback {
   coach?: CoachContent;
   scored: boolean;
   tags?: TaskTags;
+  parts?: TaskPart[];
 }
 
 interface AssessmentState {
@@ -31,7 +32,7 @@ interface AssessmentState {
 
   startAssessment: (initialQuestion?: string, opts?: { randomFirst?: boolean; family?: string }) => Promise<void>;
   resumeSession: (response: ResumeResponse) => void;
-  submitAnswer: (taskId: string, answer: string, hintsUsed?: string[]) => Promise<void>;
+  submitAnswer: (taskId: string, answer: string) => Promise<void>;
   completeSession: () => Promise<void>;
   loadOverview: () => Promise<void>;
   reset: () => void;
@@ -48,6 +49,7 @@ function toResultWithFeedback(entry: FeedbackEntry): ResultWithFeedback {
     coach: entry.coach,
     scored: (entry as FeedbackEntry & { scored?: boolean }).scored ?? true,
     tags: entry.tags,
+    parts: entry.parts,
   };
 }
 
@@ -120,12 +122,12 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
     }
   },
 
-  submitAnswer: async (taskId, answer, hintsUsed = []) => {
+  submitAnswer: async (taskId, answer) => {
     const { sessionId, results, ability } = get();
     if (!sessionId) return;
     set({ loading: true, error: null });
     try {
-      const res = await apiClient.submit(sessionId, taskId, answer, hintsUsed);
+      const res = await apiClient.submit(sessionId, taskId, answer);
 
       const currentTask = get().currentTask;
       const rf: ResultWithFeedback = {
@@ -138,6 +140,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         coach: res.coach,
         scored: true,
         tags: currentTask?.tags,
+        parts: currentTask?.parts,
       };
 
       // Tolerate legacy payloads that still send skill_update.

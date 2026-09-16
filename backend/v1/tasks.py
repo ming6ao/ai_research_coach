@@ -96,7 +96,7 @@ def create_task(
         scaffold=req.scaffold,
         difficulty=req.difficulty,
         max_score=req.max_score,
-        hints=req.hints or [],
+        parts=req.parts,
         source="user",
         is_public=bool(req.is_public or is_guest),
         context_notes=_describe_context(
@@ -104,8 +104,9 @@ def create_task(
         ),
         tags=tags,
         task_type=req.task_type or "implement",
-        cluster_id=req.cluster_id,
-        followups=req.followups,
+        version_index=req.version_index,
+        depends_on_task_id=req.depends_on_task_id,
+        version_root_id=req.version_root_id,
     )
     return {"data": task}
 

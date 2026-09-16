@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { apiClient, type AdminSeedCreate, type AdminTaxonomy } from '../../api/client';
+import { apiClient, type AdminSeedCreate, type AdminTaxonomy, type TaskPart } from '../../api/client';
 
-interface HintDraft {
-  id: string;
-  text: string;
-  weight: string;
-  reveal_threshold: string;
+interface PartDraft {
+  key: string;
+  prompt: string;
+  max_score: string;
+  difficulty: string;
+  primary: string;
+  secondary: string[];
 }
 
 interface Props {
@@ -20,6 +22,10 @@ const inputCls =
   'w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)]';
 const labelCls = 'mb-0.5 block text-xs text-[var(--color-text-muted)]';
 
+function blankPart(): PartDraft {
+  return { key: '', prompt: '', max_score: '5', difficulty: '2', primary: 'python', secondary: [] };
+}
+
 export function NewSeedForm({ onCreated, onClose, onError }: Props) {
   const [taxonomy, setTaxonomy] = useState<AdminTaxonomy | null>(null);
   const [prompt, setPrompt] = useState('');
@@ -30,8 +36,9 @@ export function NewSeedForm({ onCreated, onClose, onError }: Props) {
   const [primary, setPrimary] = useState('python');
   const [secondary, setSecondary] = useState<string[]>([]);
   const [contextNotes, setContextNotes] = useState('');
-  const [clusterId, setClusterId] = useState('');
-  const [hints, setHints] = useState<HintDraft[]>([]);
+  const [parts, setParts] = useState<PartDraft[]>([]);
+  const [versionIndex, setVersionIndex] = useState('');
+  const [dependsOn, setDependsOn] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -56,8 +63,23 @@ export function NewSeedForm({ onCreated, onClose, onError }: Props) {
     );
   };
 
-  const updateHint = (idx: number, patch: Partial<HintDraft>) => {
-    setHints((prev) => prev.map((h, i) => (i === idx ? { ...h, ...patch } : h)));
+  const updatePart = (idx: number, patch: Partial<PartDraft>) => {
+    setParts((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)));
+  };
+
+  const togglePartSecondary = (idx: number, tag: string) => {
+    setParts((prev) =>
+      prev.map((p, i) => {
+        if (i !== idx) return p;
+        if (tag === p.primary) return p;
+        const next = p.secondary.includes(tag)
+          ? p.secondary.filter((t) => t !== tag)
+          : p.secondary.length >= 2
+            ? p.secondary
+            : [...p.secondary, tag];
+        return { ...p, secondary: next };
+      }),
+    );
   };
 
   const submit = async () => {
@@ -69,6 +91,23 @@ export function NewSeedForm({ onCreated, onClose, onError }: Props) {
       onError('Select a primary tag.');
       return;
     }
+    const cleaned: TaskPart[] = [];
+    const seen = new Set<string>();
+    for (const p of parts) {
+      if (!p.key.trim() || !p.prompt.trim()) continue;
+      if (seen.has(p.key.trim())) {
+        onError(`Duplicate part key: ${p.key.trim()}`);
+        return;
+      }
+      seen.add(p.key.trim());
+      cleaned.push({
+        key: p.key.trim(),
+        prompt: p.prompt.trim(),
+        max_score: clamp01to100(Number(p.max_score)) || 5,
+        difficulty: clamp15(Number(p.difficulty)) || 2,
+        tags: { primary: p.primary, secondary: p.secondary },
+      });
+    }
     setSaving(true);
     try {
       const body: AdminSeedCreate = {
@@ -76,18 +115,12 @@ export function NewSeedForm({ onCreated, onClose, onError }: Props) {
         scaffold: scaffold.trim() || undefined,
         difficulty,
         max_score: maxScore,
-        hints: hints
-          .filter((h) => h.text.trim())
-          .map((h) => ({
-            id: h.id.trim() || `hint_${Math.random().toString(36).slice(2, 8)}`,
-            text: h.text.trim(),
-            weight: clamp01(Number(h.weight) || 0),
-            reveal_threshold: clamp01(Number(h.reveal_threshold) || 0),
-          })),
+        parts: cleaned.length ? cleaned : undefined,
         tags: { primary, secondary },
         task_type: taskType,
         context_notes: contextNotes.trim() || undefined,
-        cluster_id: clusterId.trim() || undefined,
+        version_index: versionIndex ? Math.max(1, Number(versionIndex)) : undefined,
+        depends_on_task_id: dependsOn.trim() || undefined,
       };
       const task = await apiClient.adminCreateSeed(body);
       onCreated(task.id);
@@ -105,6 +138,23 @@ export function NewSeedForm({ onCreated, onClose, onError }: Props) {
       </div>
     );
   }
+
+  const renderTagPicker = (
+    value: string,
+    onChange: (t: string) => void,
+  ) => (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className={inputCls}>
+      {taxonomy.families.map((fam) => (
+        <optgroup key={fam} label={fam}>
+          {(taxonomy.tags[fam] ?? []).map((tag) => (
+            <option key={tag} value={tag}>
+              {tag}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  );
 
   return (
     <div className="w-96 shrink-0 overflow-y-auto border-l border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
@@ -127,13 +177,13 @@ export function NewSeedForm({ onCreated, onClose, onError }: Props) {
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={5}
-            placeholder="Describe the task in plain English…"
+            placeholder="Describe the block in plain English…"
             className={inputCls}
           />
         </label>
 
         <label className="block">
-          <span className={labelCls}>scaffold (starter code)</span>
+          <span className={labelCls}>scaffold (starter code covering all parts)</span>
           <textarea
             value={scaffold}
             onChange={(e) => setScaffold(e.target.value)}
@@ -184,17 +234,7 @@ export function NewSeedForm({ onCreated, onClose, onError }: Props) {
 
         <label className="block">
           <span className={labelCls}>primary tag *</span>
-          <select value={primary} onChange={(e) => setPrimary(e.target.value)} className={inputCls}>
-            {taxonomy.families.map((fam) => (
-              <optgroup key={fam} label={fam}>
-                {(taxonomy.tags[fam] ?? []).map((tag) => (
-                  <option key={tag} value={tag}>
-                    {tag}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
+          {renderTagPicker(primary, setPrimary)}
         </label>
 
         <div>
@@ -227,59 +267,103 @@ export function NewSeedForm({ onCreated, onClose, onError }: Props) {
         </div>
 
         <div>
-          <span className={labelCls}>hints (optional)</span>
-          {hints.map((h, i) => (
+          <span className={labelCls}>parts (code block; optional)</span>
+          {parts.map((p, i) => (
             <div key={i} className="mb-2 rounded-lg border border-[var(--color-border-default)] p-2">
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="grid grid-cols-3 gap-1.5">
                 <input
-                  value={h.id}
-                  onChange={(e) => updateHint(i, { id: e.target.value })}
-                  placeholder="id"
+                  value={p.key}
+                  onChange={(e) => updatePart(i, { key: e.target.value })}
+                  placeholder="key, e.g. softmax"
                   className={inputCls}
                 />
                 <input
-                  value={h.weight}
-                  onChange={(e) => updateHint(i, { weight: e.target.value })}
-                  placeholder="weight 0..1"
+                  value={p.max_score}
+                  onChange={(e) => updatePart(i, { max_score: e.target.value })}
+                  placeholder="max_score"
+                  className={inputCls}
+                />
+                <input
+                  value={p.difficulty}
+                  onChange={(e) => updatePart(i, { difficulty: e.target.value })}
+                  placeholder="difficulty 1..5"
                   className={inputCls}
                 />
               </div>
               <textarea
-                value={h.text}
-                onChange={(e) => updateHint(i, { text: e.target.value })}
+                value={p.prompt}
+                onChange={(e) => updatePart(i, { prompt: e.target.value })}
                 rows={2}
-                placeholder="Hint text"
+                placeholder="Part prompt (self-contained)"
                 className={`${inputCls} mt-1.5`}
               />
-              <div className="mt-1.5 flex items-center gap-1.5">
-                <input
-                  value={h.reveal_threshold}
-                  onChange={(e) => updateHint(i, { reveal_threshold: e.target.value })}
-                  placeholder="reveal_threshold 0..1"
-                  className={inputCls}
-                />
-                <button
-                  type="button"
-                  onClick={() => setHints((prev) => prev.filter((_, j) => j !== i))}
-                  className="shrink-0 rounded-lg border border-[var(--color-error)]/40 px-2 py-1.5 text-xs text-[var(--color-error)]"
-                >
-                  Remove
-                </button>
+              <div className="mt-1.5">
+                {renderTagPicker(p.primary, (t) => updatePart(i, { primary: t, secondary: [] }))}
               </div>
+              <div className="mt-1.5">
+                {allTags
+                  .filter((t) => t.tag !== p.primary)
+                  .slice(0, 24)
+                  .map(({ tag, fam }) => {
+                    const active = p.secondary.includes(tag);
+                    const disabled = !active && p.secondary.length >= 2;
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => togglePartSecondary(i, tag)}
+                        className={`mb-0.5 mr-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] ${
+                          active
+                            ? 'border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 text-[var(--color-text-primary)]'
+                            : 'border-[var(--color-border-default)] text-[var(--color-text-muted)]'
+                        } ${disabled ? 'opacity-40' : ''}`}
+                        title={fam}
+                      >
+                        {tag}
+                      </button>
+                    );
+                  })}
+              </div>
+              <button
+                type="button"
+                onClick={() => setParts((prev) => prev.filter((_, j) => j !== i))}
+                className="mt-1.5 rounded-lg border border-[var(--color-error)]/40 px-2 py-1 text-xs text-[var(--color-error)]"
+              >
+                Remove part
+              </button>
             </div>
           ))}
           <button
             type="button"
-            onClick={() =>
-              setHints((prev) => [
-                ...prev,
-                { id: '', text: '', weight: '0.15', reveal_threshold: '0.5' },
-              ])
-            }
+            onClick={() => setParts((prev) => [...prev, blankPart()])}
             className="rounded-lg border border-[var(--color-border-default)] px-2 py-1.5 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
           >
-            + Add hint
+            + Add part
           </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block">
+            <span className={labelCls}>version_index (optional)</span>
+            <input
+              type="number"
+              min={1}
+              value={versionIndex}
+              onChange={(e) => setVersionIndex(e.target.value)}
+              placeholder="2 for a successor"
+              className={inputCls}
+            />
+          </label>
+          <label className="block">
+            <span className={labelCls}>depends_on_task_id (optional)</span>
+            <input
+              value={dependsOn}
+              onChange={(e) => setDependsOn(e.target.value)}
+              placeholder="seed_transformer_decode"
+              className={inputCls}
+            />
+          </label>
         </div>
 
         <label className="block">
@@ -289,16 +373,6 @@ export function NewSeedForm({ onCreated, onClose, onError }: Props) {
             onChange={(e) => setContextNotes(e.target.value)}
             rows={3}
             placeholder="Leave blank to auto-generate via LLM."
-            className={inputCls}
-          />
-        </label>
-
-        <label className="block">
-          <span className={labelCls}>cluster_id (optional)</span>
-          <input
-            value={clusterId}
-            onChange={(e) => setClusterId(e.target.value)}
-            placeholder="Thematic thread, e.g. dl_architectures"
             className={inputCls}
           />
         </label>
@@ -323,7 +397,12 @@ export function NewSeedForm({ onCreated, onClose, onError }: Props) {
   );
 }
 
-function clamp01(n: number): number {
+function clamp15(n: number): number {
   if (Number.isNaN(n)) return 0;
-  return Math.max(0, Math.min(1, n));
+  return Math.max(1, Math.min(5, Math.round(n)));
+}
+
+function clamp01to100(n: number): number {
+  if (Number.isNaN(n)) return 0;
+  return Math.max(1, Math.min(100, Math.round(n)));
 }

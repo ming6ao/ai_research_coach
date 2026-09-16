@@ -81,14 +81,15 @@ TABLE_REGISTRY: dict[str, dict[str, Any]] = {
             {"name": "scaffold", "kind": "text", "searchable": False, "editable": True},
             {"name": "difficulty", "kind": "number", "searchable": False, "editable": True},
             {"name": "max_score", "kind": "number", "searchable": False, "editable": True},
-            {"name": "hints_json", "kind": "json", "searchable": False, "editable": True},
+            {"name": "parts_json", "kind": "json", "searchable": False, "editable": True},
             {"name": "context_notes", "kind": "text", "searchable": True, "editable": True},
             {"name": "tags_json", "kind": "json", "searchable": False, "editable": True},
             {"name": "task_type", "kind": "text", "searchable": False, "editable": True},
             {"name": "parent_task_id", "kind": "text", "searchable": False, "editable": False},
             {"name": "target_text", "kind": "text", "searchable": False, "editable": False},
-            {"name": "cluster_id", "kind": "text", "searchable": True, "editable": True},
-            {"name": "followups_json", "kind": "json", "searchable": False, "editable": True},
+            {"name": "version_index", "kind": "number", "searchable": False, "editable": True},
+            {"name": "depends_on_task_id", "kind": "text", "searchable": True, "editable": True},
+            {"name": "version_root_id", "kind": "text", "searchable": False, "editable": True},
             {"name": "is_public", "kind": "bool", "searchable": False, "editable": True},
             {"name": "created_at", "kind": "datetime", "searchable": False, "editable": False},
         ],
@@ -265,7 +266,7 @@ def _orm_search_cols(name: str):
     from coach.tasks import SkillBeliefModel, TaskModel
 
     return {
-        "tasks": (TaskModel.prompt, TaskModel.owner, TaskModel.id, TaskModel.context_notes, TaskModel.cluster_id),
+        "tasks": (TaskModel.prompt, TaskModel.owner, TaskModel.id, TaskModel.context_notes, TaskModel.depends_on_task_id),
         "session_steps": (
             SessionStepModel.candidate,
             SessionStepModel.session_id,
@@ -281,10 +282,9 @@ def _orm_to_list_dict(name: str, m) -> dict[str, Any]:
         from coach.tasks import task_to_dict
 
         d = task_to_dict(m)
-        # task_to_dict nests hints; expose the raw JSON + flat scalars for the grid.
-        d["hints_json"] = _preview(m.hints_json or "[]")
+        # task_to_dict nests parts; expose the raw JSON + flat scalars for the grid.
+        d["parts_json"] = _preview(m.parts_json or "[]")
         d["tags_json"] = _preview(m.tags_json or "{}")
-        d["followups_json"] = _preview(m.followups_json or "[]")
         d["created_at"] = m.created_at.isoformat() if m.created_at else None
         for k in ("prompt", "scaffold", "context_notes", "target_text"):
             if isinstance(d.get(k), str):
@@ -320,9 +320,8 @@ def _orm_to_full_dict(name: str, m) -> dict[str, Any]:
         d["prompt"] = m.prompt
         d["scaffold"] = m.scaffold
         d["context_notes"] = m.context_notes or ""
-        d["hints_json"] = m.hints_json or "[]"
+        d["parts_json"] = m.parts_json or "[]"
         d["tags_json"] = m.tags_json or "{}"
-        d["followups_json"] = m.followups_json or "[]"
         d["target_text"] = m.target_text
     if name == "session_steps":
         d["task_snapshot_json"] = _preview(m.task_snapshot_json or "{}")
@@ -472,17 +471,16 @@ def _update_task(task_id: str, fields: dict[str, Any]) -> Optional[dict[str, Any
             if ms < 1 or ms > 100:
                 raise ValueError("max_score must be an integer 1..100.")
             m.max_score = ms
-        if "hints_json" in fields:
-            raw = fields["hints_json"]
-            if isinstance(raw, (list, dict)):
-                raw = json.dumps(raw)
-            try:
-                parsed = json.loads(str(raw or "[]"))
-            except Exception:
-                raise ValueError("hints_json must be valid JSON (a list).")
-            if not isinstance(parsed, list):
-                raise ValueError("hints_json must be valid JSON (a list).")
-            m.hints_json = json.dumps(parsed)
+        if "parts_json" in fields:
+            from coach.tasks import validate_parts
+
+            raw = fields["parts_json"]
+            if isinstance(raw, str):
+                try:
+                    raw = json.loads(raw)
+                except Exception:
+                    raise ValueError("parts_json must be valid JSON (a list of parts).")
+            m.parts_json = json.dumps(validate_parts(raw))
         if "context_notes" in fields:
             m.context_notes = str(fields["context_notes"] or "").strip()[:2000]
         if "tags_json" in fields:
@@ -504,21 +502,18 @@ def _update_task(task_id: str, fields: dict[str, Any]) -> Optional[dict[str, Any
             if fields["task_type"] not in TASK_TYPES:
                 raise ValueError(f"task_type must be one of {TASK_TYPES}.")
             m.task_type = fields["task_type"]
-        if "cluster_id" in fields:
-            m.cluster_id = str(fields["cluster_id"] or "").strip()[:64] or None
-        if "followups_json" in fields:
-            raw = fields["followups_json"]
-            if isinstance(raw, (list, dict)):
-                raw = json.dumps(raw)
+        if "version_index" in fields:
             try:
-                parsed = json.loads(str(raw or "[]"))
-            except Exception:
-                raise ValueError("followups_json must be valid JSON (a list of {task_id, kind} links).")
-            if not isinstance(parsed, list):
-                raise ValueError("followups_json must be valid JSON (a list).")
-            from coach.tasks import parse_followups
-
-            m.followups_json = json.dumps(parse_followups(json.dumps(parsed)))
+                vi = int(fields["version_index"])
+            except (TypeError, ValueError):
+                raise ValueError("version_index must be an integer >= 1.")
+            if vi < 1:
+                raise ValueError("version_index must be an integer >= 1.")
+            m.version_index = vi
+        if "depends_on_task_id" in fields:
+            m.depends_on_task_id = str(fields["depends_on_task_id"] or "").strip() or None
+        if "version_root_id" in fields:
+            m.version_root_id = str(fields["version_root_id"] or "").strip() or None
         if "is_public" in fields:
             v = fields["is_public"]
             m.is_public = 1 if v in (True, 1, "1", "true", "True") else 0

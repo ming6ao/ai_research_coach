@@ -194,58 +194,24 @@ def test_generated_task_inherits_root_tags():
     assert task["tags"] == {"primary": "backprop", "secondary": ["mlp"]}
 
 
-def test_build_carries_context_notes_and_hints():
+def test_build_carries_context_notes():
     from coach.task_decomposer import TaskDecomposer
 
     task = TaskDecomposer._build(
         "remed_x", 2, "Implement drill.", "gap", "def f():\n    pass\n",
         kind="remediate",
         context_notes="Batching is a prerequisite of SGD, which is often confused with full-batch descent.",
-        hints=[
-            {"id": "h1", "text": "Sample a minibatch, not one point.", "weight": 0.15, "reveal_threshold": 0.4},
-            {"id": "h2", "text": "Average the gradient over the batch.", "weight": 0.2},
-        ],
     )
     assert task["context_notes"].startswith("Batching")
-    assert [h["id"] for h in task["hints"]] == ["h1", "h2"]
-    assert task["hints"][0]["reveal_threshold"] == 0.4
+    assert "hints" not in task
 
 
-def test_build_defaults_to_empty_notes_and_hints():
+def test_build_defaults_to_empty_notes():
     from coach.task_decomposer import TaskDecomposer
 
     task = TaskDecomposer._build("remed_x", 2, "Implement drill.", "gap")
     assert task["context_notes"] == ""
-    assert task["hints"] == []
-
-
-def test_sanitize_hints_keeps_valid_and_clamps_fields():
-    from coach.task_decomposer import _sanitize_hints
-
-    out = _sanitize_hints(
-        [
-            {"id": "a", "text": "ok", "weight": 3.0, "reveal_threshold": -0.5},
-            {"text": "missing id", "weight": 0.1},
-            {"id": "b", "text": "", "weight": 0.1},
-            {"id": "c", "text": "third", "weight": "bogus", "reveal_threshold": 9},
-            {"id": "d", "text": "fourth"},
-        ],
-        "remed_x",
-    )
-    assert [h["id"] for h in out] == ["a", "remed_x-h2", "c"]
-    assert out[0]["weight"] == 1.0
-    assert out[0]["reveal_threshold"] == 0.0
-    assert out[1]["weight"] == 0.1
-    assert out[2]["weight"] == 0.15  # DEFAULT_HINT_WEIGHT
-    assert out[2]["reveal_threshold"] == 1.0
-    assert len(out) == 3
-
-
-def test_sanitize_hints_non_list_returns_empty():
-    from coach.task_decomposer import _sanitize_hints
-
-    assert _sanitize_hints(None, "remed_x") == []
-    assert _sanitize_hints("nope", "remed_x") == []
+    assert "hints" not in task
 
 
 def test_task_type_validated():

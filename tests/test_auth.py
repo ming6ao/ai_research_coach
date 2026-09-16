@@ -27,7 +27,6 @@ def client(tmp_path, monkeypatch):
         owner="system",
         difficulty=2,
         max_score=5,
-        hints=[],
         source="seed",
         is_public=True,
         task_id="seed_auth_01",
@@ -61,15 +60,22 @@ def fake_judge(monkeypatch):
     from coach.judge import CoachContent, CoachStep
 
     class FakeJudge:
-        def evaluate(self, task, answer):
-            max_score = task.get("max_score", 5)
+        def evaluate(self, task, answer, previous_code=None):
+            from coach.judge import score_targets
+
+            targets = score_targets(task)
+            parts = [
+                {"key": p["key"], "score": float(p["max_score"]), "rationale": "Perfect part."}
+                for p in targets
+            ]
+            max_score = sum(int(p["max_score"]) for p in targets)
             coach = CoachContent(
                 feedback="Great job!",
                 misconception="No misconception.",
                 steps=[CoachStep("Done", "The solution is correct.", None)],
             )
             result = EvaluationResult(
-                task["id"], max_score, max_score, "Perfect.", coach.to_dict()
+                task["id"], max_score, max_score, "Perfect.", coach.to_dict(), parts
             )
             return result, coach
 

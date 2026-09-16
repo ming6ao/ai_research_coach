@@ -140,6 +140,27 @@ def insert_step(
         session.close()
 
 
+def answer_for_task(session_id: str, task_id: str) -> Optional[str]:
+    """The user's submitted code for a task in a session (latest step), or None."""
+    from coach.db import create_schema, learner_session
+
+    create_schema()
+    session = learner_session()
+    try:
+        m = session.scalars(
+            select(SessionStepModel)
+            .where(
+                SessionStepModel.session_id == session_id,
+                SessionStepModel.task_id == task_id,
+            )
+            .order_by(SessionStepModel.step_index.desc())
+            .limit(1)
+        ).first()
+        return (m.user_answer or "") if m else None
+    finally:
+        session.close()
+
+
 def list_steps(session_id: str) -> list[dict]:
     """Steps of a session, ordered by ``step_index`` (dict forms)."""
     from coach.db import create_schema
@@ -243,7 +264,6 @@ def backfill_session_steps() -> None:
     """
     from coach.area_score import AreaState
     from coach.db import create_schema, learner_session, sqlite_conn
-    from coach.hints import hint_penalty
     from coach.score import (
         INITIAL_SCORE,
         INITIAL_VARIANCE,
@@ -298,7 +318,6 @@ def backfill_session_steps() -> None:
 
 def _backfill_one(sid: str, candidate: str, s: dict, results: list, feedback: list) -> None:
     from coach.area_score import AreaState
-    from coach.hints import hint_penalty
     from coach.score import (
         INITIAL_SCORE,
         INITIAL_VARIANCE,
@@ -321,10 +340,9 @@ def _backfill_one(sid: str, candidate: str, s: dict, results: list, feedback: li
         )
         fb = feedback[i] if i < len(feedback) else {}
         hints_used = fb.get("hints_used") or []
-        penalty = hint_penalty(task, hints_used)
         max_score = max(1.0, float((res or {}).get("max_score") or 5.0))
         raw_fraction = max(0.0, min(1.0, float((res or {}).get("score") or 0.0) / max_score))
-        observation = effective_score(raw_fraction, penalty)
+        observation = effective_score(raw_fraction)
 
         before = {
             "global": ability.to_dict(),
@@ -342,7 +360,6 @@ def _backfill_one(sid: str, candidate: str, s: dict, results: list, feedback: li
             variance=new_var,
             questions_answered=ability.questions_answered + 1,
             evidence=list(ability.evidence) + [(res or {}).get("rationale", "")],
-            hints_used=list(ability.hints_used) + list(hints_used),
         )
         tags = task.get("tags") or {}
         primary = tags.get("primary")

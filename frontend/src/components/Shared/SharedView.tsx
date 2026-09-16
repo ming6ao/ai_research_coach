@@ -35,7 +35,7 @@ function StepBlock({ entry }: { entry: FeedbackEntry }) {
           <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
             Question
           </p>
-          <Markdown text={entry.prompt} />
+          <Markdown text={entry.prompt} size="lg" />
         </div>
       </Bubble>
       <Bubble>

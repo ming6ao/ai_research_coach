@@ -17,15 +17,22 @@ from coach.judge import EvaluationResult, CoachContent, CoachStep
 class FakeJudge:
     """Judge that always awards full marks with a canned rationale."""
 
-    def evaluate(self, task, answer):
-        max_score = task.get("max_score", 5)
+    def evaluate(self, task, answer, previous_code=None):
+        from coach.judge import score_targets
+
+        targets = score_targets(task)
+        parts = [
+            {"key": p["key"], "score": float(p["max_score"]), "rationale": "Perfect part."}
+            for p in targets
+        ]
+        max_score = sum(int(p["max_score"]) for p in targets)
         coach = CoachContent(
             feedback="Great job!",
             misconception="You had no misconception; the solution is sound.",
             steps=[CoachStep("Confirm the approach", "The implementation is correct.", None)],
         )
         result = EvaluationResult(
-            task["id"], max_score, max_score, "Perfect.", coach.to_dict()
+            task["id"], max_score, max_score, "Perfect.", coach.to_dict(), parts
         )
         return result, coach
 
@@ -43,9 +50,6 @@ def client(tmp_path, monkeypatch):
         owner="system",
         difficulty=2,
         max_score=5,
-        hints=[
-            {"id": "h1", "text": "Training loss falls while validation rises.", "weight": 0.05, "reveal_threshold": 0.75},
-        ],
         source="seed",
         is_public=True,
         task_id="seed_ml_01",
@@ -55,7 +59,6 @@ def client(tmp_path, monkeypatch):
         owner="system",
         difficulty=2,
         max_score=5,
-        hints=[],
         source="seed",
         is_public=True,
         task_id="seed_sys_01",
@@ -260,7 +263,7 @@ def test_legacy_backfill_reconstructs_steps(tmp_path, monkeypatch):
     sess.asked_task_ids.add("seed_ml_01")
     sess.index = 1
     sess.ability = SkillState(score=0.62, variance=0.09, questions_answered=1,
-                              evidence=["Perfect."], hints_used=[])
+                              evidence=["Perfect."])
     full = sess.to_dict()
     full["results"] = [
         {"task_id": "seed_ml_01", "score": 5.0, "max_score": 5.0, "rationale": "Perfect.",

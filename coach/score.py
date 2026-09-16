@@ -1,10 +1,10 @@
-"""Bayesian ability estimation and hint-aware scoring.
+"""Bayesian ability estimation and effective-score clamping.
 
 The candidate carries a single Gaussian belief theta ~ N(mu, variance) over
 overall mastery on [0, 1]. After each task we observe an effective score
-(raw judge fraction minus a penalty for viewed hints) with a
-difficulty-matched measurement noise, and update with the conjugate Gaussian
-formulas. All tuning constants are centralized here.
+(raw judge fraction) with a difficulty-matched measurement noise, and update
+with the conjugate Gaussian formulas. All tuning constants are centralized
+here.
 
 Picking "the question that gives the most information per unit of time"
 reduces to maximizing the a-priori variance reduction of this belief
@@ -23,9 +23,6 @@ SIGMA_MAX = 0.35
 # level) is assumed to be the most discriminating.
 SIGMA_BASE = 0.18      # std-dev of a perfectly-targeted observation
 KAPPA = 0.35           # extra noise per unit of difficulty mismatch
-
-# Hints: how much a viewed hint reduces the effective score.
-DEFAULT_HINT_WEIGHT = 0.15
 
 
 def bayesian_update(
@@ -75,13 +72,14 @@ def measurement_variance(difficulty: int, ability_mean: float) -> float:
     return sigma * sigma
 
 
-def effective_score(raw_fraction: float, hint_penalty: float) -> float:
-    """Hint-adjusted score.
+def effective_score(raw_fraction: float) -> float:
+    """Effective score for a task, clamped to [0, 1].
 
-    Viewing hints makes a correct answer less impressive: mastery is lower
-    when many hints were required. The result is clamped to [0, 1].
+    There is no hint penalty: the judge's per-part/aggregate fraction is the
+    observation, clamped so a raw fraction outside [0, 1] can never corrupt
+    the Gaussian update.
     """
-    return max(0.0, min(1.0, raw_fraction - hint_penalty))
+    return max(0.0, min(1.0, raw_fraction))
 
 
 def confidence_from_variance(variance: float) -> float:

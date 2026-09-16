@@ -1,11 +1,12 @@
 const V1_BASE = '/api/v1';
 const AUTH_BASE = '/api';
 
-export interface Hint {
-  id: string;
-  text: string;
-  weight: number;
-  pre_revealed: boolean;
+export interface TaskPart {
+  key: string;
+  prompt: string;
+  max_score: number;
+  difficulty: number;
+  tags?: TaskTags;
 }
 
 export interface TaskTags {
@@ -18,8 +19,13 @@ export interface Task {
   type: 'code';
   prompt: string;
   difficulty: number;
+  max_score: number;
   scaffold?: string;
-  hints?: Hint[];
+  parts?: TaskPart[];
+  previous_code?: string;
+  version_index?: number;
+  version_total?: number;
+  depends_on_task_id?: string;
   context_notes?: string;
   tags?: TaskTags;
   task_type?: string;
@@ -49,7 +55,6 @@ export interface CoachContent {
 export interface AbilityUpdate {
   new_score: number;
   new_confidence: number;
-  hints_used?: string[];
 }
 
 export interface AbilityState {
@@ -123,6 +128,7 @@ export interface FeedbackEntry {
   coach?: CoachContent;
   hints_used?: string[];
   tags?: TaskTags;
+  parts?: TaskPart[];
 }
 
 export interface UnifiedSession {
@@ -336,12 +342,13 @@ export interface AdminSeedCreate {
   scaffold?: string;
   difficulty: number;
   max_score: number;
-  hints: { id: string; text: string; weight: number; reveal_threshold: number }[];
+  parts?: TaskPart[];
   tags?: { primary: string; secondary: string[] };
   task_type?: string;
   context_notes?: string;
-  cluster_id?: string;
-  followups?: { task_id: string; kind: 'prereq' | 'sibling' }[];
+  version_index?: number;
+  depends_on_task_id?: string;
+  version_root_id?: string;
 }
 
 const ADMIN_BASE = '/admin';
@@ -375,8 +382,8 @@ export const apiClient = {
       },
     ),
 
-  submit: (session_id: string, task_id: string, answer: string, hints_used: string[] = []) =>
-    v1<SubmitResponse>(`/sessions/${encodeURIComponent(session_id)}/answers`, { task_id, answer, hints_used }),
+  submit: (session_id: string, task_id: string, answer: string) =>
+    v1<SubmitResponse>(`/sessions/${encodeURIComponent(session_id)}/answers`, { task_id, answer }),
 
   complete: (session_id: string) =>
     v1<CompleteResponse>(`/sessions/${encodeURIComponent(session_id)}/completion`, {}),
@@ -409,8 +416,8 @@ export const apiClient = {
   revokeShare: (token: string) =>
     v1<void>(`/shared/${encodeURIComponent(token)}`, undefined, 'DELETE'),
 
-  redoStep: (id: string, stepIndex: number, answer: string, hintsUsed: string[] = []) =>
-    v1<SubmitResponse>(`/sessions/${encodeURIComponent(id)}/redo`, { step_index: stepIndex, answer, hints_used: hintsUsed }),
+  redoStep: (id: string, stepIndex: number, answer: string) =>
+    v1<SubmitResponse>(`/sessions/${encodeURIComponent(id)}/redo`, { step_index: stepIndex, answer }),
 
   clearOwnData: () =>
     v1<{ deleted: number }>(`/me/data`, undefined, 'DELETE'),

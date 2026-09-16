@@ -2,11 +2,14 @@
 
 1. Pending generated task — an injected follow-up not yet asked surfaces first
    (generated tasks are excluded from the bank picker).
-2. Judge-driven follow-up — after a submission, ``plan_followup`` may inject
+2. Version successor — after a submission (or on resume), the unasked task
+   whose ``depends_on_task_id`` equals the last answered task's id (e.g. a
+   thread-safe queue follows a plain bounded queue).
+3. Judge-driven follow-up — after a submission, ``plan_followup`` may inject
    an adaptive drill (simpler on failure; harder escalation or sibling
    prerequisite pivot after a solved follow-up).
-3. EIG bank picker — ``coach.picker.next_task(session)``.
-4. Fresh challenge — when the bank is exhausted, mint an ability-matched
+4. EIG bank picker — ``coach.picker.next_task(session)``.
+5. Fresh challenge — when the bank is exhausted, mint an ability-matched
    task via ``plan_challenge`` so the session keeps going indefinitely.
    ``None`` is returned only when generation also fails; the session ends
    explicitly when the user chooses Finish / View progress.
@@ -19,25 +22,39 @@ from typing import Optional
 from coach.session import task_view
 
 
-def _curated_followup(session, task: Optional[dict] = None) -> Optional[dict]:
-    """Return the next unasked curated follow-up of a seed task, or None.
+def _version_successor(session, task: Optional[dict] = None) -> Optional[dict]:
+    """Return the unasked version successor of ``task``, or None.
 
-    Follow-up links are pre-authored pointers (``task.followups``) to related
-    seeds. The first target not yet asked in this session wins; once all are
-    exhausted the selection falls through to the LLM remediation loop.
+    Without an explicit task (resume path) the last answered task is used.
+    A successor is a task whose ``depends_on_task_id`` points at ``task`` and
+    that has not been asked in this session yet.
     """
+    if task is None:
+        if session.results:
+            last = session.results[-1]
+            by_id = {t.get("id"): t for t in (getattr(session, "tasks", []) or [])}
+            task = by_id.get(getattr(last, "task_id", None))
     if not task:
         return None
-    followups = task.get("followups") or []
-    if not followups:
-        return None
-    by_id = {t.get("id"): t for t in (getattr(session, "tasks", []) or [])}
-    for link in followups:
-        target = by_id.get(link.get("task_id"))
-        if target is None or target["id"] in session.asked_task_ids:
-            continue
-        return target
+    for t in (getattr(session, "tasks", []) or []):
+        if t.get("depends_on_task_id") == task["id"] and t["id"] not in session.asked_task_ids:
+            return t
     return None
+
+
+def _previous_code_for(session_id: Optional[str], successor: dict) -> Optional[str]:
+    """Fetch the predecessor's submitted code from ``session_steps``."""
+    if not session_id:
+        return None
+    pred_id = successor.get("depends_on_task_id")
+    if not pred_id:
+        return None
+    try:
+        from coach.steps import answer_for_task
+
+        return answer_for_task(session_id, pred_id)
+    except Exception:
+        return None
 
 
 def pick_next_task(
@@ -46,15 +63,19 @@ def pick_next_task(
     last_submission: Optional[dict] = None,
     sample_top_n: Optional[int] = None,
     family: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> dict | None:
     """Choose the next task to present.
 
-    ``last_submission`` carries ``{"task", "result", "coach"}`` from a
-    just-recorded submission. ``sample_top_n`` (> 1) samples uniformly from
-    the top-N EIG bank candidates instead of always taking the single best;
-    it applies to the bank-picker branch only. ``family`` restricts the
-    bank-picker branch to tasks in one family (used to seed a session with
-    a question in an area); it never affects pending/follow-up branches.
+    ``last_submission`` carries ``{"task", "answer", "result", "coach"}``
+    from a just-recorded submission (``answer`` is the predecessor's code,
+    carried forward into a version successor). ``sample_top_n`` (> 1)
+    samples uniformly from the top-N EIG bank candidates instead of always
+    taking the single best; it applies to the bank-picker branch only.
+    ``family`` restricts the bank-picker branch to tasks in one family (used
+    to seed a session with a question in an area); it never affects
+    pending/follow-up branches. ``session_id`` lets the resume path fetch a
+    predecessor's code from ``session_steps`` for version successors.
     """
     from coach.picker import next_task as next_task_bank
 
@@ -66,14 +87,18 @@ def pick_next_task(
     if pending is not None:
         return task_view(pending, session)
 
-    # 2. Judge-driven follow-up after a submission. Pre-authored curated
-    # follow-up links (``task.followups``) win first; the LLM drill/escalate/
-    # pivot loop is the fallback when none apply.
-    if last_submission is not None:
-        curated = _curated_followup(session, last_submission.get("task"))
-        if curated is not None:
-            return task_view(curated, session)
+    # 2. Version successor after a submission (or on resume).
+    successor = _version_successor(session, (last_submission or {}).get("task"))
+    if successor is not None:
+        previous_code = None
+        if last_submission and last_submission.get("answer"):
+            previous_code = last_submission.get("answer")
+        else:
+            previous_code = _previous_code_for(session_id, successor)
+        return task_view(successor, session, previous_code=previous_code)
 
+    # 3. Judge-driven follow-up after a submission (LLM drill/escalate/pivot).
+    if last_submission is not None:
         from coach.remediation import plan_followup
 
         generated = plan_followup(
@@ -85,14 +110,14 @@ def pick_next_task(
         if generated is not None:
             return task_view(generated, session)
 
-    # 3. EIG bank picker.
+    # 4. EIG bank picker.
     nxt = next_task_bank(session, sample_top_n=sample_top_n, family=family)
     if nxt is not None:
         return task_view(nxt, session)
 
-    # 4. Bank exhausted -> mint a fresh adaptive challenge so the session
+    # 5. Bank exhausted -> mint a fresh adaptive challenge so the session
     # keeps going indefinitely (user exits explicitly via Finish). Steer it
-    # toward the least-covered family/tag so scope keeps widening (§5).
+    # toward the least-covered family/tag so scope keeps widening.
     try:
         from coach.remediation import least_covered, plan_challenge
 
