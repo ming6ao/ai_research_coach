@@ -134,6 +134,27 @@ def delete_table_row(table_name: str, row_id: str, user: dict = Depends(_require
     return {"ok": True, "table": table_name, "row_id": row_id, **result}
 
 
+@admin_router.get("/reset/preview")
+def reset_preview(user: dict = Depends(_require_admin)):
+    """Dry-run: which app-data rows a DB reset would wipe (users/auth kept)."""
+    from coach.db import reset_database
+
+    return {"ok": True, **reset_database(preview=True)}
+
+
+@admin_router.post("/reset")
+def reset_database_endpoint(user: dict = Depends(_require_admin)):
+    """Wipe app data and re-bootstrap the question bank from SEED_CATALOG.
+
+    Deletes sessions, steps, beliefs, shares, and tasks (users/auth tokens
+    preserved), then re-seeds the builtin catalog so the DB is in sync with
+    the code. Admin-only.
+    """
+    from coach.db import reset_database
+
+    return {"ok": True, **reset_database(preview=False)}
+
+
 @admin_router.get("/stale-seeds/preview")
 def stale_seeds_preview(user: dict = Depends(_require_admin)):
     """Dry-run: which stale seed rows + their dependents would be deleted."""

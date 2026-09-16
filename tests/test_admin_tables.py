@@ -55,6 +55,39 @@ def test_table_endpoints_require_auth(client):
     assert client.get("/admin/whoami").status_code == 401
 
 
+def test_reset_endpoints_require_admin(client):
+    from coach.seed_bank import SEED_CATALOG
+
+    user = _login("mallory@x.com")
+    _seed(_h(user))
+    # Non-admin gets 403.
+    assert client.get("/admin/reset/preview", headers=_h(user)).status_code == 403
+    assert client.post("/admin/reset", headers=_h(user)).status_code == 403
+
+    admin = _login(ADMIN)
+    # Dry-run preview reports the app-data rows (users/auth not listed as wiped).
+    preview = client.get("/admin/reset/preview", headers=_h(admin)).json()
+    assert preview["preview"] is True
+    assert "users" not in preview["wiped"]
+    assert preview["total_deleted"] > 0
+
+    # The real reset wipes app data, keeps the catalog + auth.
+    res = client.post("/admin/reset", headers=_h(admin))
+    assert res.status_code == 200
+    body = res.json()
+    assert body["preview"] is False
+    assert body["seeded"] == len(SEED_CATALOG)
+    assert body["wiped"]["active_sessions"] == 1  # the _seed() session
+    assert body["wiped"]["session_steps"] == 1
+    tasks_meta = next(
+        t for t in client.get("/admin/tables", headers=_h(admin)).json()["tables"]
+        if t["name"] == "tasks"
+    )
+    assert tasks_meta["count"] == len(SEED_CATALOG)
+    # Auth survived the reset.
+    assert client.get("/admin/whoami", headers=_h(admin)).json()["is_admin"] is True
+
+
 def test_table_endpoints_require_admin(client):
     user = _login("mallory@x.com")
     _seed(_h(user))
@@ -100,7 +133,7 @@ def test_tasks_registry_exposes_cluster_and_followups(client):
     rows = client.get("/admin/table/tasks?page_size=100", headers=headers).json()["rows"]
     seed_row = next(r for r in rows if r["id"] == "seed_softmax")
     assert seed_row["cluster_id"] == "dl_architectures"
-    assert '"task_id": "seed_backprop_mlp"' in seed_row["followups_json"]
+    assert '"task_id": "seed_attention"' in seed_row["followups_json"]
 
     detail = client.get("/admin/table/tasks/seed_softmax", headers=headers).json()
     assert detail["row"]["cluster_id"] == "dl_architectures"

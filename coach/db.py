@@ -90,6 +90,10 @@ _DROPPED_TABLES = (
 # DROP COLUMN; failures are swallowed so startup never breaks.
 _DROPPED_TASK_COLUMNS = ("graph_json", "target_node_id", "target_node_slug", "expected_time_min", "skill")
 
+# Tables reset_database() wipes (learner/app data) vs. preserves (identity/auth).
+_WIPED_TABLES = ("tasks", "session_steps", "user_skill_beliefs", "active_sessions", "trajectory_shares")
+_PRESERVED_TABLES = ("users", "auth_tokens", "oauth_states")
+
 
 # Process-local guard so per-request create_schema()/sqlite_conn() calls only
 # run DDL/migrations once per DB file. Keyed by path/URL so tests that
@@ -392,3 +396,49 @@ def learner_session() -> Session:
     """Open a short-lived ORM session bound to the shared file."""
     session_factory, _ = create_session_factory(learner_db_url())
     return session_factory()
+
+
+def reset_database(preview: bool = False) -> dict:
+    """Wipe app data and re-bootstrap the question bank from SEED_CATALOG.
+
+    Deletes every row from the learner/app tables (``tasks``,
+    ``session_steps``, ``user_skill_beliefs``, ``active_sessions``,
+    ``trajectory_shares``) so the DB is re-synced from the builtin catalog.
+    Identity/auth tables (``users``, ``auth_tokens``, ``oauth_states``) are
+    preserved, so signed-in users do not need to re-authenticate.
+
+    ``preview=True`` returns per-table row counts without mutating anything.
+    The execute path clears the in-process schema/seed guard so the catalog
+    is re-seeded, then returns the deleted counts plus the seed count.
+    """
+    create_schema()
+    with sqlite_conn() as conn:
+        counts = {
+            table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in _WIPED_TABLES
+        }
+        if preview:
+            return {
+                "preview": True,
+                "wiped": counts,
+                "total_deleted": sum(counts.values()),
+                "preserved": list(_PRESERVED_TABLES),
+            }
+        deleted: dict[str, int] = {}
+        for table in _WIPED_TABLES:
+            cur = conn.execute(f"DELETE FROM {table}")
+            deleted[table] = cur.rowcount or 0
+        conn.commit()
+    # Force DDL + seed to re-run so the catalog lands fresh in this process.
+    with _schema_lock:
+        _schema_done.clear()
+    create_schema()
+    from coach.seed_bank import SEED_CATALOG
+
+    return {
+        "preview": False,
+        "wiped": deleted,
+        "total_deleted": sum(deleted.values()),
+        "preserved": list(_PRESERVED_TABLES),
+        "seeded": len(SEED_CATALOG),
+    }

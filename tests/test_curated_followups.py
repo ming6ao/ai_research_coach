@@ -36,16 +36,16 @@ class TestSelection:
         softmax = _by_slug(session.tasks, "softmax")
         picked = pick_next_task(session.candidate, session, last_submission=self._submission(softmax))
         assert picked is not None
-        assert picked["id"] == "seed_backprop_mlp"
+        assert picked["id"] == "seed_attention"
 
     def test_curated_followup_skips_already_asked(self, tmp_path, monkeypatch):
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
         session = _seeded_session(tmp_path, monkeypatch)
         softmax = _by_slug(session.tasks, "softmax")
-        session.asked_task_ids.add("seed_backprop_mlp")
+        session.asked_task_ids.add("seed_attention")
         picked = pick_next_task(session.candidate, session, last_submission=self._submission(softmax))
         assert picked is not None
-        assert picked["id"] == "seed_attention"
+        assert picked["id"] == "seed_finetune_head"
 
     def test_falls_back_to_bank_when_all_followups_asked(self, tmp_path, monkeypatch):
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)

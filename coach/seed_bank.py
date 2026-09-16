@@ -45,9 +45,9 @@ SEED_CATALOG: list[dict[str, Any]] = [
         "slug": "softmax",
         "cluster": "dl_architectures",
         "followups": [
-            {"task_id": "seed_backprop_mlp", "kind": "prereq"},
             {"task_id": "seed_attention", "kind": "sibling"},
-            {"task_id": "seed_finetune_head", "kind": "sibling"},
+            {"task_id": "seed_finetune_head", "kind": "prereq"},
+            {"task_id": "seed_lstm_cell", "kind": "sibling"},
         ],
         "prompt": (
             "Implement a numerically stable softmax and log_softmax for a list of logits. "
@@ -226,8 +226,8 @@ SEED_CATALOG: list[dict[str, Any]] = [
         "followups": [
             {"task_id": "seed_adam", "kind": "sibling"},
             {"task_id": "seed_cosine_lr", "kind": "sibling"},
-            {"task_id": "seed_finetune_head", "kind": "sibling"},
             {"task_id": "seed_conv2d", "kind": "sibling"},
+            {"task_id": "seed_lstm_cell", "kind": "sibling"},
         ],
         "prompt": (
             "Implement one training step of backpropagation for a 2-layer MLP: a sigmoid hidden layer "
@@ -257,11 +257,11 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "attention",
-        "cluster": "llm_stack",
+        "cluster": "dl_architectures",
         "followups": [
             {"task_id": "seed_kv_cache", "kind": "sibling"},
-            {"task_id": "seed_bpe", "kind": "prereq"},
-            {"task_id": "seed_backprop_mlp", "kind": "prereq"},
+            {"task_id": "seed_softmax", "kind": "prereq"},
+            {"task_id": "seed_bpe", "kind": "sibling"},
         ],
         "prompt": (
             "Implement a single scaled dot-product attention head. Given query, key, value matrices "
@@ -450,7 +450,7 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "zscore_anomaly",
-        "cluster": "data_eng",
+        "cluster": "stats_inference",
         "followups": [
             {"task_id": "seed_etl_functional", "kind": "sibling"},
             {"task_id": "seed_bootstrap_ci", "kind": "sibling"},
@@ -981,9 +981,9 @@ SEED_CATALOG: list[dict[str, Any]] = [
         "slug": "finetune_head",
         "cluster": "llm_stack",
         "followups": [
+            {"task_id": "seed_softmax", "kind": "prereq"},
             {"task_id": "seed_backprop_mlp", "kind": "prereq"},
             {"task_id": "seed_quantize_int8", "kind": "sibling"},
-            {"task_id": "seed_attention", "kind": "sibling"},
         ],
         "prompt": (
             "Implement the gradient update for fine-tuning a classifier head while the backbone is "
@@ -1239,6 +1239,7 @@ def _fill_gaps(limit: int = 5) -> list[str]:
                 source="seed_llm",
                 is_public=True,
                 task_id=tid,
+                cluster_id=TAG_TO_FAMILY.get(tag),
             )
             minted.append(tag)
             print(f"[fill-gaps] minted {tid} for tag={tag}")
@@ -1268,7 +1269,31 @@ def main(argv: Optional[list[str]] = None) -> int:
         "--limit", type=int, default=5,
         help="Max number of gap tasks to mint (default 5).",
     )
+    parser.add_argument(
+        "--reset", action="store_true",
+        help="Wipe app data and re-bootstrap the question bank from SEED_CATALOG.",
+    )
+    parser.add_argument(
+        "--yes", action="store_true",
+        help="Confirm a destructive --reset (required; without it only a preview prints).",
+    )
     args = parser.parse_args(argv)
+    if args.reset:
+        from coach.db import reset_database
+
+        result = reset_database(preview=not args.yes)
+        if result.get("preview"):
+            wiped = result["wiped"]
+            print("DRY RUN: reset would wipe these rows (users/auth preserved):")
+            for table, count in sorted(wiped.items()):
+                print(f"  {table:<20} {count}")
+            print("Re-run with --reset --yes to perform the reset + reseed.")
+            return 0
+        print(
+            f"Reset complete: deleted {result['total_deleted']} rows "
+            f"({result['seeded']} seed tasks in sync)."
+        )
+        return 0
     if args.fill_gaps:
         minted = _fill_gaps(limit=args.limit)
         print(f"Filled gaps for {len(minted)} tags: {minted}")

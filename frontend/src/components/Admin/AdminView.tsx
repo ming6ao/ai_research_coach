@@ -35,12 +35,14 @@ export function AdminView({ onClose }: Props) {
     notice,
     setNotice,
     loadRows,
+    refreshTables,
   } = table;
 
   const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Record<string, string> | null>(null);
   const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [showCoverage, setShowCoverage] = useState(false);
 
   const switchTable = (name: string) => {
@@ -119,6 +121,35 @@ export function AdminView({ onClose }: Props) {
     }
   };
 
+  const syncDb = async () => {
+    setError(null);
+    try {
+      const preview = await apiClient.adminResetPreview();
+      const wiped = Object.entries(preview.wiped)
+        .filter(([, n]) => n > 0)
+        .map(([t, n]) => `${t} (${n})`)
+        .join(', ');
+      const prompt = wiped
+        ? `Reset app data to match the seed catalog?\n\nWipes ${preview.total_deleted} rows: ${wiped}.\nUsers and auth tokens are kept. Re-seed the builtin bank.\nThis cannot be undone.`
+        : `Database is already in sync (0 rows to wipe). Re-seed the builtin bank anyway?`;
+      if (!window.confirm(prompt)) return;
+      setResetting(true);
+      const res = await apiClient.adminReset();
+      setNotice(
+        `DB synced: deleted ${res.total_deleted} rows, ${res.seeded ?? 0} seed tasks in sync.`,
+      );
+      setDetail(null);
+      setDetailId(null);
+      setEditing(null);
+      void refreshTables();
+      void loadRows(activeTable, query);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setResetting(false);
+    }
+  };
+
   if (gate === 'checking') {
     return (
       <div className="flex h-full items-center justify-center">
@@ -163,12 +194,21 @@ export function AdminView({ onClose }: Props) {
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex shrink-0 items-center justify-between border-b border-[var(--color-border-default)] px-4 py-2">
         <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Admin — all tables</h2>
-        <button
-          onClick={onClose}
-          className="rounded-lg px-3 py-1.5 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
-        >
-          Close
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => void syncDb()}
+            disabled={resetting}
+            className="rounded-lg border border-[var(--color-border-default)] px-3 py-1.5 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] disabled:opacity-50"
+          >
+            {resetting ? 'Syncing…' : 'Sync DB'}
+          </button>
+          <button
+            onClick={onClose}
+            className="rounded-lg px-3 py-1.5 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+          >
+            Close
+          </button>
+        </div>
       </div>
 
       <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--color-border-default)] px-3 pt-2">

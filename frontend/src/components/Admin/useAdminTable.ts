@@ -108,6 +108,15 @@ export function useAdminTable() {
     }));
   };
 
+  const refreshTables = useCallback(async () => {
+    try {
+      const res = await apiClient.adminTables();
+      setTables(res.tables);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [setError]);
+
   return {
     gate,
     tables,
@@ -130,6 +139,7 @@ export function useAdminTable() {
     loadRows,
     switchTable,
     setSort,
+    refreshTables,
   };
 }
 

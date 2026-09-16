@@ -284,6 +284,15 @@ export interface AdminWhoami {
   is_admin: boolean;
 }
 
+export interface AdminResetResult {
+  ok: boolean;
+  preview: boolean;
+  wiped: Record<string, number>;
+  total_deleted: number;
+  preserved: string[];
+  seeded?: number;
+}
+
 export interface CoverageEntryInfo {
   seed_tasks: string[];
   asked_total: number;
@@ -423,4 +432,10 @@ export const apiClient = {
     adminApi<{ ok: boolean; deleted: number }>(
       `/table/${encodeURIComponent(table)}/${encodeURIComponent(rowId)}`, undefined, 'DELETE',
     ),
+
+  adminResetPreview: () =>
+    adminApi<AdminResetResult>('/reset/preview', undefined, 'GET'),
+
+  adminReset: () =>
+    adminApi<AdminResetResult>('/reset', undefined, 'POST'),
 };

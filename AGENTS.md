@@ -24,6 +24,7 @@ python check_env.py
 | Test backend | `.venv/bin/python -m pytest` |
 | Seed the builtin question bank (idempotent, runs at startup) | `python -m coach.seed_bank` |
 | Mint tasks for uncovered/low-coverage tags (LLM) | `python -m coach.seed_bank --fill-gaps [--limit N]` |
+| Reset app data + re-bootstrap the bank from SEED_CATALOG (keeps users/auth; admin UI "Sync DB" button or `POST /admin/reset`) | `python -m coach.seed_bank --reset --yes` |
 | Lint frontend | `cd frontend && npm run lint` |
 | Typecheck frontend | `cd frontend && npx tsc -b` |
 | Test frontend | `cd frontend && npm test` |
