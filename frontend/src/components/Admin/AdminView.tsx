@@ -13,6 +13,7 @@ import { useAdminTable } from './useAdminTable';
 import { RowGrid } from './RowGrid';
 import { DetailPane } from './DetailPane';
 import { CoverageView } from './CoverageView';
+import { NewSeedForm } from './NewSeedForm';
 
 interface Props {
   onClose: () => void;
@@ -44,10 +45,12 @@ export function AdminView({ onClose }: Props) {
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [showCoverage, setShowCoverage] = useState(false);
+  const [showNewSeed, setShowNewSeed] = useState(false);
 
   const switchTable = (name: string) => {
     table.switchTable(name);
     setShowCoverage(false);
+    setShowNewSeed(false);
     setDetail(null);
     setDetailId(null);
     setEditing(null);
@@ -196,6 +199,18 @@ export function AdminView({ onClose }: Props) {
         <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Admin — all tables</h2>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => {
+              setShowNewSeed(true);
+              setShowCoverage(false);
+              setDetail(null);
+              setDetailId(null);
+              setEditing(null);
+            }}
+            className="rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-xs font-semibold text-white"
+          >
+            Add question
+          </button>
+          <button
             onClick={() => void syncDb()}
             disabled={resetting}
             className="rounded-lg border border-[var(--color-border-default)] px-3 py-1.5 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] disabled:opacity-50"
@@ -215,6 +230,7 @@ export function AdminView({ onClose }: Props) {
         <button
           onClick={() => {
             setShowCoverage(true);
+            setShowNewSeed(false);
             setDetail(null);
             setDetailId(null);
             setEditing(null);
@@ -319,6 +335,18 @@ export function AdminView({ onClose }: Props) {
                   setEditing(null);
                 }}
                 onDelete={deleteRow}
+              />
+            )}
+
+            {showNewSeed && (
+              <NewSeedForm
+                onCreated={(taskId) => {
+                  setShowNewSeed(false);
+                  setNotice(`Created seed ${taskId}.`);
+                  void loadRows(activeTable, query);
+                }}
+                onClose={() => setShowNewSeed(false)}
+                onError={setError}
               />
             )}
           </>

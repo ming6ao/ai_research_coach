@@ -64,3 +64,17 @@ class TaskPatchRequest(BaseModel):
     task_type: Optional[str] = Field(default=None, max_length=32)
     cluster_id: Optional[str] = Field(default=None, max_length=64)
     followups: Optional[list[dict[str, Any]]] = None
+
+
+class AdminSeedCreateRequest(BaseModel):
+    """Body for admin-authored seed questions (POST /admin/seeds)."""
+    prompt: str = Field(min_length=1, max_length=8000)
+    scaffold: Optional[str] = Field(default=None, max_length=16000)
+    difficulty: int = Field(default=2, ge=1, le=5)
+    max_score: int = Field(default=5, ge=1, le=100)
+    hints: list[dict[str, Any]] = Field(default_factory=list)
+    tags: Optional[dict[str, Any]] = None
+    task_type: Optional[str] = Field(default=None, max_length=32)
+    context_notes: Optional[str] = Field(default=None, max_length=2000)
+    cluster_id: Optional[str] = Field(default=None, max_length=64)
+    followups: Optional[list[dict[str, Any]]] = None

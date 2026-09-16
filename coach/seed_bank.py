@@ -1105,7 +1105,7 @@ def seed_question_bank() -> int:
 
 
 def _seed_rows() -> list[dict]:
-    """Tasks in the DB that are seeds (source seed/seed_llm)."""
+    """Tasks in the DB that are seeds (source seed/seed_llm/seed_admin)."""
     from coach.db import create_schema, learner_session
     from coach.tasks import TaskModel, task_to_dict
     from sqlalchemy import select
@@ -1114,7 +1114,7 @@ def _seed_rows() -> list[dict]:
     session = learner_session()
     try:
         rows = session.scalars(
-            select(TaskModel).where(TaskModel.source.in_(["seed", "seed_llm"]))
+            select(TaskModel).where(TaskModel.source.in_(["seed", "seed_llm", "seed_admin"]))
         ).all()
         return [task_to_dict(m) for m in rows]
     finally:

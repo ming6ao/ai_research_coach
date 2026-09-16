@@ -325,6 +325,25 @@ export interface AdminTableQuery {
   user_id?: string;
 }
 
+export interface AdminTaxonomy {
+  families: string[];
+  tags: Record<string, string[]>;
+  task_types: string[];
+}
+
+export interface AdminSeedCreate {
+  prompt: string;
+  scaffold?: string;
+  difficulty: number;
+  max_score: number;
+  hints: { id: string; text: string; weight: number; reveal_threshold: number }[];
+  tags?: { primary: string; secondary: string[] };
+  task_type?: string;
+  context_notes?: string;
+  cluster_id?: string;
+  followups?: { task_id: string; kind: 'prereq' | 'sibling' }[];
+}
+
 const ADMIN_BASE = '/admin';
 
 async function adminApi<T>(path: string, body?: unknown, method?: string): Promise<T> {
@@ -438,4 +457,10 @@ export const apiClient = {
 
   adminReset: () =>
     adminApi<AdminResetResult>('/reset', undefined, 'POST'),
+
+  adminTaxonomy: () =>
+    adminApi<AdminTaxonomy>('/taxonomy', undefined, 'GET'),
+
+  adminCreateSeed: (body: AdminSeedCreate) =>
+    adminApi<{ data: Task }>('/seeds', body, 'POST').then((r) => r.data),
 };

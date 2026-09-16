@@ -5,11 +5,13 @@ wipes. Task CRUD lives in the v1 API (``/api/v1/tasks*``, owner-or-admin
 guarded); overall progress lives in session views (``/api/v1/sessions*``).
 """
 
+import uuid
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 
 from backend.auth import get_current_user, is_admin
+from backend.v1.schemas import AdminSeedCreateRequest
 
 admin_router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -39,6 +41,62 @@ def _require_admin(user: dict = Depends(_require_user)) -> dict:
 def whoami(user: dict = Depends(_require_user)):
     """Identity + admin flag so the frontend can gate the Admin UI."""
     return {"user": user, "is_admin": is_admin(user)}
+
+
+@admin_router.get("/taxonomy", summary="Tag/family/task-type vocabulary for the admin seed form")
+def taxonomy(user: dict = Depends(_require_admin)):
+    """Closed tag vocabulary (single source of truth) so the admin seed
+    form's dropdowns never drift from ``coach/taxonomy.py``."""
+    from coach.taxonomy import FAMILIES, TAGS, TASK_TYPES
+
+    return {
+        "families": FAMILIES,
+        "tags": TAGS,
+        "task_types": list(TASK_TYPES),
+    }
+
+
+@admin_router.post("/seeds", summary="Create an admin-authored seed question")
+def create_seed(req: AdminSeedCreateRequest, user: dict = Depends(_require_admin)):
+    """Persist a new builtin-style seed task (owner ``system``, public).
+
+    Admin-authored seeds use ``source="seed_admin"`` so they are never
+    touched by stale-seed cleanup (which only targets ``source="seed"``).
+    They are runtime-only: a DB reset re-bootstraps the bank from the code
+    catalog and wipes them.
+    """
+    from coach.tasks import SYSTEM_OWNER, create_task
+    from coach.taxonomy import validate as validate_tags
+
+    # Reused session helper (LLM context notes) — same path as v1 task create.
+    from backend.v1.sessions import _describe_context
+
+    if not req.prompt.strip():
+        raise HTTPException(status_code=422, detail="Prompt must not be empty.")
+    try:
+        tags = validate_tags(req.tags)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    try:
+        task = create_task(
+            prompt=req.prompt.strip(),
+            owner=SYSTEM_OWNER,
+            scaffold=req.scaffold,
+            difficulty=req.difficulty,
+            max_score=req.max_score,
+            hints=req.hints or [],
+            source="seed_admin",
+            is_public=True,
+            task_id=f"seed_admin_{uuid.uuid4().hex[:8]}",
+            context_notes=_describe_context(req.prompt.strip(), req.context_notes),
+            tags=tags,
+            task_type=req.task_type or "implement",
+            cluster_id=req.cluster_id,
+            followups=req.followups,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"data": task}
 
 
 @admin_router.get("/tables")
