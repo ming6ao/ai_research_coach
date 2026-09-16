@@ -310,6 +310,8 @@ def task_view(task: dict, session: Session) -> dict | None:
     }
     if task.get("context_notes"):
         view["context_notes"] = task["context_notes"]
+    if task.get("cluster_id"):
+        view["cluster_id"] = task["cluster_id"]
     if task.get("generated"):
         kind = str(task.get("generated_kind") or "remediate")
         label = {"remediate": "drill", "escalate": "escalation", "pivot": "pivot"}.get(kind, kind)

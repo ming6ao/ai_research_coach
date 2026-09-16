@@ -19,6 +19,29 @@ def test_catalog_covers_every_tag_and_family():
         assert any(family_of(tag) == fam for tag in covered), f"family {fam} uncovered"
 
 
+def test_every_seed_has_cluster_and_resolvable_followups():
+    slugs = {f"seed_{s['slug']}" for s in SEED_CATALOG}
+    for seed in SEED_CATALOG:
+        assert seed.get("cluster"), f"{seed['slug']} needs a cluster"
+        assert isinstance(seed.get("followups"), list), f"{seed['slug']} needs followups"
+        for link in seed["followups"]:
+            assert link.get("task_id") in slugs, f"{seed['slug']} -> {link}"
+            assert link.get("kind") in ("prereq", "sibling"), link
+
+
+def test_seeded_rows_persist_cluster_and_followups(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "seed_fu.db")
+    from coach.tasks import get_task
+
+    seed_question_bank()
+    first = get_task(f"seed_{SEED_CATALOG[0]['slug']}")
+    assert first["cluster_id"] == SEED_CATALOG[0]["cluster"]
+    assert first["followups"][0]["task_id"].startswith("seed_")
+    # Every follow-up target resolves to a real seeded row.
+    for link in SEED_CATALOG[0]["followups"]:
+        assert get_task(link["task_id"]) is not None
+
+
 def test_seed_question_bank_idempotent(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "seed.db")
     from coach.tasks import get_task, list_visible_tasks

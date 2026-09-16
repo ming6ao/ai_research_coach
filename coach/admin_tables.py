@@ -87,6 +87,8 @@ TABLE_REGISTRY: dict[str, dict[str, Any]] = {
             {"name": "task_type", "kind": "text", "searchable": False, "editable": True},
             {"name": "parent_task_id", "kind": "text", "searchable": False, "editable": False},
             {"name": "target_text", "kind": "text", "searchable": False, "editable": False},
+            {"name": "cluster_id", "kind": "text", "searchable": True, "editable": True},
+            {"name": "followups_json", "kind": "json", "searchable": False, "editable": True},
             {"name": "is_public", "kind": "bool", "searchable": False, "editable": True},
             {"name": "created_at", "kind": "datetime", "searchable": False, "editable": False},
         ],
@@ -263,7 +265,7 @@ def _orm_search_cols(name: str):
     from coach.tasks import SkillBeliefModel, TaskModel
 
     return {
-        "tasks": (TaskModel.prompt, TaskModel.owner, TaskModel.id, TaskModel.context_notes),
+        "tasks": (TaskModel.prompt, TaskModel.owner, TaskModel.id, TaskModel.context_notes, TaskModel.cluster_id),
         "session_steps": (
             SessionStepModel.candidate,
             SessionStepModel.session_id,
@@ -282,6 +284,7 @@ def _orm_to_list_dict(name: str, m) -> dict[str, Any]:
         # task_to_dict nests hints; expose the raw JSON + flat scalars for the grid.
         d["hints_json"] = _preview(m.hints_json or "[]")
         d["tags_json"] = _preview(m.tags_json or "{}")
+        d["followups_json"] = _preview(m.followups_json or "[]")
         d["created_at"] = m.created_at.isoformat() if m.created_at else None
         for k in ("prompt", "scaffold", "context_notes", "target_text"):
             if isinstance(d.get(k), str):
@@ -319,6 +322,7 @@ def _orm_to_full_dict(name: str, m) -> dict[str, Any]:
         d["context_notes"] = m.context_notes or ""
         d["hints_json"] = m.hints_json or "[]"
         d["tags_json"] = m.tags_json or "{}"
+        d["followups_json"] = m.followups_json or "[]"
         d["target_text"] = m.target_text
     if name == "session_steps":
         d["task_snapshot_json"] = _preview(m.task_snapshot_json or "{}")
@@ -437,7 +441,7 @@ def _check_range(label: str, value: float, lo: float, hi: float) -> float:
 
 def _update_task(task_id: str, fields: dict[str, Any]) -> Optional[dict[str, Any]]:
     from coach.db import create_schema, learner_session
-    from coach.tasks import TaskModel, task_to_dict
+    from coach.tasks import TaskModel
 
     create_schema()
     session = learner_session()
@@ -500,11 +504,26 @@ def _update_task(task_id: str, fields: dict[str, Any]) -> Optional[dict[str, Any
             if fields["task_type"] not in TASK_TYPES:
                 raise ValueError(f"task_type must be one of {TASK_TYPES}.")
             m.task_type = fields["task_type"]
+        if "cluster_id" in fields:
+            m.cluster_id = str(fields["cluster_id"] or "").strip()[:64] or None
+        if "followups_json" in fields:
+            raw = fields["followups_json"]
+            if isinstance(raw, (list, dict)):
+                raw = json.dumps(raw)
+            try:
+                parsed = json.loads(str(raw or "[]"))
+            except Exception:
+                raise ValueError("followups_json must be valid JSON (a list of {task_id, kind} links).")
+            if not isinstance(parsed, list):
+                raise ValueError("followups_json must be valid JSON (a list).")
+            from coach.tasks import parse_followups
+
+            m.followups_json = json.dumps(parse_followups(json.dumps(parsed)))
         if "is_public" in fields:
             v = fields["is_public"]
             m.is_public = 1 if v in (True, 1, "1", "true", "True") else 0
         session.commit()
-        return task_to_dict(m)
+        return _orm_to_full_dict("tasks", m)
     except Exception:
         session.rollback()
         raise

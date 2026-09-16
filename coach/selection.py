@@ -19,6 +19,27 @@ from typing import Optional
 from coach.session import task_view
 
 
+def _curated_followup(session, task: Optional[dict] = None) -> Optional[dict]:
+    """Return the next unasked curated follow-up of a seed task, or None.
+
+    Follow-up links are pre-authored pointers (``task.followups``) to related
+    seeds. The first target not yet asked in this session wins; once all are
+    exhausted the selection falls through to the LLM remediation loop.
+    """
+    if not task:
+        return None
+    followups = task.get("followups") or []
+    if not followups:
+        return None
+    by_id = {t.get("id"): t for t in (getattr(session, "tasks", []) or [])}
+    for link in followups:
+        target = by_id.get(link.get("task_id"))
+        if target is None or target["id"] in session.asked_task_ids:
+            continue
+        return target
+    return None
+
+
 def pick_next_task(
     candidate: str,
     session,
@@ -45,8 +66,14 @@ def pick_next_task(
     if pending is not None:
         return task_view(pending, session)
 
-    # 2. Judge-driven follow-up after a submission.
+    # 2. Judge-driven follow-up after a submission. Pre-authored curated
+    # follow-up links (``task.followups``) win first; the LLM drill/escalate/
+    # pivot loop is the fallback when none apply.
     if last_submission is not None:
+        curated = _curated_followup(session, last_submission.get("task"))
+        if curated is not None:
+            return task_view(curated, session)
+
         from coach.remediation import plan_followup
 
         generated = plan_followup(

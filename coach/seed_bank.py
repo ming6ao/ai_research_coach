@@ -35,12 +35,20 @@ def _utcnow_naive() -> datetime:
 
 
 # Each seed is: slug, prompt, scaffold, difficulty (1-5), max_score, hints,
-# tags {primary, secondary}, task_type, context_notes (2-4 sentences).
+# tags {primary, secondary}, task_type, context_notes (2-4 sentences),
+# cluster (thematic thread id) and followups (list of {"task_id", "kind"}
+# pointers to related seeds served as curated follow-ups after this task).
 # Authoring rule (enforced by review, not code): every seed is self-contained,
 # deterministic, and gradeable by the existing code judge.
 SEED_CATALOG: list[dict[str, Any]] = [
     {
         "slug": "softmax",
+        "cluster": "dl_architectures",
+        "followups": [
+            {"task_id": "seed_backprop_mlp", "kind": "prereq"},
+            {"task_id": "seed_attention", "kind": "sibling"},
+            {"task_id": "seed_finetune_head", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement a numerically stable softmax and log_softmax for a list of logits. "
             "The softmax must subtract the max logit before exponentiating to avoid overflow, "
@@ -84,6 +92,12 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "kfold",
+        "cluster": "eval_mlops",
+        "followups": [
+            {"task_id": "seed_grid_search", "kind": "sibling"},
+            {"task_id": "seed_overfit_holdout", "kind": "sibling"},
+            {"task_id": "seed_metrics_cm", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement k-fold cross-validation splits that preserve class proportions. Given a list "
             "of binary labels, produce k lists of (train_indices, test_indices) such that each test "
@@ -112,6 +126,12 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "linreg_r2",
+        "cluster": "classical_ml",
+        "followups": [
+            {"task_id": "seed_ridge_l2", "kind": "sibling"},
+            {"task_id": "seed_overfit_holdout", "kind": "sibling"},
+            {"task_id": "seed_ttest_pvalue", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement ordinary least squares linear regression with closed-form equations. Given lists "
             "of x and y, return (slope, intercept, r_squared). Handle a constant x (zero variance) by "
@@ -137,6 +157,11 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "kmeans",
+        "cluster": "classical_ml",
+        "followups": [
+            {"task_id": "seed_pca_svd", "kind": "sibling"},
+            {"task_id": "seed_knn_weighted", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement Lloyd's K-Means clustering for a 2D dataset. Given a list of (x, y) points and "
             "k, initialize centroids from k distinct seeded-random points, then alternate between "
@@ -165,6 +190,11 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "pca_svd",
+        "cluster": "classical_ml",
+        "followups": [
+            {"task_id": "seed_knn_weighted", "kind": "sibling"},
+            {"task_id": "seed_kmeans", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement PCA via the SVD of the centered data matrix. Given an n-by-d numpy matrix, "
             "subtract the column mean from each row, compute the SVD, and return the top-k principal "
@@ -192,6 +222,13 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "backprop_mlp",
+        "cluster": "dl_architectures",
+        "followups": [
+            {"task_id": "seed_adam", "kind": "sibling"},
+            {"task_id": "seed_cosine_lr", "kind": "sibling"},
+            {"task_id": "seed_finetune_head", "kind": "sibling"},
+            {"task_id": "seed_conv2d", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement one training step of backpropagation for a 2-layer MLP: a sigmoid hidden layer "
             "and a single linear output, minimizing MSE. Given input x, target y, weights W1/b1 (hidden) "
@@ -220,6 +257,12 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "attention",
+        "cluster": "llm_stack",
+        "followups": [
+            {"task_id": "seed_kv_cache", "kind": "sibling"},
+            {"task_id": "seed_bpe", "kind": "prereq"},
+            {"task_id": "seed_backprop_mlp", "kind": "prereq"},
+        ],
         "prompt": (
             "Implement a single scaled dot-product attention head. Given query, key, value matrices "
             "each of shape (n, d) and an optional boolean mask of shape (n, n), compute scores = "
@@ -247,6 +290,11 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "rag_retrieval",
+        "cluster": "llm_stack",
+        "followups": [
+            {"task_id": "seed_finetune_head", "kind": "sibling"},
+            {"task_id": "seed_metrics_cm", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement minimal lexical retrieval: given a query string and a list of documents, score "
             "each document by the number of shared unique terms normalized by the geometric mean of the "
@@ -274,6 +322,11 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "kv_cache",
+        "cluster": "llm_stack",
+        "followups": [
+            {"task_id": "seed_attention", "kind": "prereq"},
+            {"task_id": "seed_quantize_int8", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement incremental attention decoding with a key/value cache. Given a new query token "
             "q, the new key k_new and value v_new, and the cached keys/values for prior tokens (or "
@@ -302,6 +355,12 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "metrics_cm",
+        "cluster": "eval_mlops",
+        "followups": [
+            {"task_id": "seed_overfit_holdout", "kind": "sibling"},
+            {"task_id": "seed_drift_psi", "kind": "sibling"},
+            {"task_id": "seed_oversample", "kind": "prereq"},
+        ],
         "prompt": (
             "Implement a confusion matrix and the derived metrics for a binary classifier. Given lists "
             "of true labels and predicted labels (each 0/1), return a dict with the 2x2 confusion "
@@ -328,6 +387,11 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "bootstrap_ci",
+        "cluster": "stats_inference",
+        "followups": [
+            {"task_id": "seed_ttest_pvalue", "kind": "sibling"},
+            {"task_id": "seed_zscore_anomaly", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement a bootstrap confidence interval. Given a list of sample values and a statistic "
             "function, draw B bootstrap resamples with replacement, compute the statistic on each, and "
@@ -355,6 +419,11 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "oversample",
+        "cluster": "classical_ml",
+        "followups": [
+            {"task_id": "seed_knn_weighted", "kind": "sibling"},
+            {"task_id": "seed_metrics_cm", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement class-weighted oversampling. Given a numpy feature matrix X and binary labels y, "
             "return a new dataset (X_balanced, y_balanced) where the minority class is duplicated by "
@@ -381,6 +450,12 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "zscore_anomaly",
+        "cluster": "data_eng",
+        "followups": [
+            {"task_id": "seed_etl_functional", "kind": "sibling"},
+            {"task_id": "seed_bootstrap_ci", "kind": "sibling"},
+            {"task_id": "seed_ttest_pvalue", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement a z-score anomaly detector. Given a list of values, compute the mean and sample "
             "standard deviation, then return the indices of values whose absolute z-score exceeds a "
@@ -406,6 +481,11 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "cosine_lr",
+        "cluster": "training_dynamics",
+        "followups": [
+            {"task_id": "seed_adam", "kind": "sibling"},
+            {"task_id": "seed_backprop_mlp", "kind": "prereq"},
+        ],
         "prompt": (
             "Implement a cosine annealing learning-rate schedule with linear warm-up. Given the current "
             "step t, total steps T, warm-up steps W, and initial/final learning rates, return the "
@@ -433,6 +513,10 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "thread_queue",
+        "cluster": "data_eng",
+        "followups": [
+            {"task_id": "seed_etl_functional", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement a thread-safe bounded queue. Use a collections.deque, a threading.Lock, and two "
             "threading.Condition variables so put() blocks when full and get() blocks when empty. Both "
@@ -468,6 +552,12 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "quantize_int8",
+        "cluster": "llm_stack",
+        "followups": [
+            {"task_id": "seed_kv_cache", "kind": "sibling"},
+            {"task_id": "seed_drift_psi", "kind": "sibling"},
+            {"task_id": "seed_finetune_head", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement symmetric int8 quantization. Given a list of floats, compute scale = max(abs(x)) "
             "/ 127, quantize each value to round(value / scale) clamped to [-127, 127], and return "
@@ -497,6 +587,11 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "drift_psi",
+        "cluster": "eval_mlops",
+        "followups": [
+            {"task_id": "seed_metrics_cm", "kind": "sibling"},
+            {"task_id": "seed_explain_permutation", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement the population stability index (PSI) and a KS-style drift score between two "
             "binned score distributions. Given expected and observed bucket proportions (each a list "
@@ -525,6 +620,11 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "etl_functional",
+        "cluster": "data_eng",
+        "followups": [
+            {"task_id": "seed_thread_queue", "kind": "sibling"},
+            {"task_id": "seed_zscore_anomaly", "kind": "prereq"},
+        ],
         "prompt": (
             "Implement a small ETL pipeline in functional style. Given a list of raw dict rows (keys "
             "'name', 'amount', 'tag'), (1) filter out rows with non-positive amounts, (2) map each "
@@ -552,6 +652,13 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "tree_gini",
+        "cluster": "classical_ml",
+        "followups": [
+            {"task_id": "seed_knn_weighted", "kind": "sibling"},
+            {"task_id": "seed_metrics_cm", "kind": "sibling"},
+            {"task_id": "seed_explain_permutation", "kind": "sibling"},
+            {"task_id": "seed_kfold", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement the split-finding step of a decision tree. Given a list of feature values and "
             "binary labels, evaluate every midpoint between consecutive sorted unique feature values as "
@@ -579,6 +686,12 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "knn_weighted",
+        "cluster": "classical_ml",
+        "followups": [
+            {"task_id": "seed_pca_svd", "kind": "prereq"},
+            {"task_id": "seed_oversample", "kind": "prereq"},
+            {"task_id": "seed_kmeans", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement k-nearest-neighbors prediction with distance-weighted voting. Given a list of "
             "training points as ((x, y), label) tuples and a new query point, find the k nearest "
@@ -604,6 +717,12 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "ttest_pvalue",
+        "cluster": "stats_inference",
+        "followups": [
+            {"task_id": "seed_bootstrap_ci", "kind": "sibling"},
+            {"task_id": "seed_zscore_anomaly", "kind": "sibling"},
+            {"task_id": "seed_linreg_r2", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement a one-sample t-test and return the t statistic and a two-sided p-value. Given a "
             "sample and a hypothesized mean mu0, compute t = (mean - mu0) / (std / sqrt(n)) using the "
@@ -633,6 +752,12 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "ridge_l2",
+        "cluster": "training_dynamics",
+        "followups": [
+            {"task_id": "seed_linreg_r2", "kind": "prereq"},
+            {"task_id": "seed_adam", "kind": "sibling"},
+            {"task_id": "seed_grid_search", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement ridge (L2-regularized) linear regression trained by gradient descent. Given a "
             "numpy feature matrix X (with an added bias column of ones) and target vector y, run T "
@@ -659,6 +784,12 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "overfit_holdout",
+        "cluster": "eval_mlops",
+        "followups": [
+            {"task_id": "seed_ridge_l2", "kind": "sibling"},
+            {"task_id": "seed_kfold", "kind": "sibling"},
+            {"task_id": "seed_grid_search", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement an overfitting detector. Given x and y lists and a polynomial degree, fit a "
             "least-squares polynomial on the first (1 - test_frac) fraction of the data, then compute "
@@ -686,6 +817,12 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "adam",
+        "cluster": "training_dynamics",
+        "followups": [
+            {"task_id": "seed_cosine_lr", "kind": "sibling"},
+            {"task_id": "seed_backprop_mlp", "kind": "prereq"},
+            {"task_id": "seed_grid_search", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement one Adam update step. Given a gradient g and the first/second moment "
             "accumulators m and v, update m = beta1*m + (1-beta1)*g, v = beta2*v + (1-beta2)*g^2, apply "
@@ -712,6 +849,12 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "grid_search",
+        "cluster": "training_dynamics",
+        "followups": [
+            {"task_id": "seed_kfold", "kind": "sibling"},
+            {"task_id": "seed_adam", "kind": "sibling"},
+            {"task_id": "seed_cosine_lr", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement a grid search over candidate learning rates. Given a list of candidates, a "
             "train_fn(candidate) -> model, and a validate_fn(model) -> score, train a model for each "
@@ -738,6 +881,11 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "conv2d",
+        "cluster": "dl_architectures",
+        "followups": [
+            {"task_id": "seed_backprop_mlp", "kind": "prereq"},
+            {"task_id": "seed_softmax", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement a 2D convolution for a single input channel and a single kernel with padding and "
             "stride. Given an input matrix and a kernel matrix, apply zero padding, slide the kernel "
@@ -765,6 +913,11 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "lstm_cell",
+        "cluster": "dl_architectures",
+        "followups": [
+            {"task_id": "seed_backprop_mlp", "kind": "prereq"},
+            {"task_id": "seed_softmax", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement one LSTM cell forward pass. Given input x, previous hidden state h_prev, "
             "previous cell state c_prev, and combined weight matrices W (input), U (recurrent) and "
@@ -795,6 +948,11 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "bpe",
+        "cluster": "llm_stack",
+        "followups": [
+            {"task_id": "seed_attention", "kind": "sibling"},
+            {"task_id": "seed_finetune_head", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement the core of byte-pair encoding: count adjacent token-pair frequencies across a "
             "tokenized corpus (a list of lists of ints), find the most frequent pair, and return it "
@@ -821,6 +979,12 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "finetune_head",
+        "cluster": "llm_stack",
+        "followups": [
+            {"task_id": "seed_backprop_mlp", "kind": "prereq"},
+            {"task_id": "seed_quantize_int8", "kind": "sibling"},
+            {"task_id": "seed_attention", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement the gradient update for fine-tuning a classifier head while the backbone is "
             "frozen. Given fixed backbone feature vectors (a numpy matrix), one-hot labels, and a "
@@ -849,6 +1013,11 @@ SEED_CATALOG: list[dict[str, Any]] = [
     },
     {
         "slug": "explain_permutation",
+        "cluster": "eval_mlops",
+        "followups": [
+            {"task_id": "seed_tree_gini", "kind": "sibling"},
+            {"task_id": "seed_drift_psi", "kind": "sibling"},
+        ],
         "prompt": (
             "Implement permutation feature importance. Given a feature matrix X, labels y, a predictor "
             "(callable returning predictions), and a metric (callable on y_true, y_pred, higher is "
@@ -893,6 +1062,8 @@ def _row_tuple(seed: dict[str, Any]) -> tuple:
         "seed",
         None,
         None,
+        (seed.get("cluster") or "").strip()[:64] or None,
+        json.dumps(seed.get("followups") or []),
         1,
         str(_utcnow_naive()),
     )
@@ -901,7 +1072,8 @@ def _row_tuple(seed: dict[str, Any]) -> tuple:
 _TASK_COLUMNS = (
     "id", "owner", "prompt", "scaffold", "difficulty", "max_score",
     "hints_json", "context_notes", "tags_json", "task_type", "source",
-    "parent_task_id", "target_text", "is_public", "created_at",
+    "parent_task_id", "target_text", "cluster_id", "followups_json",
+    "is_public", "created_at",
 )
 
 

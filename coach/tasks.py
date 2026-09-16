@@ -64,6 +64,8 @@ class TaskModel(Base):
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     parent_task_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     target_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    cluster_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    followups_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     is_public: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
@@ -118,6 +120,32 @@ def serialize_tags(tags: dict | None) -> str:
     return json.dumps(tags if isinstance(tags, dict) else {"primary": "python", "secondary": []})
 
 
+def parse_followups(followups_json: Optional[str]) -> list[dict]:
+    """Parse a stored ``followups_json`` value into a list of link dicts.
+
+    Each entry is ``{"task_id": str, "kind": "prereq"|"sibling"}``. Malformed
+    input collapses to ``[]`` so a follow-up lookup can never crash.
+    """
+    try:
+        parsed = json.loads(followups_json or "[]")
+    except Exception:
+        parsed = []
+    if not isinstance(parsed, list):
+        return []
+    out: list[dict] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        task_id = str(item.get("task_id") or "").strip()
+        if not task_id:
+            continue
+        out.append({
+            "task_id": task_id,
+            "kind": "sibling" if str(item.get("kind") or "") not in ("prereq", "sibling") else str(item.get("kind")),
+        })
+    return out
+
+
 def task_to_dict(model: TaskModel) -> dict:
     try:
         hints = json.loads(model.hints_json or "[]")
@@ -136,6 +164,11 @@ def task_to_dict(model: TaskModel) -> dict:
         "is_public": bool(model.is_public),
         "owner": model.owner,
     }
+    if model.cluster_id:
+        d["cluster_id"] = model.cluster_id
+    followups = parse_followups(getattr(model, "followups_json", "") or "[]")
+    if followups:
+        d["followups"] = followups
     if model.scaffold:
         d["scaffold"] = model.scaffold
     if model.parent_task_id:
@@ -163,11 +196,16 @@ def create_task(
     context_notes: Optional[str] = None,
     tags: Optional[dict] = None,
     task_type: str = "implement",
+    cluster_id: Optional[str] = None,
+    followups: Optional[list] = None,
 ) -> dict:
     """Persist a task row and return its dict form.
 
     ``tags`` is validated against the closed vocabulary
     (``coach.taxonomy.validate``); invalid tags raise ``ValueError``.
+    ``cluster_id`` groups related questions into a thread; ``followups`` is a
+    list of ``{"task_id", "kind"}`` pointers to related tasks served as
+    curated follow-ups after this task is answered.
     """
     from coach.db import create_schema
 
@@ -194,6 +232,8 @@ def create_task(
             source=source,
             parent_task_id=parent_task_id,
             target_text=target_text,
+            cluster_id=cluster_id,
+            followups_json=json.dumps(followups or []),
             is_public=1 if is_public else 0,
             created_at=_utcnow_naive(),
         )
@@ -209,7 +249,8 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
 
     Allowed: prompt, scaffold, difficulty (1-5), max_score (>=1),
     hints (list), is_public (bool), context_notes (<=2000 chars),
-    tags (validated against the vocabulary), task_type.
+    tags (validated against the vocabulary), task_type, cluster_id,
+    followups (list of {"task_id", "kind"} pointers).
     Returns the updated dict, or None when the task does not exist.
     """
     from coach.db import create_schema
@@ -217,6 +258,7 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
     allowed = {
         "prompt", "scaffold", "difficulty", "max_score", "hints",
         "is_public", "context_notes", "tags", "task_type",
+        "cluster_id", "followups",
     }
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if "prompt" in updates and not str(updates["prompt"]).strip():
@@ -251,6 +293,10 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
             model.tags_json = serialize_tags(updates["tags"])
         if "task_type" in updates:
             model.task_type = updates["task_type"]
+        if "cluster_id" in updates:
+            model.cluster_id = str(updates["cluster_id"] or "").strip() or None
+        if "followups" in updates:
+            model.followups_json = json.dumps(parse_followups(json.dumps(updates["followups"] or [])))
         session.commit()
         return task_to_dict(model)
     finally:

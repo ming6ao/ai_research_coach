@@ -84,6 +84,49 @@ def test_whoami_and_tables_metadata(client):
     assert "password_hash" not in [c["name"] for c in users_meta["columns"]]
 
 
+def test_tasks_registry_exposes_cluster_and_followups(client):
+    from coach.tasks import create_task
+
+    admin = _login(ADMIN)
+    headers = _h(admin)
+    _seed(headers)
+
+    meta = client.get("/admin/tables", headers=headers).json()["tables"]
+    tasks_meta = next(t for t in meta if t["name"] == "tasks")
+    cols = {c["name"] for c in tasks_meta["columns"]}
+    assert {"cluster_id", "followups_json"} <= cols
+
+    # A seeded task carries both in the list and detail views.
+    rows = client.get("/admin/table/tasks?page_size=100", headers=headers).json()["rows"]
+    seed_row = next(r for r in rows if r["id"] == "seed_softmax")
+    assert seed_row["cluster_id"] == "dl_architectures"
+    assert '"task_id": "seed_backprop_mlp"' in seed_row["followups_json"]
+
+    detail = client.get("/admin/table/tasks/seed_softmax", headers=headers).json()
+    assert detail["row"]["cluster_id"] == "dl_architectures"
+
+    # Editable through the admin API (validated against the link shape).
+    created = create_task(
+        prompt="New task?", owner="alice@x.com",
+        cluster_id="eval_mlops", followups=[{"task_id": "seed_kfold", "kind": "sibling"}],
+    )
+    res = client.patch(
+        f"/admin/table/tasks/{created['id']}",
+        json={"cluster_id": "llm_stack", "followups_json": '[{"task_id": "seed_kv_cache", "kind": "sibling"}]'},
+        headers=headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["row"]["cluster_id"] == "llm_stack"
+    assert res.json()["row"]["followups_json"] == '[{"task_id": "seed_kv_cache", "kind": "sibling"}]'
+
+    bad = client.patch(
+        f"/admin/table/tasks/{created['id']}",
+        json={"followups_json": "not json"},
+        headers=headers,
+    )
+    assert bad.status_code == 400
+
+
 def test_pagination_and_search(client):
     admin = _login(ADMIN)
     headers = _h(admin)

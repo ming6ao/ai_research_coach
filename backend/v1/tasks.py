@@ -104,6 +104,8 @@ def create_task(
         ),
         tags=tags,
         task_type=req.task_type or "implement",
+        cluster_id=req.cluster_id,
+        followups=req.followups,
     )
     return {"data": task}
 

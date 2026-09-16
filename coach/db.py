@@ -319,6 +319,12 @@ def create_schema():
                 )
             if "task_type" not in cols:
                 conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'implement'")
+            if "cluster_id" not in cols:
+                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN cluster_id TEXT")
+            if "followups_json" not in cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE tasks ADD COLUMN followups_json TEXT DEFAULT '[]'"
+                )
         except Exception:
             pass
     # Seed the builtin question bank (idempotent, hermetic: no network/model

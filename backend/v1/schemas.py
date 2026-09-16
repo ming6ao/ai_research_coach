@@ -48,6 +48,8 @@ class TaskCreateRequest(BaseModel):
     context_notes: Optional[str] = Field(default=None, max_length=2000)
     tags: Optional[dict[str, Any]] = None
     task_type: Optional[str] = Field(default=None, max_length=32)
+    cluster_id: Optional[str] = Field(default=None, max_length=64)
+    followups: Optional[list[dict[str, Any]]] = None
 
 
 class TaskPatchRequest(BaseModel):
@@ -60,3 +62,5 @@ class TaskPatchRequest(BaseModel):
     context_notes: Optional[str] = Field(default=None, max_length=2000)
     tags: Optional[dict[str, Any]] = None
     task_type: Optional[str] = Field(default=None, max_length=32)
+    cluster_id: Optional[str] = Field(default=None, max_length=64)
+    followups: Optional[list[dict[str, Any]]] = None
