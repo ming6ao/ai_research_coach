@@ -202,7 +202,6 @@ export function ChatView() {
               <QuestionBubble
                 prompt={r.prompt}
                 parts={r.parts}
-                tags={r.tags}
                 phaseIndex={r.phase_index}
                 phaseTotal={r.phase_total}
               />
@@ -216,7 +215,6 @@ export function ChatView() {
               prompt={currentTask.prompt}
               parts={currentTask.parts}
               remediation={currentTask.remediation}
-              tags={currentTask.tags}
               phaseIndex={currentTask.phase_index}
               phaseTotal={currentTask.phase_total}
             />

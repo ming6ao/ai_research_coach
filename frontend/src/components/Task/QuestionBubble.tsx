@@ -1,7 +1,6 @@
 import { Fragment, type ReactNode } from 'react';
-import type { Task, TaskPart, TaskTags } from '../../api/client';
+import type { Task, TaskPart } from '../../api/client';
 import { Markdown } from '../Markdown/Markdown';
-import { TagChips } from './TagChips';
 
 /** Coach avatar + content column, shared by every coach-authored bubble. */
 export function CoachBubble({ children, wide }: { children: ReactNode; wide?: boolean }) {
@@ -37,7 +36,6 @@ interface Props {
   prompt: string;
   /** The step(s) to show. Callers pass only what the learner would see. */
   parts?: TaskPart[];
-  tags?: TaskTags;
   remediation?: Task['remediation'];
   phaseIndex?: number;
   phaseTotal?: number;
@@ -56,7 +54,6 @@ interface Props {
 export function QuestionBubble({
   prompt,
   parts,
-  tags,
   remediation,
   phaseIndex,
   phaseTotal,
@@ -101,7 +98,6 @@ export function QuestionBubble({
             )}
           </ol>
         )}
-        <TagChips tags={tags} />
       </div>
     </CoachBubble>
   );

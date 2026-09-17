@@ -386,7 +386,6 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
           <QuestionBubble
             prompt={prompt}
             parts={[activeTaskPart]}
-            tags={primary ? { primary, secondary } : undefined}
             phaseIndex={activeStep + 1}
             phaseTotal={parts.length}
             renderPrompt={(p) => (
