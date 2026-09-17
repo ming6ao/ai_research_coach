@@ -13,6 +13,7 @@ export interface ResultWithFeedback {
   scored: boolean;
   tags?: TaskTags;
   parts?: TaskPart[];
+  language?: string;
 }
 
 interface AssessmentState {
@@ -50,6 +51,7 @@ function toResultWithFeedback(entry: FeedbackEntry): ResultWithFeedback {
     scored: (entry as FeedbackEntry & { scored?: boolean }).scored ?? true,
     tags: entry.tags,
     parts: entry.parts,
+    language: entry.language,
   };
 }
 

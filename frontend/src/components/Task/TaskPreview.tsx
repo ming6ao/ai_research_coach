@@ -8,6 +8,7 @@ interface Props {
   parts?: TaskPart[];
   tags?: TaskTags;
   scaffold?: string;
+  language?: string;
   showScaffold?: boolean;
 }
 
@@ -16,7 +17,7 @@ interface Props {
  * Question label, markdown prompt, numbered parts list, and tag chips —
  * plus the scaffold shown in the same editor the candidate would see.
  */
-export function TaskPreview({ prompt, parts, tags, scaffold, showScaffold = true }: Props) {
+export function TaskPreview({ prompt, parts, tags, scaffold, language, showScaffold = true }: Props) {
   return (
     <div className="space-y-3">
       <div className="space-y-1">
@@ -42,7 +43,7 @@ export function TaskPreview({ prompt, parts, tags, scaffold, showScaffold = true
           <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
             Starter code
           </p>
-          <CodeEditor code={scaffold} readOnly height="h-40" />
+          <CodeEditor code={scaffold} language={language} readOnly height="h-40" />
         </div>
       ) : null}
     </div>

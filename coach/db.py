@@ -328,6 +328,8 @@ def create_schema():
                 )
             if "task_type" not in cols:
                 conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'implement'")
+            if "language" not in cols:
+                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN language TEXT DEFAULT 'python'")
             if "parts_json" not in cols:
                 conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN parts_json TEXT DEFAULT '[]'")
             if "version_index" not in cols:

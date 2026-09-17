@@ -29,6 +29,7 @@ export interface Task {
   context_notes?: string;
   tags?: TaskTags;
   task_type?: string;
+  language?: string;
   remediation?: { focus?: string; kind?: string; root_task_id?: string };
 }
 
@@ -129,6 +130,7 @@ export interface FeedbackEntry {
   hints_used?: string[];
   tags?: TaskTags;
   parts?: TaskPart[];
+  language?: string;
 }
 
 export interface UnifiedSession {
@@ -287,6 +289,7 @@ export interface TaskCreateBody {
   context_notes?: string;
   tags?: { primary: string; secondary: string[] };
   task_type?: string;
+  language?: string;
   version_index?: number;
   depends_on_task_id?: string;
   version_root_id?: string;

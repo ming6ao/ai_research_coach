@@ -4,15 +4,29 @@ interface Props {
   code: string;
   readOnly?: boolean;
   height?: string;
+  language?: string;
   onChange?: (code: string) => void;
 }
 
-export function CodeEditor({ code, readOnly = false, height = 'h-64', onChange }: Props) {
+const LANGUAGE_ALIASES: Record<string, string> = {
+  'c++': 'cpp',
+  cxx: 'cpp',
+  cc: 'cpp',
+};
+
+export function CodeEditor({
+  code,
+  readOnly = false,
+  height = 'h-64',
+  language = 'python',
+  onChange,
+}: Props) {
+  const monacoLanguage = LANGUAGE_ALIASES[language.toLowerCase()] ?? language.toLowerCase();
   return (
     <div className={`${height} overflow-hidden rounded-lg border border-[var(--color-border-default)]`}>
       <Editor
         height="100%"
-        defaultLanguage="python"
+        language={monacoLanguage}
         theme="light"
         value={code}
         onChange={(v) => onChange?.(v ?? '')}

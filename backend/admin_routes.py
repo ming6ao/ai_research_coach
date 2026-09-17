@@ -89,6 +89,7 @@ def create_seed(req: AdminSeedCreateRequest, user: dict = Depends(_require_admin
             context_notes=_describe_context(req.prompt.strip(), req.context_notes),
             tags=tags,
             task_type=req.task_type or "implement",
+            language=req.language,
             version_index=req.version_index,
             depends_on_task_id=req.depends_on_task_id,
             version_root_id=req.version_root_id,

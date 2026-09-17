@@ -69,6 +69,7 @@ class TaskModel(Base):
     context_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
     tags_json: Mapped[str] = mapped_column(Text, nullable=False, default='{"primary": "python", "secondary": []}')
     task_type: Mapped[str] = mapped_column(String(32), nullable=False, default="implement")
+    language: Mapped[str] = mapped_column(String(32), nullable=False, default="python")
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     parent_task_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     target_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -127,6 +128,28 @@ def parse_tags(tags_json: Optional[str]) -> dict:
 def serialize_tags(tags: dict | None) -> str:
     """Serialize a validated tags dict for storage."""
     return json.dumps(tags if isinstance(tags, dict) else {"primary": "python", "secondary": []})
+
+
+# Monaco editor language ids accepted for a code task. Unknown values fall
+# back to "python" so a task can never break the editor.
+ALLOWED_LANGUAGES = {
+    "python",
+    "cpp",
+    "c",
+    "javascript",
+    "typescript",
+    "java",
+    "go",
+    "rust",
+}
+
+
+def normalize_language(language: Optional[str]) -> str:
+    """Canonical editor language id; unknown/empty -> ``python``."""
+    key = str(language or "").strip().lower()
+    if key in {"c++", "cxx", "cc", "hpp"}:
+        key = "cpp"
+    return key if key in ALLOWED_LANGUAGES else "python"
 
 
 def parse_parts(parts_json: Optional[str]) -> list[dict]:
@@ -243,6 +266,7 @@ def task_to_dict(model: TaskModel) -> dict:
         "context_notes": getattr(model, "context_notes", "") or "",
         "tags": parse_tags(getattr(model, "tags_json", "")),
         "task_type": getattr(model, "task_type", "") or "implement",
+        "language": normalize_language(getattr(model, "language", "")),
         "source": model.source,
         "is_public": bool(model.is_public),
         "owner": model.owner,
@@ -284,6 +308,7 @@ def create_task(
     context_notes: Optional[str] = None,
     tags: Optional[dict] = None,
     task_type: str = "implement",
+    language: Optional[str] = None,
     parts: Optional[list] = None,
     version_index: Optional[int] = None,
     depends_on_task_id: Optional[str] = None,
@@ -349,6 +374,7 @@ def create_task(
             context_notes=(context_notes or "").strip()[:2000],
             tags_json=serialize_tags(tags),
             task_type=task_type,
+            language=normalize_language(language),
             source=source,
             parent_task_id=parent_task_id,
             target_text=target_text,
@@ -378,7 +404,7 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
 
     allowed = {
         "prompt", "scaffold", "difficulty", "max_score", "parts",
-        "is_public", "context_notes", "tags", "task_type",
+        "is_public", "context_notes", "tags", "task_type", "language",
         "version_index", "depends_on_task_id", "version_root_id",
         "owner",
     }
@@ -419,6 +445,8 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
             model.tags_json = serialize_tags(updates["tags"])
         if "task_type" in updates:
             model.task_type = updates["task_type"]
+        if "language" in updates:
+            model.language = normalize_language(updates["language"])
         if "version_index" in updates:
             model.version_index = max(1, int(updates["version_index"] or 1))
         if "depends_on_task_id" in updates:

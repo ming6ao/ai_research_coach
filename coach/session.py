@@ -341,6 +341,7 @@ def task_view(
         "scaffold": build_code_stub(task),
         "tags": task.get("tags") or {"primary": "python", "secondary": []},
         "task_type": task.get("task_type") or "implement",
+        "language": task.get("language") or "python",
     }
     parts = task.get("parts") or []
     if parts:

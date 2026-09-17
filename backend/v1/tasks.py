@@ -104,6 +104,7 @@ def create_task(
         ),
         tags=tags,
         task_type=req.task_type or "implement",
+        language=req.language,
         version_index=req.version_index,
         depends_on_task_id=req.depends_on_task_id,
         version_root_id=req.version_root_id,

@@ -50,11 +50,11 @@ function UserTextBubble({ text }: { text: string }) {
   );
 }
 
-function UserCodeBubble({ answer }: { answer: string }) {
+function UserCodeBubble({ answer, language }: { answer: string; language?: string }) {
   const { code, note } = splitNote(answer);
   return (
     <div className="space-y-2">
-      <CodeEditor code={code} readOnly />
+      <CodeEditor code={code} language={language} readOnly />
       {note && <UserTextBubble text={note} />}
     </div>
   );
@@ -237,7 +237,7 @@ export function ChatView() {
           {results.map((r, i) => (
             <Fragment key={`res-${i}`}>
               <TaskPromptBubble prompt={r.prompt} parts={r.parts} tags={r.tags} />
-              <UserCodeBubble answer={r.userAnswer} />
+              <UserCodeBubble answer={r.userAnswer} language={r.language} />
               <CoachingBubble r={r} />
             </Fragment>
           ))}
@@ -250,6 +250,7 @@ export function ChatView() {
             <CodeEditor
               key={`${currentTask.id}-${submittedTaskId === currentTask.id ? 'locked' : 'editable'}`}
               code={code}
+              language={currentTask.language}
               onChange={setCode}
               readOnly={loading}
             />

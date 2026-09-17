@@ -46,6 +46,7 @@ class TaskCreateRequest(BaseModel):
     context_notes: Optional[str] = Field(default=None, max_length=2000)
     tags: Optional[dict[str, Any]] = None
     task_type: Optional[str] = Field(default=None, max_length=32)
+    language: Optional[str] = Field(default=None, max_length=32)
     version_index: Optional[int] = Field(default=None, ge=1)
     depends_on_task_id: Optional[str] = Field(default=None, max_length=128)
     version_root_id: Optional[str] = Field(default=None, max_length=128)
@@ -61,6 +62,7 @@ class TaskPatchRequest(BaseModel):
     context_notes: Optional[str] = Field(default=None, max_length=2000)
     tags: Optional[dict[str, Any]] = None
     task_type: Optional[str] = Field(default=None, max_length=32)
+    language: Optional[str] = Field(default=None, max_length=32)
     version_index: Optional[int] = Field(default=None, ge=1)
     depends_on_task_id: Optional[str] = Field(default=None, max_length=128)
     version_root_id: Optional[str] = Field(default=None, max_length=128)
@@ -76,6 +78,7 @@ class AdminSeedCreateRequest(BaseModel):
     parts: Optional[list[dict[str, Any]]] = None
     tags: Optional[dict[str, Any]] = None
     task_type: Optional[str] = Field(default=None, max_length=32)
+    language: Optional[str] = Field(default=None, max_length=32)
     context_notes: Optional[str] = Field(default=None, max_length=2000)
     version_index: Optional[int] = Field(default=None, ge=1)
     depends_on_task_id: Optional[str] = Field(default=None, max_length=128)

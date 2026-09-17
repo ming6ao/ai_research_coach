@@ -28,6 +28,7 @@ interface Props {
 }
 
 const TASK_TYPES = ['implement', 'apply', 'debug', 'design', 'analyze'];
+const LANGUAGES = ['python', 'cpp', 'c', 'javascript', 'typescript', 'java', 'go', 'rust'];
 
 const inputCls =
   'w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)]';
@@ -55,6 +56,7 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
   const [difficulty, setDifficulty] = useState(task?.difficulty ?? 2);
   const [maxScore, setMaxScore] = useState(task?.max_score ?? 5);
   const [taskType, setTaskType] = useState(task?.task_type ?? 'implement');
+  const [language, setLanguage] = useState(task?.language ?? 'python');
   const [primary, setPrimary] = useState(task?.tags?.primary ?? 'python');
   const [secondary, setSecondary] = useState<string[]>(task?.tags?.secondary ?? []);
   const [contextNotes, setContextNotes] = useState(task?.context_notes ?? '');
@@ -142,6 +144,7 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
       parts: cleaned.length ? cleaned : undefined,
       tags: { primary, secondary },
       task_type: taskType,
+      language,
       context_notes: contextNotes.trim() || undefined,
       is_public: isPublic,
       version_index: versionIndex ? Math.max(1, Number(versionIndex)) : undefined,
@@ -237,6 +240,7 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
             <span className={labelCls}>scaffold (starter code covering all parts)</span>
             <CodeEditor
               code={scaffold}
+              language={language}
               onChange={setScaffold}
               height="h-40"
             />
@@ -270,16 +274,28 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
             </label>
           </div>
 
-          <label className="block">
-            <span className={labelCls}>task_type</span>
-            <select value={taskType} onChange={(e) => setTaskType(e.target.value)} className={inputCls}>
-              {TASK_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className={labelCls}>task_type</span>
+              <select value={taskType} onChange={(e) => setTaskType(e.target.value)} className={inputCls}>
+                {TASK_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className={labelCls}>language</span>
+              <select value={language} onChange={(e) => setLanguage(e.target.value)} className={inputCls}>
+                {LANGUAGES.map((l) => (
+                  <option key={l} value={l}>
+                    {l}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
 
           <label className="block">
             <span className={labelCls}>primary tag *</span>
@@ -482,6 +498,7 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
               }))}
             tags={{ primary, secondary }}
             scaffold={scaffold}
+            language={language}
           />
         </div>
         {isPublic ? (

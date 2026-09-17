@@ -144,7 +144,7 @@ function independently for correctness, edge-case handling, and clarity. \
 Return a JSON object with five keys:
 
   "parts": an array with exactly one entry per part key, each entry \
-{"key", "score", "rationale"} where "key" matches the given key exactly and \
+{{"key", "score", "rationale"}} where "key" matches the given key exactly and \
 "score" is a number from 0 to that part's max (in whole-number increments);
   "rationale": a concise explanation of strengths and weaknesses \
 (this will appear in a report as evidence, so be specific but brief);
@@ -159,14 +159,14 @@ solution, ordered from the most fundamental misunderstanding to the final \
 correct implementation. Each step has a "title" (one short phrase), an \
 "explanation" (clear detail with concrete reasoning), and optionally a \
 "code" snippet showing the relevant correction or example (use plain \
-python code, no fences). Include concrete examples so the user can arrive \
+{language} code, no fences). Include concrete examples so the user can arrive \
 at the correct solution on their own. Use as many steps as needed (typically \
 2-5) to guide them fully. If the answer is already correct, steps should \
 reinforce why it works and point out any edge cases to harden.
 
-Use triple-backtick python fenced blocks for any corrected or exemplary code \
-inside "rationale" and "feedback", with a blank line before and after each \
-code block (the opening fence must start on its own line)."""
+Use triple-backtick {language} fenced blocks for any corrected or exemplary \
+code inside "rationale" and "feedback", with a blank line before and after \
+each code block (the opening fence must start on its own line)."""
 
 
 def score_targets(task: dict) -> list[dict]:
@@ -202,15 +202,17 @@ class LLMJudge:
     ) -> tuple[EvaluationResult, CoachContent]:
         targets = self._score_targets(task)
         max_score = sum(int(p.get("max_score") or 5) for p in targets)
+        language = str(task.get("language") or "python").strip().lower() or "python"
         client = _client()
 
-        system = _SYSTEM_PROMPT.format(max_score=max_score)
+        system = _SYSTEM_PROMPT.format(max_score=max_score, language=language)
         parts_block = "\n".join(
             f"{i + 1}. {p['key']} (max {int(p.get('max_score') or 5)}):\n{p.get('prompt', '')}"
             for i, p in enumerate(targets)
         )
         user = (
             f"Task:\n{task.get('prompt', '')}\n\n"
+            f"Implementation language: {language}\n\n"
             f"Parts to implement:\n{parts_block}\n\n"
         )
         if previous_code:
