@@ -96,11 +96,14 @@ export function HomeView() {
   const sessions = overview?.sessions ?? [];
   const answered = ability?.questions_answered ?? 0;
   const overallMastery = mastery?.global.score ?? ability?.score ?? null;
-  const families = useMemo(() => (mastery ? Object.entries(mastery.families) : []), [mastery]);
-  const sortedFamilies = useMemo(
-    () => [...families].sort((a, b) => b[1].questions_answered - a[1].questions_answered),
-    [families],
-  );
+  const areaFamilies = useMemo(() => {
+    const entries = Object.keys(FAMILY_LABELS).map((fam) => {
+      const entry: MasteryEntry =
+        mastery?.families?.[fam] ?? { score: 0, confidence: 0, questions_answered: 0, family: fam };
+      return [fam, entry] as [string, MasteryEntry];
+    });
+    return entries.sort((a, b) => b[1].questions_answered - a[1].questions_answered);
+  }, [mastery]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-4 pb-24">
@@ -153,48 +156,49 @@ export function HomeView() {
               )}
             </div>
 
-            {mastery && sortedFamilies.length > 0 && (
-              <div className="space-y-3">
-                <h3 className="text-sm font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-                  Mastery by area
-                </h3>
-                <p className="text-xs text-[var(--color-text-muted)]">
-                  Click an area to practice a question from it.
-                </p>
-                <div className="grid gap-3 md:grid-cols-2">
-                  {sortedFamilies.map(([fam, entry]) => {
-                    const label = FAMILY_LABELS[fam] ?? fam;
-                    const pct = Math.round(entry.score * 100);
-                    const famTags = Object.entries(mastery.tags)
-                      .filter(([, te]) => te.family === fam)
-                      .sort((a, b) => b[1].questions_answered - a[1].questions_answered);
-                    return (
-                      <div
-                        key={fam}
-                        className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4"
-                      >
-                        <div className="flex w-full items-center justify-between gap-2">
-                          <button
-                            onClick={() => handleStartFamily(fam)}
-                            disabled={loading}
-                            title={`Practice ${label}`}
-                            className="min-w-0 flex-1 rounded-md text-left transition-colors hover:text-[var(--color-accent)] disabled:opacity-40"
-                          >
-                            <span className="block truncate text-sm font-semibold text-[var(--color-text-primary)]">
-                              {label}
-                            </span>
-                          </button>
-                          <span className="shrink-0 text-sm font-bold text-[var(--color-text-primary)]">
-                            {pct}%
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+                Mastery by area
+              </h3>
+              <p className="text-xs text-[var(--color-text-muted)]">
+                Click an area to practice a question from it.
+              </p>
+              <div className="grid gap-3 md:grid-cols-2">
+                {areaFamilies.map(([fam, entry]) => {
+                  const label = FAMILY_LABELS[fam] ?? fam;
+                  const started = entry.questions_answered > 0;
+                  const pct = Math.round(entry.score * 100);
+                  const famTags = Object.entries(mastery?.tags ?? {})
+                    .filter(([, te]) => te.family === fam)
+                    .sort((a, b) => b[1].questions_answered - a[1].questions_answered);
+                  return (
+                    <div
+                      key={fam}
+                      className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4"
+                    >
+                      <div className="flex w-full items-center justify-between gap-2">
+                        <button
+                          onClick={() => handleStartFamily(fam)}
+                          disabled={loading}
+                          title={`Practice ${label}`}
+                          className="min-w-0 flex-1 rounded-md text-left transition-colors hover:text-[var(--color-accent)] disabled:opacity-40"
+                        >
+                          <span className="block truncate text-sm font-semibold text-[var(--color-text-primary)]">
+                            {label}
                           </span>
-                        </div>
-                        <div className="mt-2">
-                          <MasteryBar value={entry.score} tone={masteryTone(entry.score)} />
-                        </div>
-                        <div className="mt-1 flex items-center justify-between">
-                          <span className="text-[10px] text-[var(--color-text-muted)]">
-                            {entry.questions_answered} asked
-                          </span>
+                        </button>
+                        <span className="shrink-0 text-sm font-bold text-[var(--color-text-primary)]">
+                          {started ? `${pct}%` : 'New'}
+                        </span>
+                      </div>
+                      <div className="mt-2">
+                        <MasteryBar value={started ? entry.score : 0} tone={masteryTone(entry.score)} />
+                      </div>
+                      <div className="mt-1 flex items-center justify-between">
+                        <span className="text-[10px] text-[var(--color-text-muted)]">
+                          {started ? `${entry.questions_answered} asked` : 'Not started'}
+                        </span>
+                        {famTags.length > 0 && (
                           <button
                             onClick={() => setExpanded((e) => ({ ...e, [fam]: !e[fam] }))}
                             className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
@@ -212,20 +216,20 @@ export function HomeView() {
                               />
                             </svg>
                           </button>
-                        </div>
-                        {expanded[fam] && (
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {famTags.map(([tag, te]) => (
-                              <TagChip key={tag} tag={tag} entry={te} seen={te.questions_answered > 0} />
-                            ))}
-                          </div>
                         )}
                       </div>
-                    );
-                  })}
-                </div>
+                      {expanded[fam] && famTags.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {famTags.map(([tag, te]) => (
+                            <TagChip key={tag} tag={tag} entry={te} seen={te.questions_answered > 0} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            )}
+            </div>
 
             {sessions.length > 0 && (
               <div className="w-full">
