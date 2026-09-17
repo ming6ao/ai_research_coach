@@ -11,15 +11,13 @@ and no skill tags — every task is eligible for every candidate.
 A task may be a **code block**: a task-level ``scaffold`` covering a set of
 related functions (``parts_json``). A part is
 ``{key, prompt, tags, max_score, difficulty}``; parts carry no scaffold and no
-hints. Tasks can be linked into **version chains** via ``depends_on_task_id`` /
-``version_root_id``: a later version modifies the same code and is evaluated
-on its own criteria, with the predecessor's submitted answer carried forward
-as context.
+hints, except that a ``delivery='phased'`` task may give each part its own
+``scaffold`` and ``pass_score``.
 
-Visibility: a candidate sees public system rows (``owner='system'``,
-``is_public=1``), their own rows, and any public rows. Guests create
-public rows (per product decision); signed-in users create private rows
-by default with an opt-in ``is_public`` flag.
+Visibility: a candidate sees their own rows and every public row. There is no
+system-owned bucket — every task has a user owner. Guests create public rows
+(per product decision); signed-in users create private rows by default with an
+opt-in ``is_public`` flag.
 
 The overall ability belief (Gaussian mean/variance per candidate) is persisted
 in ``user_skill_beliefs`` so mastery survives across sessions; the
@@ -47,8 +45,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 from coach.db import Base, learner_session
 from coach.config import DELIVERIES, default_pass_score
 
-SYSTEM_OWNER = "system"
-
 
 def _utcnow_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
@@ -61,7 +57,7 @@ class TaskModel(Base):
     )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    owner: Mapped[str] = mapped_column(String(255), nullable=False, default=SYSTEM_OWNER)
+    owner: Mapped[str] = mapped_column(String(255), nullable=False)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     scaffold: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     difficulty: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
@@ -74,9 +70,6 @@ class TaskModel(Base):
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     parent_task_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     target_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    version_index: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    depends_on_task_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    version_root_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     delivery: Mapped[str] = mapped_column(String(16), nullable=False, default="block")
     is_public: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
@@ -304,14 +297,6 @@ def task_to_dict(model: TaskModel) -> dict:
     parts = parse_parts(getattr(model, "parts_json", "") or "[]")
     if parts:
         d["parts"] = parts
-    version_index = int(getattr(model, "version_index", 1) or 1)
-    if version_index > 1:
-        d["version_index"] = version_index
-    if getattr(model, "depends_on_task_id", None):
-        d["depends_on_task_id"] = model.depends_on_task_id
-    version_root_id = getattr(model, "version_root_id", None)
-    if version_root_id and version_root_id != model.id:
-        d["version_root_id"] = version_root_id
     if model.scaffold:
         d["scaffold"] = model.scaffold
     if model.parent_task_id:
@@ -326,7 +311,7 @@ def task_to_dict(model: TaskModel) -> dict:
 
 def create_task(
     prompt: str,
-    owner: str = SYSTEM_OWNER,
+    owner: str,
     scaffold: Optional[str] = None,
     difficulty: Optional[int] = None,
     max_score: Optional[int] = None,
@@ -340,9 +325,6 @@ def create_task(
     task_type: str = "implement",
     language: Optional[str] = None,
     parts: Optional[list] = None,
-    version_index: Optional[int] = None,
-    depends_on_task_id: Optional[str] = None,
-    version_root_id: Optional[str] = None,
     delivery: str = "block",
 ) -> dict:
     """Persist a task row and return its dict form.
@@ -353,11 +335,6 @@ def create_task(
     ``parts``; when ``tags`` is omitted for a block they are auto-derived from
     the parts. ``max_score`` and ``difficulty`` default to the parts'
     aggregates when omitted.
-
-    Version chains: when ``depends_on_task_id`` is set the row is a successor
-    — the chain root is resolved from the predecessor (unless
-    ``version_root_id`` is given) and ``version_index`` defaults to the
-    predecessor's index + 1.
     """
     from coach.db import create_schema
 
@@ -371,18 +348,6 @@ def create_task(
         raise ValueError(f"Unknown delivery: {delivery!r}. Expected one of: {', '.join(DELIVERIES)}.")
     parts = validate_parts(parts)
     tid = task_id or f"task_{uuid.uuid4().hex[:10]}"
-
-    resolved_root = version_root_id
-    resolved_index = version_index
-    if depends_on_task_id:
-        prev = get_task(depends_on_task_id)
-        if prev is None:
-            raise ValueError(f"depends_on_task_id {depends_on_task_id!r} not found.")
-        resolved_root = resolved_root or prev.get("version_root_id") or prev.get("id")
-        resolved_index = resolved_index or (prev.get("version_index") or 1) + 1
-    else:
-        resolved_index = resolved_index or 1
-        resolved_root = resolved_root or tid
 
     if tags is None and parts:
         tags = derive_block_tags(parts)
@@ -418,9 +383,6 @@ def create_task(
             source=source,
             parent_task_id=parent_task_id,
             target_text=target_text,
-            version_index=max(1, int(resolved_index or 1)),
-            depends_on_task_id=depends_on_task_id,
-            version_root_id=resolved_root,
             delivery=delivery,
             is_public=1 if is_public else 0,
             created_at=_utcnow_naive(),
@@ -437,8 +399,8 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
 
     Allowed: prompt, scaffold, difficulty (1-5), max_score (>=1),
     parts (validated list), is_public (bool), context_notes (<=2000 chars),
-    tags (validated against the vocabulary), task_type, version_index,
-    depends_on_task_id, version_root_id.
+    tags (validated against the vocabulary), task_type, language, owner,
+    delivery.
     Returns the updated dict, or None when the task does not exist.
     """
     from coach.db import create_schema
@@ -446,7 +408,6 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
     allowed = {
         "prompt", "scaffold", "difficulty", "max_score", "parts",
         "is_public", "context_notes", "tags", "task_type", "language",
-        "version_index", "depends_on_task_id", "version_root_id",
         "owner", "delivery",
     }
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
@@ -496,12 +457,6 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
             model.delivery = updates["delivery"]
         if "language" in updates:
             model.language = normalize_language(updates["language"])
-        if "version_index" in updates:
-            model.version_index = max(1, int(updates["version_index"] or 1))
-        if "depends_on_task_id" in updates:
-            model.depends_on_task_id = str(updates["depends_on_task_id"] or "").strip() or None
-        if "version_root_id" in updates:
-            model.version_root_id = str(updates["version_root_id"] or "").strip() or None
         if "owner" in updates:
             model.owner = str(updates["owner"]).strip()
         session.commit()
@@ -528,7 +483,7 @@ def get_task(task_id: str) -> Optional[dict]:
 
 
 def list_visible_tasks(candidate: str) -> list[dict]:
-    """Tasks visible to a candidate: system-public + own + public."""
+    """Tasks visible to a candidate: their own rows plus every public row."""
     from coach.db import create_schema
 
     create_schema()
@@ -538,11 +493,7 @@ def list_visible_tasks(candidate: str) -> list[dict]:
         rows = session.scalars(stmt).all()
         out = []
         for m in rows:
-            if m.owner == SYSTEM_OWNER and m.is_public:
-                out.append(task_to_dict(m))
-            elif m.owner == candidate:
-                out.append(task_to_dict(m))
-            elif m.is_public:
+            if m.owner == candidate or m.is_public:
                 out.append(task_to_dict(m))
         return out
     finally:
@@ -754,70 +705,6 @@ def list_tasks_for_owner(
 ) -> list[dict]:
     """List one owner's tasks for the curator UI (with attempt counts)."""
     return _list_tasks(owner=owner, q=q, limit=limit)
-
-
-def merge_version_chain(
-    root_id: str,
-    *,
-    delete_originals: bool = False,
-) -> Optional[dict]:
-    """Merge a version chain into one ``delivery='phased'`` task (migration).
-
-    Collects ``root_id`` plus every successor whose ``version_root_id`` or
-    ``depends_on_task_id`` resolves to the chain root, orders them by
-    ``version_index``, and creates a phased task whose parts are the versions
-    in order. Each phase keeps the version's prompt, scaffold, tags,
-    ``max_score`` and ``difficulty``; ``pass_score`` defaults via
-    ``default_pass_score``.
-
-    ``delete_originals`` removes the source rows afterwards (their recorded
-    steps cascade — pass ``False`` to keep history). Returns the new task, or
-    ``None`` when the chain has fewer than two versions.
-    """
-    root = get_task(root_id)
-    if root is None:
-        return None
-    chain_root = root.get("version_root_id") or root.get("id")
-    versions = [
-        t for t in _list_tasks(limit=500)
-        if (t.get("version_root_id") or t.get("id")) == chain_root
-    ]
-    versions.sort(key=lambda t: (t.get("version_index") or 1, t.get("created_at") or ""))
-    if len(versions) < 2:
-        return None
-
-    parts = []
-    for i, t in enumerate(versions):
-        part = {
-            "key": t["id"],
-            "prompt": t["prompt"],
-            "tags": t.get("tags") or {},
-            "max_score": int(t.get("max_score") or 5),
-            "difficulty": int(t.get("difficulty") or 2),
-            "pass_score": default_pass_score(int(t.get("max_score") or 5)),
-        }
-        if t.get("scaffold"):
-            part["scaffold"] = t["scaffold"]
-        parts.append(part)
-
-    merged = create_task(
-        prompt=root.get("prompt") or "",
-        owner=root.get("owner") or SYSTEM_OWNER,
-        difficulty=max(int(v.get("difficulty") or 2) for v in versions),
-        max_score=sum(int(v.get("max_score") or 5) for v in versions),
-        source=root.get("source") or "user",
-        is_public=bool(root.get("is_public")),
-        context_notes=root.get("context_notes") or None,
-        tags=root.get("tags"),
-        task_type=root.get("task_type") or "implement",
-        language=root.get("language"),
-        parts=parts,
-        delivery="phased",
-    )
-    if delete_originals:
-        for t in versions:
-            delete_task(t["id"])
-    return merged
 
 
 def delete_task(task_id: str) -> dict:

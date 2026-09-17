@@ -1,7 +1,7 @@
 """v1 taxonomy resource: closed domain/area/skill/task-type vocabulary (public).
 
-Curators author questions with the same closed vocabulary as the admin seed
-form, so the dropdowns never drift from ``coach/taxonomy.py``. Unlike
+Curators author questions with the same closed vocabulary surfaced by the
+curator UI, so the dropdowns never drift from ``coach/taxonomy.py``. Unlike
 ``GET /admin/taxonomy`` this endpoint is not admin-gated.
 """
 

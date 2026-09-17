@@ -24,10 +24,10 @@ def client(tmp_path, monkeypatch):
 
     _seed_task(
         prompt="Seed task for auth tests. Signature: def f():",
-        owner="system",
+        owner="bank@example.com",
         difficulty=2,
         max_score=5,
-        source="seed",
+        source="user",
         is_public=True,
         tags={"primary": "testing"},
         task_id="seed_auth_01",

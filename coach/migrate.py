@@ -1,4 +1,4 @@
-"""Admin CLI: migrate the retired taxonomy in place, and top up the bank.
+"""Admin CLI: migrate the retired taxonomy in place, and report bank coverage.
 
 Run with the server stopped. The default is a read-only **dry run** that
 reports exactly what would change; pass ``--apply`` to write (a DB backup is
@@ -7,7 +7,6 @@ taken first unless ``--no-backup``).
     python -m coach.migrate                      # dry-run: report dispositions
     python -m coach.migrate --apply              # backup + migrate in place
     python -m coach.migrate coverage             # per-skill bank coverage
-    python -m coach.migrate seed --file data/seed_tasks.json --apply
 
 In-place migration rewrites, in order: task tags (block + parts), per-node
 belief rows, active-session snapshots, session-step snapshots/states, and
@@ -505,7 +504,7 @@ def run_migration(
 
 
 # ---------------------------------------------------------------------------
-# coverage + seeding
+# coverage report
 # ---------------------------------------------------------------------------
 
 
@@ -538,86 +537,6 @@ def coverage_report() -> dict:
     return {"tasks": len(models), "covered": covered, "uncovered": uncovered, "counts": counts}
 
 
-def seed_from_file(path: str, apply: bool, owner: str, public: bool, replace: bool) -> dict:
-    from coach.db import create_schema
-    from coach.tasks import create_task, get_task
-    from coach.taxonomy import validate
-
-    create_schema()
-    raw = Path(path).read_text()
-    entries = json.loads(raw)
-    if not isinstance(entries, list):
-        raise ValueError("seed file must be a JSON array of task objects")
-
-    counts = {"seen": 0, "created": 0, "replaced": 0, "skipped": 0, "errors": []}
-    for entry in entries:
-        counts["seen"] += 1
-        if not isinstance(entry, dict):
-            counts["errors"].append("entry is not an object")
-            continue
-        tid = entry.get("id")
-        prompt = str(entry.get("prompt") or "").strip()
-        if not prompt:
-            counts["errors"].append(f"{tid or '(no id)'}: empty prompt")
-            continue
-        if tid and get_task(tid) is not None:
-            if not replace:
-                counts["skipped"] += 1
-                continue
-
-        tags = entry.get("tags")
-        if not tags and entry.get("auto"):
-            tags = _auto_tags(prompt)
-            if not tags:
-                counts["errors"].append(f"{tid or '(no id)'}: could not auto-categorize")
-                continue
-        try:
-            tags = validate(tags)
-        except ValueError as e:
-            counts["errors"].append(f"{tid or '(no id)'}: {e}")
-            continue
-
-        body = dict(
-            prompt=prompt,
-            owner=entry.get("owner") or owner,
-            scaffold=entry.get("scaffold"),
-            difficulty=entry.get("difficulty"),
-            max_score=entry.get("max_score"),
-            parts=entry.get("parts"),
-            context_notes=entry.get("context_notes"),
-            tags=tags,
-            task_type=entry.get("task_type") or "implement",
-            language=entry.get("language"),
-            delivery=entry.get("delivery") or "block",
-            source="seed",
-            is_public=bool(entry.get("is_public", public)),
-            task_id=tid,
-        )
-        try:
-            if apply:
-                if tid and replace:
-                    from coach.tasks import delete_task
-
-                    delete_task(tid)
-                    counts["replaced"] += 1
-                create_task(**body)
-            counts["created"] += 1
-        except ValueError as e:
-            counts["errors"].append(f"{tid or '(no id)'}: {e}")
-    return counts
-
-
-def _auto_tags(prompt: str) -> Optional[dict]:
-    import os
-
-    if not os.getenv("GOOGLE_API_KEY"):
-        return None
-    from coach.task_decomposer import TaskDecomposer
-
-    out = TaskDecomposer().describe_and_categorize(prompt)
-    return out.get("tags")
-
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -633,8 +552,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         "command",
         nargs="?",
         default="migrate",
-        choices=["migrate", "coverage", "seed"],
-        help="migrate (default) | coverage | seed",
+        choices=["migrate", "coverage"],
+        help="migrate (default) | coverage",
     )
     parser.add_argument("--apply", action="store_true", help="write changes (default: dry run)")
     parser.add_argument(
@@ -652,22 +571,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="retain active sessions that have no recorded steps",
     )
     parser.set_defaults(drop_empty_sessions=True)
-    parser.add_argument("--file", default=None, help="seed JSON file (seed command)")
-    parser.add_argument("--owner", default="system", help="seed owner (seed command)")
-    parser.add_argument("--private", action="store_true", help="seed as private tasks")
-    parser.add_argument("--replace", action="store_true", help="replace existing seed ids")
 
     args = parser.parse_args(argv)
 
     if args.command == "coverage":
         _print(coverage_report())
-        return 0
-
-    if args.command == "seed":
-        if not args.file:
-            print("error: seed requires --file PATH", file=sys.stderr)
-            return 2
-        _print(seed_from_file(args.file, args.apply, args.owner, not args.private, args.replace))
         return 0
 
     fallback = args.fallback

@@ -430,7 +430,7 @@ def _persist_generated_task(session, generated: dict, parent_task: dict | None) 
     try:
         from coach.tasks import create_task
 
-        candidate = getattr(session, "candidate", "system")
+        candidate = getattr(session, "candidate", None) or "unknown"
         create_task(
             prompt=generated.get("prompt", ""),
             owner=candidate,

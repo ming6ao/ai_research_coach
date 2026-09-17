@@ -25,8 +25,8 @@ This design:
 
 1. **DB-managed question bank.** The `tasks` table is the only question bank —
    the database is the source of truth, not source code. Tasks are authored in
-   the DB via `POST /api/v1/tasks`, the curator UI ("My questions"), or the
-   admin "Add question" form (`POST /admin/seeds`); a fresh database starts
+   the DB via `POST /api/v1/tasks` or the curator UI ("My questions"); a fresh
+   database starts
    with an empty bank until tasks are added. Only topics whose mastery can be
    tested by **executing candidate code** are eligible; purely conceptual Q&A is
    out of scope.
@@ -115,19 +115,16 @@ are authored through the API:
   `initial_question` on `POST /api/v1/sessions` for one-off prompts).
 - The curator UI ("My questions") — the same v1 API with a form + learner-view
   preview.
-- The admin "Add question" form (`POST /admin/seeds`) — owner `system`,
-  `source="seed_admin"`, `is_public=1`.
 
-A fresh database starts with an empty bank; the admin/tasks rows are the
+A fresh database starts with an empty bank; the existing `tasks` rows are the
 question set until more are added. `create_schema()` never writes tasks and
 `reset_database()` preserves the task bank.
 
 A task may be a **code block**: one task-level `scaffold` covering related
 functions, with `parts: [{key, prompt, tags, max_score, difficulty}]` scored
-per part by the judge. Tasks link into **version chains** via
-`depends_on_task_id` / `version_root_id` (`version_index`); a successor
-modifies the predecessor's code and is judged against its own criteria with the
-predecessor's answer shown as `previous_code`.
+per part by the judge. A multi-step task sets `delivery='phased'`, so its parts
+are delivered one at a time and the candidate's prior code is shown as
+`previous_code`.
 
 ### 3.2 Task shape & tagging
 
@@ -142,8 +139,8 @@ by the existing code judge. No hints (`coach/hints.py` was removed).
 
 ### 3.3 Coverage & gap-filling
 
-Coverage is whatever the DB currently contains — there is no separate seed
-coverage report. Under-explored families/tags are reached at runtime: the
+Coverage is whatever the DB currently contains — there is no separate
+code-level catalog. Under-explored families/tags are reached at runtime: the
 picker's exploration bonuses steer the bank branch, and when the bank has no
 eligible task for an area the scope-widening challenge generates one
 (`plan_challenge(prefer_tag=...)`, §5). The picker excludes non-root version

@@ -117,14 +117,14 @@ Cross-session ability/mastery aggregates are *not* stored here — they live in
 `candidate`.
 
 ### `tasks`
-The question bank, authored directly in the DB via `POST /api/v1/tasks`, the
-curator UI, or the admin "Add question" form (`POST /admin/seeds`). Each task
+The question bank, authored directly in the DB via `POST /api/v1/tasks` or the
+curator UI. Each task
 carries tags (1 primary leaf skill + 0–2 secondary) and a `task_type`.
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `id` | VARCHAR(64) | PK (`task_<hex>` for user/generated, `seed_admin_<hex>` for admin-authored) |
-| `owner` | VARCHAR(255) | NOT NULL — `system` for admin-authored rows, otherwise candidate email/guest id |
+| `id` | VARCHAR(64) | PK (`task_<hex>`) |
+| `owner` | VARCHAR(255) | NOT NULL — candidate email or guest id (every task has a user owner) |
 | `prompt` | TEXT | NOT NULL |
 | `scaffold` | TEXT | nullable — starter code for scaffold tasks |
 | `difficulty` | INTEGER | NOT NULL, 1–5 |
@@ -133,10 +133,10 @@ carries tags (1 primary leaf skill + 0–2 secondary) and a `task_type`.
 | `context_notes` | TEXT | 2–4 plain-English sentences, generated once at creation |
 | `tags_json` | TEXT | `{"primary": <leaf skill>, "secondary": [<leaf skill>…]}` (closed vocabulary from `coach/taxonomy.py`) |
 | `task_type` | TEXT | `implement | apply | debug | design | analyze` |
-| `source` | VARCHAR(32) | NOT NULL — `user`/`seed_admin`/`generated` (legacy `seed`/`seed_llm` values remain on pre-existing rows) |
+| `source` | VARCHAR(32) | NOT NULL — `user`/`generated` |
 | `parent_task_id` | VARCHAR(64) | nullable — root task for generated follow-ups |
 | `target_text` | TEXT | nullable — judge's misconception/gap text for generated drills |
-| `is_public` | INTEGER | NOT NULL — visibility flag (admin rows are public; guests create public rows, signed-in default private) |
+| `is_public` | INTEGER | NOT NULL — visibility flag (public rows are visible to everyone; guests create public rows, signed-in default private) |
 | `created_at` | DATETIME | NOT NULL |
 
 Index: `ix_tasks_owner (owner)`.

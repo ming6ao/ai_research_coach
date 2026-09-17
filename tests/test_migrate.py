@@ -23,7 +23,7 @@ def _insert_task(task_id: str, tags: dict, parts: list | None = None) -> None:
         session.add(
             TaskModel(
                 id=task_id,
-                owner="system",
+                owner="bank@example.com",
                 prompt=f"Prompt for {task_id}",
                 difficulty=2,
                 max_score=5,
@@ -31,7 +31,7 @@ def _insert_task(task_id: str, tags: dict, parts: list | None = None) -> None:
                 tags_json=json.dumps(tags),
                 task_type="implement",
                 language="python",
-                source="seed",
+                source="user",
                 delivery="block",
                 is_public=1,
                 created_at=datetime.now(timezone.utc).replace(tzinfo=None),
@@ -171,32 +171,13 @@ def test_sessions_drop_empty_and_remap_stepful(tmp_path, monkeypatch):
     assert tags["primary"] == "attention_variants"
 
 
-def test_seed_from_file_creates_then_skips(tmp_path, monkeypatch):
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "seed.db")
-    from coach.migrate import coverage_report, seed_from_file
-    from coach.tasks import get_task
+def test_coverage_report_counts_task_tags(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "coverage.db")
+    from coach.migrate import coverage_report
 
-    seed_path = tmp_path / "seed.json"
-    seed_path.write_text(
-        json.dumps(
-            [
-                {
-                    "id": "seed_x1",
-                    "prompt": "Implement flash attention.",
-                    "difficulty": 4,
-                    "tags": {"primary": "flash_attention", "secondary": ["memory_coalescing"]},
-                    "task_type": "implement",
-                }
-            ]
-        )
-    )
-    first = seed_from_file(str(seed_path), apply=True, owner="system", public=True, replace=False)
-    assert first["created"] == 1 and not first["errors"]
-    assert get_task("seed_x1")["tags"]["primary"] == "flash_attention"
-
-    second = seed_from_file(str(seed_path), apply=True, owner="system", public=True, replace=False)
-    assert second["skipped"] == 1 and second["created"] == 0
-
+    _insert_task("cov1", {"primary": "flash_attention", "secondary": ["memory_coalescing"]})
     report = coverage_report()
+    assert report["tasks"] == 1
     assert "flash_attention" in report["covered"]
-    assert "flash_attention" not in report["uncovered"]
+    assert "memory_coalescing" in report["covered"]
+    assert "kv_cache_management" in report["uncovered"]

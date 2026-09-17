@@ -164,7 +164,7 @@ def test_only_primary_tag_updates_the_estimator():
     from fastapi.testclient import TestClient
 
     task = create_task(
-        prompt="Implement flash attention.", owner="system", source="seed", is_public=True,
+        prompt="Implement flash attention.", owner="bank@example.com", source="user", is_public=True,
         tags={"primary": "flash_attention", "secondary": ["continuous_batching"]},
     )
     client = TestClient(app)

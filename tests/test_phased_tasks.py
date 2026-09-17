@@ -50,8 +50,8 @@ def ctx(tmp_path, monkeypatch):
 
     create_task(
         prompt="Two-phase block.",
-        owner="system",
-        source="seed",
+        owner="bank@example.com",
+        source="user",
         is_public=True,
         task_id="phased_01",
         delivery="phased",
@@ -66,8 +66,8 @@ def ctx(tmp_path, monkeypatch):
     )
     create_task(
         prompt="Plain task. Signature: def plain(x):",
-        owner="system",
-        source="seed",
+        owner="bank@example.com",
+        source="user",
         is_public=True,
         task_id="plain_01",
         max_score=5,
@@ -169,8 +169,8 @@ def test_block_delivery_scores_all_parts_in_one_submission(ctx, monkeypatch):
 
     create_task(
         prompt="Two-part block.",
-        owner="system",
-        source="seed",
+        owner="bank@example.com",
+        source="user",
         is_public=True,
         task_id="block_01",
         parts=[

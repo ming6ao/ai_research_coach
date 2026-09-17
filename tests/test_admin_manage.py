@@ -81,30 +81,30 @@ def test_owner_can_wipe_self(client):
     assert again["total"] == 0
 
 
-def test_admin_can_wipe_other_candidate_and_system_task(client):
+def test_admin_can_wipe_other_candidate_and_shared_task(client):
     from coach.tasks import create_task, get_task, record_attempt
 
     _seed_candidate("bob@x.com")
-    system_task = create_task(
-        prompt="Seed question?", owner="system",
-        source="seed", is_public=True, tags={"primary": "testing"},
+    shared_task = create_task(
+        prompt="Shared bank question?", owner="bank@example.com",
+        source="user", is_public=True, tags={"primary": "testing"},
     )
-    record_attempt("alice@x.com", system_task["id"], 0.5, 2, 5, [])
+    record_attempt("alice@x.com", shared_task["id"], 0.5, 2, 5, [])
 
     admin = _login(ADMIN)
     res = client.delete("/admin/candidate/bob@x.com", headers=_h(admin))
     assert res.status_code == 200
     assert res.json()["deleted"]["total"] > 0
 
-    # System seed row: admin-only delete with cascade of its steps.
-    res = client.delete(f"/api/v1/tasks/{system_task['id']}", headers=_h(admin))
+    # Shared public row: admin-only delete with cascade of its steps.
+    res = client.delete(f"/api/v1/tasks/{shared_task['id']}", headers=_h(admin))
     assert res.status_code == 200
     assert res.json()["data"] == {
-        "task_id": system_task["id"],
+        "task_id": shared_task["id"],
         "deleted_task": 1,
         "deleted_attempts": 1,
     }
-    assert get_task(system_task["id"]) is None
+    assert get_task(shared_task["id"]) is None
 
 
 def test_task_owner_delete_cascades_attempts(client):

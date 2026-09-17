@@ -44,7 +44,7 @@ ai_research_coach/
 │   ├── main.py            # FastAPI app
 │   ├── v1/                # canonical REST API (/api/v1/*): sessions, tasks, users
 │   ├── auth_routes.py     # /api/auth/* endpoints (Google OAuth)
-│   ├── admin_routes.py    # /admin/* endpoints (seed authoring, reset, candidate wipe)
+│   ├── admin_routes.py    # /admin/* endpoints (taxonomy, reset, candidate wipe)
 │   ├── auth.py            # session tokens (Bearer header or HttpOnly cookie)
 │   ├── csrf.py            # Origin check for cookie-authenticated writes
 │   └── google_auth.py     # Google OAuth (stdlib only, DB-backed state)
@@ -114,8 +114,6 @@ python check_env.py          # verify env + model connectivity
 - **Follow-ups** (`coach/remediation.py`): the judge's gap text
   (misconception/feedback) drives one simpler drill task on weak answers;
   clean solves generate nothing. Budget caps keep the loop finite.
-- **Version chains** are retired from selection; `coach.tasks.merge_version_chain(root_id)`
-  migrates an existing chain into one phased task.
 
 ## API surface
 
@@ -138,7 +136,7 @@ All v1 resources return a `{data}` envelope; list endpoints add
 | `GET /api/v1/me/sessions` | My sessions with a `done` flag (paginated) |
 | `DELETE /api/v1/me/data` | Delete my sessions + attempts + beliefs + owned tasks |
 | `/api/auth/*` | Google login / me / logout |
-| `/admin/*` | Admin seed authoring (`/seeds`, `/taxonomy`) + activity reset (`/reset`, `/reset/preview`) + owner-or-admin candidate wipe (`/candidate/{candidate}`, `/candidate/{candidate}/summary`) |
+| `/admin/*` | Admin taxonomy (`/taxonomy`) + activity reset (`/reset`, `/reset/preview`) + owner-or-admin candidate wipe (`/candidate/{candidate}`, `/candidate/{candidate}/summary`) |
 
 ## Persistence
 
@@ -191,7 +189,7 @@ are handled with exponential backoff retries (5 attempts, 1s → 30s, jitter).
 Answer submission is idempotent: re-submitting a scored task returns the stored
 result with `already_answered: true` without double-counting.
 
-## Migrating & seeding the bank
+## Migrating the bank
 
 The question bank lives in the `tasks` table. Tasks are tagged with the closed
 3-level taxonomy (domain → area → skill) in `coach/taxonomy.py`; tags are
@@ -213,20 +211,10 @@ deleted (`--on-unmapped delete`, default), retagged (`--on-unmapped fallback
 --fallback <leaf>`), or left as-is (`--on-unmapped keep`). The one-time
 old→new map lives in `coach/taxonomy_migration.py`.
 
-Top up the bank from a JSON list (idempotent by `id`, validated against the
-taxonomy):
-
-```bash
-python -m coach.migrate seed --file data/seed_tasks.json          # dry run
-python -m coach.migrate seed --file data/seed_tasks.json --apply
-```
-
-Each entry is a task object: `{id, prompt, scaffold?, difficulty, max_score,
-tags: {primary, secondary[]}, task_type, language?, parts?, delivery?,
-is_public?}`. Omit `tags` and set `"auto": true` to let the LLM categorize
-(requires `GOOGLE_API_KEY`; rejected if it cannot decide). To wipe everything
-instead, `POST /admin/reset?wipe_tasks=true` (admin-only) clears activity and
-the whole bank.
+To wipe the bank instead, `POST /admin/reset?wipe_tasks=true` (admin-only)
+clears activity and every task. There is no separate seed file: the `tasks`
+table is the single source of truth, authored via `POST /api/v1/tasks`, the
+curator UI, or the admin taxonomy form.
 
 ## Tests
 

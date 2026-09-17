@@ -25,9 +25,6 @@ export interface Task {
   scaffold?: string;
   parts?: TaskPart[];
   previous_code?: string;
-  version_index?: number;
-  version_total?: number;
-  depends_on_task_id?: string;
   context_notes?: string;
   tags?: TaskTags;
   task_type?: string;
@@ -311,9 +308,6 @@ export interface TaskCreateBody {
   tags?: { primary: string; secondary: string[] };
   task_type?: string;
   language?: string;
-  version_index?: number;
-  depends_on_task_id?: string;
-  version_root_id?: string;
   delivery?: 'block' | 'phased';
   owner?: string;
 }

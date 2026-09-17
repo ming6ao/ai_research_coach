@@ -92,6 +92,8 @@ _DROPPED_TABLES = (
 _DROPPED_TASK_COLUMNS = (
     "graph_json", "target_node_id", "target_node_slug", "expected_time_min",
     "skill", "hints_json", "cluster_id", "followups_json",
+    # Retired version-chain columns (replaced by delivery='phased').
+    "version_index", "depends_on_task_id", "version_root_id",
 )
 
 # Tables reset_database() wipes (activity/progress) vs. preserves (identity/auth
@@ -335,12 +337,6 @@ def create_schema():
                 conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN language TEXT DEFAULT 'python'")
             if "parts_json" not in cols:
                 conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN parts_json TEXT DEFAULT '[]'")
-            if "version_index" not in cols:
-                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN version_index INTEGER DEFAULT 1")
-            if "depends_on_task_id" not in cols:
-                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN depends_on_task_id TEXT")
-            if "version_root_id" not in cols:
-                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN version_root_id TEXT")
             if "delivery" not in cols:
                 conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN delivery TEXT DEFAULT 'block'")
         except Exception:

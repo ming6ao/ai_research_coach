@@ -49,9 +49,6 @@ class TaskCreateRequest(BaseModel):
     tags: Optional[dict[str, Any]] = None
     task_type: Optional[str] = Field(default=None, max_length=32)
     language: Optional[str] = Field(default=None, max_length=32)
-    version_index: Optional[int] = Field(default=None, ge=1)
-    depends_on_task_id: Optional[str] = Field(default=None, max_length=128)
-    version_root_id: Optional[str] = Field(default=None, max_length=128)
     delivery: Optional[str] = Field(default=None, max_length=16)
 
 
@@ -66,25 +63,9 @@ class TaskPatchRequest(BaseModel):
     tags: Optional[dict[str, Any]] = None
     task_type: Optional[str] = Field(default=None, max_length=32)
     language: Optional[str] = Field(default=None, max_length=32)
-    version_index: Optional[int] = Field(default=None, ge=1)
-    depends_on_task_id: Optional[str] = Field(default=None, max_length=128)
-    version_root_id: Optional[str] = Field(default=None, max_length=128)
     owner: Optional[str] = Field(default=None, max_length=255)
     delivery: Optional[str] = Field(default=None, max_length=16)
 
 
-class AdminSeedCreateRequest(BaseModel):
-    """Body for admin-authored seed questions (POST /admin/seeds)."""
-    prompt: str = Field(min_length=1, max_length=8000)
-    scaffold: Optional[str] = Field(default=None, max_length=16000)
-    difficulty: int = Field(default=2, ge=1, le=5)
-    max_score: int = Field(default=5, ge=1, le=100)
-    parts: Optional[list[dict[str, Any]]] = None
-    tags: Optional[dict[str, Any]] = None
-    task_type: Optional[str] = Field(default=None, max_length=32)
-    language: Optional[str] = Field(default=None, max_length=32)
-    context_notes: Optional[str] = Field(default=None, max_length=2000)
-    version_index: Optional[int] = Field(default=None, ge=1)
-    depends_on_task_id: Optional[str] = Field(default=None, max_length=128)
-    version_root_id: Optional[str] = Field(default=None, max_length=128)
-    delivery: Optional[str] = Field(default=None, max_length=16)
+# (AdminSeedCreateRequest removed: no system-owned seed tasks; author via
+# POST /api/v1/tasks with is_public=true.)

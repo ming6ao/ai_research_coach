@@ -1,16 +1,13 @@
 """Admin API routes.
 
-Covers admin seed authoring, activity reset, and owner-or-admin candidate
+Covers activity reset, the taxonomy vocabulary, and owner-or-admin candidate
 wipes. Task CRUD lives in the v1 API (``/api/v1/tasks*``, owner-or-admin
 guarded); overall progress lives in session views (``/api/v1/sessions*``).
 """
 
-import uuid
-
 from fastapi import APIRouter, HTTPException, Depends
 
 from backend.auth import get_current_user, is_admin
-from backend.v1.schemas import AdminSeedCreateRequest
 
 admin_router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -42,10 +39,10 @@ def whoami(user: dict = Depends(_require_user)):
     return {"user": user, "is_admin": is_admin(user)}
 
 
-@admin_router.get("/taxonomy", summary="Domain/area/skill/task-type vocabulary for the admin seed form")
+@admin_router.get("/taxonomy", summary="Domain/area/skill/task-type vocabulary")
 def taxonomy(user: dict = Depends(_require_admin)):
-    """Closed vocabulary (single source of truth) so the admin seed form's
-    dropdowns never drift from ``coach/taxonomy.py``."""
+    """Closed vocabulary (single source of truth) so the UI's tag dropdowns
+    never drift from ``coach/taxonomy.py``."""
     from coach.taxonomy import AREAS, DOMAINS, LEAF_NODES, TASK_TYPES, TAXONOMY
 
     return {
@@ -55,51 +52,6 @@ def taxonomy(user: dict = Depends(_require_admin)):
         "skills": LEAF_NODES,
         "task_types": list(TASK_TYPES),
     }
-
-
-@admin_router.post("/seeds", summary="Create an admin-authored seed question")
-def create_seed(req: AdminSeedCreateRequest, user: dict = Depends(_require_admin)):
-    """Persist a new public system-authored task (owner ``system``).
-
-    The task bank lives in the database, so admin-authored questions are just
-    ``tasks`` rows created through this API (``source="seed_admin"``) — there
-    is no code catalog to stay in sync with.
-    """
-    from coach.tasks import SYSTEM_OWNER, create_task
-    from coach.taxonomy import validate as validate_tags
-
-    # Reused session helper (LLM context notes) — same path as v1 task create.
-    from backend.v1.sessions import _describe_context
-
-    if not req.prompt.strip():
-        raise HTTPException(status_code=422, detail="Prompt must not be empty.")
-    try:
-        tags = validate_tags(req.tags)
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    try:
-        task = create_task(
-            prompt=req.prompt.strip(),
-            owner=SYSTEM_OWNER,
-            scaffold=req.scaffold,
-            difficulty=req.difficulty,
-            max_score=req.max_score,
-            parts=req.parts,
-            source="seed_admin",
-            is_public=True,
-            task_id=f"seed_admin_{uuid.uuid4().hex[:8]}",
-            context_notes=_describe_context(req.prompt.strip(), req.context_notes),
-            tags=tags,
-            task_type=req.task_type or "implement",
-            language=req.language,
-            version_index=req.version_index,
-            depends_on_task_id=req.depends_on_task_id,
-            version_root_id=req.version_root_id,
-            delivery=req.delivery or "block",
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    return {"data": task}
 
 
 @admin_router.get("/reset/preview")

@@ -14,9 +14,6 @@
    task via ``plan_challenge`` so the session keeps going indefinitely.
    ``None`` is returned only when generation also fails; the session ends
    explicitly when the user chooses Finish / View progress.
-
-Version chains are retired from selection: successors are never picked and
-are migrated into phased tasks (see ``coach.tasks.merge_version_chain``).
 """
 
 from __future__ import annotations

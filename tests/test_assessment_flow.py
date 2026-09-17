@@ -58,20 +58,20 @@ def client(tmp_path, monkeypatch):
 
     _seed_task(
         prompt="Implement overfitting detection from loss curves. Signature: def detect_overfitting(train_losses, val_losses):",
-        owner="system",
+        owner="bank@example.com",
         difficulty=2,
         max_score=5,
-        source="seed",
+        source="user",
         is_public=True,
         tags={"primary": "experiment_design"},
         task_id="seed_ml_01",
     )
     _seed_task(
         prompt="Implement top-k gradient compression. Signature: def topk_compress(grads, k):",
-        owner="system",
+        owner="bank@example.com",
         difficulty=2,
         max_score=5,
-        source="seed",
+        source="user",
         is_public=True,
         tags={"primary": "collectives_and_overlap"},
         task_id="seed_sys_01",
@@ -110,8 +110,8 @@ def test_block_tasks_carry_no_hints_and_per_part_scoring_updates_beliefs(client)
 
     block = _create(
         prompt="Implement a two-part block.",
-        owner="system",
-        source="seed",
+        owner="bank@example.com",
+        source="user",
         is_public=True,
         parts=[
             {"key": "mean", "prompt": "def mean(xs): ...", "tags": {"primary": "linear_algebra"},

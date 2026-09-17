@@ -47,20 +47,20 @@ def client(tmp_path, monkeypatch):
 
     _seed_task(
         prompt="Implement overfitting detection from loss curves. Signature: def detect_overfitting(train_losses, val_losses):",
-        owner="system",
+        owner="bank@example.com",
         difficulty=2,
         max_score=5,
-        source="seed",
+        source="user",
         is_public=True,
         tags={"primary": "experiment_design"},
         task_id="seed_ml_01",
     )
     _seed_task(
         prompt="Implement top-k gradient compression. Signature: def topk_compress(grads, k):",
-        owner="system",
+        owner="bank@example.com",
         difficulty=2,
         max_score=5,
-        source="seed",
+        source="user",
         is_public=True,
         tags={"primary": "collectives_and_overlap"},
         task_id="seed_sys_01",

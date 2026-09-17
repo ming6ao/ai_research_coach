@@ -68,7 +68,6 @@ def next_task(
         t for t in session.tasks
         if t["id"] not in session.asked_task_ids
         and not t.get("generated")
-        and not t.get("depends_on_task_id")
     ]
     target = resolve_node(node or family)
     if target:

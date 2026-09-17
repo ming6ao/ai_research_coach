@@ -1,8 +1,7 @@
 # Phased tasks: one task, sequential phases (design)
 
-Status: **implemented** (Phase 2). Version chains are retired from the active
-selection path; ``coach.tasks.merge_version_chain`` migrates an existing chain
-into one phased task.
+Status: **implemented** (Phase 2). Phased delivery replaces the retired version
+chains: a multi-step task is a single row with `delivery='phased'`.
 
 Adds **phased delivery** to code-block tasks: a single task row whose `parts`
 are problem-solving *phases* delivered one at a time, instead of a single
@@ -18,8 +17,7 @@ submission scored across all parts, or a chain of separate version rows.
 - Starter code is **phase-scoped**: the editor shows only the current phase's
   scaffold until the candidate has code to carry forward.
 
-Related: `docs/block-versioned-tasks-design.md` (blocks + version chains),
-`AGENTS.md` (task/scoring overview).
+Related: `AGENTS.md` (task/scoring overview).
 
 ## 1. Decisions
 
@@ -39,7 +37,7 @@ Related: `docs/block-versioned-tasks-design.md` (blocks + version chains),
 **One new column** on `tasks`:
 
 - `delivery TEXT DEFAULT 'block'` — `'block'` (default) or `'phased'`. Unknown
-  values are rejected (422) on create/PATCH/seed. `tasks` stays in
+  values are rejected (422) on create/PATCH. `tasks` stays in
   `_PRESERVED_TABLES`; `delivery` must not be added to `_DROPPED_TASK_COLUMNS`.
 
 **Inside `parts_json` (no column change):** a part gains two optional fields,
@@ -76,8 +74,9 @@ preserved by `validate_parts`/`parse_parts`/`task_to_dict`:
   `phase_total`, `parts: [active_part]`, `scaffold` = active part's scaffold,
   and `previous_code` = the last attempt for that phase/task.
 - `coach/selection.py` — new branch after pending-generated and before the
-  version successor: **continue/retry the active phased task** (next phase, or
-  the same phase after a failure). Uses `last_submission` or the resume state.
+  remediation/rel follow-up: **continue/retry the active phased task** (next
+  phase, or the same phase after a failure). Uses `last_submission` or the
+  resume state.
 - `backend/v1/sessions.py` —
   - `submit_answer`: resolve the current phase; score **only that part**
     (`targets = [parts[phase]]`) with `previous_code`; compute
@@ -99,8 +98,8 @@ preserved by `validate_parts`/`parse_parts`/`task_to_dict`:
   from inherited steps; `redo_step` targets a single phase.
 - `coach/judge.py` — reword the system prompt from "one or more functions" to
   "parts/phases" so a multi-function phase is scored as a unit.
-- `backend/v1/schemas.py` + `backend/v1/tasks.py` + `backend/admin_routes.py` —
-  accept `delivery` on create/PATCH/admin seed.
+- `backend/v1/schemas.py` + `backend/v1/tasks.py` — accept `delivery` on
+  create/PATCH.
 
 ## 4. Frontend changes
 
@@ -171,5 +170,5 @@ Steps:
   progress is shown separately in the task view.
 - **Cap-advance**: after the attempt cap a phase advances with `passed=false`
   recorded, so the aggregate reflects the miss.
-- **Version chains vs phases**: `delivery='phased'` governs within-task
-  sequencing; version successors still apply after a phased task completes.
+- **Phases**: `delivery='phased'` governs within-task sequencing; there are no
+  separate version rows.

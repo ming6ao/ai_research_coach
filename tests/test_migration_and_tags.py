@@ -82,6 +82,7 @@ def test_tags_round_trip_create_get_patch(tmp_path, monkeypatch):
 
     t = create_task(
         prompt="Implement softmax.",
+        owner="tester@example.com",
         tags={"primary": "normalization", "secondary": ["pretraining_objectives"]},
         task_type="implement",
     )
@@ -219,7 +220,7 @@ def test_task_type_validated():
     from coach.tasks import create_task
 
     with pytest.raises(ValueError):
-        create_task(prompt="x", task_type="bogus")
+        create_task(prompt="x", owner="tester@example.com", task_type="bogus")
 
 
 def test_create_task_requires_tags(tmp_path, monkeypatch):
@@ -227,10 +228,11 @@ def test_create_task_requires_tags(tmp_path, monkeypatch):
     from coach.tasks import create_task
 
     with pytest.raises(ValueError, match="Tags are required"):
-        create_task(prompt="uncategorized question")
+        create_task(prompt="uncategorized question", owner="tester@example.com")
     # A block with tagged parts still auto-derives block-level tags.
     task = create_task(
         prompt="block",
+        owner="tester@example.com",
         parts=[{"key": "a", "prompt": "def a(): ...", "tags": {"primary": "grpo"},
                 "max_score": 5, "difficulty": 2}],
     )
