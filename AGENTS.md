@@ -126,7 +126,7 @@ EVAL_RETRY_MAX_DELAY=30.0       # Max backoff (seconds)
   ln -sfn /path/to/main/frontend/node_modules frontend/node_modules
   mkdir -p data && cp /path/to/main/data/coach.db* data/
   ```
-  Add `.venv` to `.git/info/exclude` (the `.gitignore` pattern `.venv/` does not match the symlink, so it would otherwise show as untracked). Copying `data/coach.db*` preserves the existing session token and task bank (no re-login, questions are available) and stays independent, so worktree writes do not affect the main checkout. Only one checkout can run at a time — both bind `:8001`/`:5173` and `run.sh` frees those ports.
+  Add `.venv` to `.git/info/exclude` (the `.gitignore` pattern `.venv/` does not match the symlink, so it would otherwise show as untracked). Copying `data/coach.db*` preserves the existing session token and task bank (no re-login, questions are available) and stays independent, so worktree writes do not affect the main checkout. Only one checkout can run at a time — both bind `:8001`/`:5173` and `run.sh` frees those ports. Stop any running dev servers before `git worktree remove`: an orphaned Vite process (its CWD is the deleted path) recreates `frontend/.vite/` and thus the removed directory, leaving a phantom folder behind (it is no longer a worktree — no `.git` — so `rm -rf` it and `git worktree prune`).
 - `.venv` is the virtualenv; `run.sh` uses `.venv/bin/uvicorn` directly
 - `data/` directory is gitignored; the SQLite DB is created on first run
 - The `.env` file contains a real API key — do not commit changes to it
