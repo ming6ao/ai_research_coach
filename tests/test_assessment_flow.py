@@ -43,6 +43,17 @@ def client(tmp_path, monkeypatch):
     import coach.judge as judge_mod
 
     monkeypatch.setattr(judge_mod, "LLMJudge", FakeJudge)
+    # Hermetic categorization: never call the LLM from tests.
+    from coach.task_decomposer import TaskDecomposer
+
+    monkeypatch.setattr(
+        TaskDecomposer,
+        "describe_and_categorize",
+        lambda self, prompt: {
+            "context_notes": "Auto-generated notes.",
+            "tags": {"primary": "caching", "secondary": []},
+        },
+    )
     from coach.tasks import create_task as _seed_task
 
     _seed_task(

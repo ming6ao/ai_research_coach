@@ -129,7 +129,7 @@ All v1 resources return a `{data}` envelope; list endpoints add
 | `POST /api/v1/sessions/{id}/answers` `{task_id, answer}` | Score + coach + `next_task` + `ability_update` (+ `already_answered` on replay) |
 | `POST /api/v1/sessions/{id}/completion` | Progress snapshot `{done, ability, mastery}` |
 | `DELETE /api/v1/sessions/{id}` | Delete a session (204, ownership-guarded) |
-| `POST /api/v1/tasks` `{prompt, scaffold?, difficulty?, max_score?, parts?, tags?, task_type?, language?, delivery?, is_public?, context_notes?}` | Create a user question (201) |
+| `POST /api/v1/tasks` `{prompt, tags, scaffold?, difficulty?, max_score?, parts?, task_type?, language?, delivery?, is_public?, context_notes?}` | Create a user question (201; `tags` required) |
 | `GET /api/v1/tasks?q=&page=&page_size=` | List visible tasks (paginated) |
 | `GET /api/v1/tasks/{id}` | Task detail |
 | `PATCH /api/v1/tasks/{id}` | Edit a question (owner or admin) |
@@ -190,6 +190,43 @@ Transient failures (rate limits `429`, server errors `5xx`, timeouts `408/504`)
 are handled with exponential backoff retries (5 attempts, 1s → 30s, jitter).
 Answer submission is idempotent: re-submitting a scored task returns the stored
 result with `already_answered: true` without double-counting.
+
+## Migrating & seeding the bank
+
+The question bank lives in the `tasks` table. Tasks are tagged with the closed
+3-level taxonomy (domain → area → skill) in `coach/taxonomy.py`; tags are
+**required** (a missing/invalid/non-leaf primary is rejected with 422).
+
+When the taxonomy changes, migrate existing rows in place with the admin CLI
+(run it with the server stopped):
+
+```bash
+python -m coach.migrate                 # dry run: report what would change
+python -m coach.migrate --apply         # back up the DB, then migrate in place
+python -m coach.migrate coverage        # per-leaf-skill bank coverage
+```
+
+`--apply` rewrites task tags (block + parts), per-node belief rows,
+active-session snapshots, and step/share snapshots, preserving task ids,
+owners, and attempt links. Tasks whose primary skill was retired can be
+deleted (`--on-unmapped delete`, default), retagged (`--on-unmapped fallback
+--fallback <leaf>`), or left as-is (`--on-unmapped keep`). The one-time
+old→new map lives in `coach/taxonomy_migration.py`.
+
+Top up the bank from a JSON list (idempotent by `id`, validated against the
+taxonomy):
+
+```bash
+python -m coach.migrate seed --file data/seed_tasks.json          # dry run
+python -m coach.migrate seed --file data/seed_tasks.json --apply
+```
+
+Each entry is a task object: `{id, prompt, scaffold?, difficulty, max_score,
+tags: {primary, secondary[]}, task_type, language?, parts?, delivery?,
+is_public?}`. Omit `tags` and set `"auto": true` to let the LLM categorize
+(requires `GOOGLE_API_KEY`; rejected if it cannot decide). To wipe everything
+instead, `POST /admin/reset?wipe_tasks=true` (admin-only) clears activity and
+the whole bank.
 
 ## Tests
 

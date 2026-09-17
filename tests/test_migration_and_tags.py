@@ -158,8 +158,9 @@ def test_categorize_fallback_without_api_key(monkeypatch):
     assert d.describe_task("anything") == ""
 
 
-def test_categorize_combined_call_shape():
+def test_categorize_combined_call_shape(monkeypatch):
     """One structured call returns context_notes + validated tags."""
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
     from coach.task_decomposer import TaskDecomposer
 
     class FakeResp:

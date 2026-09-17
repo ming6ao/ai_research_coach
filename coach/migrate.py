@@ -1,0 +1,690 @@
+"""Admin CLI: migrate the retired taxonomy in place, and top up the bank.
+
+Run with the server stopped. The default is a read-only **dry run** that
+reports exactly what would change; pass ``--apply`` to write (a DB backup is
+taken first unless ``--no-backup``).
+
+    python -m coach.migrate                      # dry-run: report dispositions
+    python -m coach.migrate --apply              # backup + migrate in place
+    python -m coach.migrate coverage             # per-skill bank coverage
+    python -m coach.migrate seed --file data/seed_tasks.json --apply
+
+In-place migration rewrites, in order: task tags (block + parts), per-node
+belief rows, active-session snapshots, session-step snapshots/states, and
+trajectory-share snapshots. Task ids, owners, and attempt links are preserved.
+
+``--on-unmapped`` controls tasks whose primary/part primary refers to a retired
+tag with no current counterpart:
+
+- ``delete`` (default): remove the task (and cascade its steps).
+- ``fallback``: retag to ``--fallback <leaf skill>`` so it can be re-classified
+  later in the curator UI.
+- ``keep``: leave the legacy tag untouched (will fail later PATCH validation).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+from coach.taxonomy_migration import OLD_FAMILIES, map_secondary, map_state, map_tag
+
+
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _db_file() -> Path:
+    import coach.db as db
+
+    return Path(db.DB_PATH)
+
+
+def backup_database() -> Optional[str]:
+    """Copy the SQLite file (plus -wal/-shm) into ``data/backups/``."""
+    src = _db_file()
+    if not src.exists():
+        return None
+    dest_dir = src.parent / "backups"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    dest = dest_dir / f"{src.stem}-{stamp}{src.suffix}"
+    shutil.copy2(src, dest)
+    for suffix in ("-wal", "-shm"):
+        extra = Path(str(src) + suffix)
+        if extra.exists():
+            try:
+                shutil.copy2(extra, Path(str(dest) + suffix))
+            except Exception:
+                pass
+    return str(dest)
+
+
+# ---------------------------------------------------------------------------
+# tag remapping helpers
+# ---------------------------------------------------------------------------
+
+
+def _retag(tags: Optional[dict], mode: str, fallback: Optional[str]) -> tuple[Optional[dict], Optional[str], int]:
+    """Map one tags block.
+
+    Returns ``(new_tags | None, unmapped_primary | None, removed_secondary)``.
+    ``new_tags`` is ``None`` only when there is no usable primary (which only
+    happens in ``delete`` mode for a task that will be dropped).
+    """
+    tags = tags or {}
+    old_primary = tags.get("primary")
+    old_secondary = list(tags.get("secondary") or [])
+
+    leaf = map_tag(old_primary)
+    unmapped: Optional[str] = None
+    if old_primary and leaf is None:
+        unmapped = old_primary
+        if mode == "fallback":
+            leaf = fallback
+        elif mode == "keep":
+            leaf = old_primary
+    new_secondary = map_secondary(old_secondary)
+    removed = len({s for s in old_secondary if map_tag(s) is None})
+
+    if not leaf:
+        return None, unmapped or old_primary or "(missing)", removed
+    return {"primary": leaf, "secondary": new_secondary}, unmapped, removed
+
+
+def _remap_task(task: dict, mode: str, fallback: Optional[str]) -> bool:
+    """Remap a task dict's block + part tags in place.
+
+    Returns ``False`` when the task must be dropped (delete mode, unmappable
+    critical primary). Part tags are the scoring units, so any unmappable part
+    primary makes the whole task a drop candidate.
+    """
+    tags = task.get("tags")
+    if isinstance(tags, dict):
+        new, _unmapped, _removed = _retag(tags, mode, fallback)
+        if new is not None:
+            task["tags"] = new
+        elif mode == "delete":
+            return False
+
+    parts = task.get("parts")
+    if isinstance(parts, list):
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            pnew, _punmapped, _premoved = _retag(part.get("tags"), mode, fallback)
+            if pnew is not None:
+                part["tags"] = pnew
+            elif mode == "delete":
+                return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# table migrations
+# ---------------------------------------------------------------------------
+
+
+def migrate_tasks(apply: bool, mode: str, fallback: Optional[str]) -> dict:
+    from coach.db import create_schema, learner_session
+    from coach.tasks import (
+        TaskModel,
+        derive_block_tags,
+        parse_parts,
+        parse_tags,
+        serialize_parts,
+        serialize_tags,
+    )
+    from coach.taxonomy import validate
+
+    create_schema()
+    counts = {
+        "seen": 0,
+        "updated": 0,
+        "dropped": 0,
+        "unchanged": 0,
+        "parts_retagged": 0,
+        "secondary_removed": 0,
+        "kept_unmapped": 0,
+    }
+    drops: list[tuple[str, str]] = []
+
+    session = learner_session()
+    try:
+        from sqlalchemy import select
+
+        models = list(session.scalars(select(TaskModel)))
+        for m in models:
+            counts["seen"] += 1
+            old_block = parse_tags(m.tags_json)
+            parts = parse_parts(m.parts_json)
+
+            block_new, block_unmapped, removed = _retag(old_block, mode, fallback)
+            counts["secondary_removed"] += removed
+
+            new_parts = []
+            part_unmapped: Optional[str] = None
+            for p in parts:
+                pnew, punmapped, premoved = _retag(p.get("tags"), mode, fallback)
+                counts["secondary_removed"] += premoved
+                if punmapped and not part_unmapped:
+                    part_unmapped = punmapped
+                if pnew is None and mode == "fallback":
+                    pnew = {"primary": fallback, "secondary": []}
+                if pnew is None:
+                    pnew = p.get("tags") or {"primary": None, "secondary": []}
+                if pnew.get("primary") != (p.get("tags") or {}).get("primary"):
+                    counts["parts_retagged"] += 1
+                p2 = dict(p)
+                p2["tags"] = pnew
+                new_parts.append(p2)
+
+            critical_unmapped = part_unmapped if parts else block_unmapped
+
+            if critical_unmapped and mode == "delete":
+                counts["dropped"] += 1
+                drops.append((m.id, critical_unmapped))
+                continue
+
+            if parts:
+                # Block tags are a summary: re-derive from the mapped parts.
+                final_tags = derive_block_tags(new_parts) or {
+                    "primary": fallback or old_block.get("primary"),
+                    "secondary": [],
+                }
+            elif block_new is not None:
+                final_tags = block_new
+            else:
+                final_tags = old_block
+
+            if critical_unmapped:
+                counts["kept_unmapped"] += 1
+
+            changed = final_tags != old_block or new_parts != parts
+            if not changed:
+                counts["unchanged"] += 1
+                continue
+
+            counts["updated"] += 1
+            if not apply:
+                continue
+
+            if parts:
+                # Validate before writing (skip for keep mode, which may be legacy).
+                if mode != "keep":
+                    validate(final_tags)
+                m.parts_json = serialize_parts(new_parts)
+                m.tags_json = serialize_tags(final_tags)
+            else:
+                if mode != "keep":
+                    validate(final_tags)
+                m.tags_json = serialize_tags(final_tags)
+
+        if apply:
+            session.commit()
+            for task_id, _name in drops:
+                from coach.tasks import delete_task
+
+                delete_task(task_id)
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+    counts["drop_examples"] = drops[:10]
+    return counts
+
+
+def _merge_stats(rows: list[tuple[float, float, int]]) -> tuple[float, float, int]:
+    """Merge own-observation Gaussian stats by count-weighted moments."""
+    total_n = sum(max(0, int(n)) for _m, _v, n in rows)
+    if total_n <= 0:
+        m0, v0, _ = rows[0]
+        return float(m0), float(v0), 0
+    sum_nm = sum(int(n) * float(m) for m, _v, n in rows)
+    sum_n2 = sum(int(n) * (float(v) + float(m) ** 2) for m, v, n in rows)
+    mean = sum_nm / total_n
+    var = max(0.0, sum_n2 / total_n - mean * mean)
+    return mean, var, total_n
+
+
+def migrate_beliefs(apply: bool) -> dict:
+    """Rewrite legacy belief rows: ``tag`` → ``skill``; drop ``family`` rows."""
+    from coach.db import create_schema, sqlite_conn
+    from coach.taxonomy import is_node
+
+    create_schema()
+    counts = {"seen": 0, "dropped": 0, "rewritten": 0, "merged": 0, "unchanged": 0}
+
+    with sqlite_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, candidate, level, key, mean, variance, questions_answered "
+            "FROM user_skill_beliefs"
+        ).fetchall()
+
+    delete_ids: list[str] = []
+    groups: dict[tuple[str, str], list[tuple[float, float, int]]] = {}
+    existing: dict[tuple[str, str], tuple[float, float, int]] = {}
+
+    for rid, cand, level, key, mean, var, n in rows:
+        counts["seen"] += 1
+        if level == "global":
+            counts["unchanged"] += 1
+            continue
+        if level == "tag":
+            leaf = map_tag(key)
+            if leaf is None:
+                counts["dropped"] += 1
+                delete_ids.append(rid)
+                continue
+            groups.setdefault((cand, leaf), []).append((float(mean or 0), float(var or 0), int(n or 0)))
+            delete_ids.append(rid)
+            continue
+        if level in OLD_FAMILIES or level == "family":
+            counts["dropped"] += 1
+            delete_ids.append(rid)
+            continue
+        if level in ("domain", "area", "skill"):
+            if is_node(key):
+                existing[(cand, key)] = (float(mean or 0), float(var or 0), int(n or 0))
+                counts["unchanged"] += 1
+            else:
+                counts["dropped"] += 1
+                delete_ids.append(rid)
+            continue
+        counts["dropped"] += 1
+        delete_ids.append(rid)
+
+    upserts: list[tuple[str, str, float, float, int]] = []
+    for (cand, leaf), stats in groups.items():
+        base = list(stats)
+        if (cand, leaf) in existing:
+            base.append(existing[(cand, leaf)])
+            counts["merged"] += 1
+        mean, var, n = _merge_stats(base)
+        upserts.append((cand, leaf, mean, var, n))
+        counts["rewritten"] += 1
+
+    if apply and (delete_ids or upserts):
+        from uuid import uuid4
+
+        now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ")
+        with sqlite_conn() as conn:
+            for rid in delete_ids:
+                conn.execute("DELETE FROM user_skill_beliefs WHERE id = ?", (rid,))
+            for cand, leaf, mean, var, n in upserts:
+                found = conn.execute(
+                    "SELECT id FROM user_skill_beliefs WHERE candidate = ? AND level = 'skill' AND key = ?",
+                    (cand, leaf),
+                ).fetchone()
+                if found:
+                    conn.execute(
+                        "UPDATE user_skill_beliefs SET mean = ?, variance = ?, questions_answered = ?, updated_at = ? "
+                        "WHERE id = ?",
+                        (mean, var, n, now, found[0]),
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO user_skill_beliefs "
+                        "(id, candidate, level, key, mean, variance, questions_answered, updated_at) "
+                        "VALUES (?, ?, 'skill', ?, ?, ?, ?, ?)",
+                        (str(uuid4()), cand, leaf, mean, var, n, now),
+                    )
+            conn.commit()
+
+    return counts
+
+
+def migrate_sessions(apply: bool, mode: str, fallback: Optional[str], drop_empty: bool) -> dict:
+    from coach.db import create_schema, sqlite_conn
+
+    create_schema()
+    counts = {"seen": 0, "updated": 0, "dropped_empty": 0, "tasks_removed": 0}
+
+    with sqlite_conn() as conn:
+        rows = conn.execute("SELECT session_id, session_json FROM active_sessions").fetchall()
+        step_counts = dict(
+            conn.execute(
+                "SELECT session_id, COUNT(*) FROM session_steps GROUP BY session_id"
+            ).fetchall()
+        )
+        for sid, raw in rows:
+            counts["seen"] += 1
+            if drop_empty and not step_counts.get(sid):
+                counts["dropped_empty"] += 1
+                if apply:
+                    conn.execute("DELETE FROM active_sessions WHERE session_id = ?", (sid,))
+                continue
+            try:
+                parsed = json.loads(raw or "{}")
+            except Exception:
+                continue
+            container = parsed.get("session") if isinstance(parsed, dict) and "session" in parsed else parsed
+            if not isinstance(container, dict):
+                continue
+            tasks = container.get("tasks")
+            if isinstance(tasks, list):
+                kept = []
+                for t in tasks:
+                    if isinstance(t, dict) and not _remap_task(t, mode, fallback):
+                        counts["tasks_removed"] += 1
+                        continue
+                    kept.append(t)
+                if len(kept) != len(tasks):
+                    container["tasks"] = kept
+            new_raw = json.dumps(parsed)
+            if new_raw != (raw or "{}"):
+                counts["updated"] += 1
+                if apply:
+                    conn.execute(
+                        "UPDATE active_sessions SET session_json = ? WHERE session_id = ?",
+                        (new_raw, sid),
+                    )
+        if apply:
+            conn.commit()
+    return counts
+
+
+def migrate_steps(apply: bool, mode: str, fallback: Optional[str]) -> dict:
+    from coach.db import create_schema, sqlite_conn
+
+    create_schema()
+    counts = {"seen": 0, "updated": 0}
+    with sqlite_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, task_snapshot_json, state_before_json, state_after_json FROM session_steps"
+        ).fetchall()
+        for rid, snap_raw, before_raw, after_raw in rows:
+            counts["seen"] += 1
+            try:
+                task = json.loads(snap_raw or "{}")
+            except Exception:
+                task = {}
+            if isinstance(task, dict):
+                _remap_task(task, "keep", fallback)  # historical: never drop a step
+            new_state_before = _remap_json_state(before_raw)
+            new_state_after = _remap_json_state(after_raw)
+            snap = json.dumps(task)
+            if apply and (snap != (snap_raw or "{}") or new_state_before or new_state_after):
+                sets = ["task_snapshot_json = ?"]
+                args: list = [snap]
+                if new_state_before is not None:
+                    sets.append("state_before_json = ?")
+                    args.append(new_state_before)
+                if new_state_after is not None:
+                    sets.append("state_after_json = ?")
+                    args.append(new_state_after)
+                args.append(rid)
+                conn.execute(f"UPDATE session_steps SET {', '.join(sets)} WHERE id = ?", args)
+                counts["updated"] += 1
+            elif snap != (snap_raw or "{}") or new_state_before or new_state_after:
+                counts["updated"] += 1
+        if apply:
+            conn.commit()
+    return counts
+
+
+def _remap_json_state(raw: Optional[str]) -> Optional[str]:
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    new = map_state(parsed)
+    if new is None or new == parsed:
+        return None
+    return json.dumps(new)
+
+
+def migrate_shares(apply: bool, mode: str, fallback: Optional[str]) -> dict:
+    from coach.db import create_schema, sqlite_conn
+
+    create_schema()
+    counts = {"seen": 0, "updated": 0}
+    with sqlite_conn() as conn:
+        rows = conn.execute("SELECT id, snapshot_json FROM trajectory_shares").fetchall()
+        for rid, raw in rows:
+            counts["seen"] += 1
+            try:
+                snap = json.loads(raw or "{}")
+            except Exception:
+                continue
+            if not isinstance(snap, dict):
+                continue
+            changed = False
+            container = snap.get("session")
+            if isinstance(container, dict) and isinstance(container.get("tasks"), list):
+                for t in container["tasks"]:
+                    if isinstance(t, dict):
+                        _remap_task(t, "keep", fallback)
+                changed = True
+            steps = snap.get("steps")
+            if isinstance(steps, list):
+                for st in steps:
+                    if isinstance(st, dict):
+                        t = st.get("task_snapshot")
+                        if isinstance(t, dict):
+                            _remap_task(t, "keep", fallback)
+                        for key in ("state_before", "state_after"):
+                            if isinstance(st.get(key), dict):
+                                st[key] = map_state(st[key])
+                changed = True
+            if changed:
+                counts["updated"] += 1
+                if apply:
+                    conn.execute(
+                        "UPDATE trajectory_shares SET snapshot_json = ? WHERE id = ?",
+                        (json.dumps(snap), rid),
+                    )
+        if apply:
+            conn.commit()
+    return counts
+
+
+def run_migration(
+    apply: bool, mode: str, fallback: Optional[str], drop_empty: bool, backup: bool = True
+) -> dict:
+    report: dict = {"apply": apply}
+    if apply and backup:
+        report["backup"] = backup_database()
+    report["tasks"] = migrate_tasks(apply, mode, fallback)
+    report["beliefs"] = migrate_beliefs(apply)
+    report["sessions"] = migrate_sessions(apply, mode, fallback, drop_empty)
+    report["steps"] = migrate_steps(apply, mode, fallback)
+    report["shares"] = migrate_shares(apply, mode, fallback)
+    return report
+
+
+# ---------------------------------------------------------------------------
+# coverage + seeding
+# ---------------------------------------------------------------------------
+
+
+def coverage_report() -> dict:
+    from sqlalchemy import select
+
+    from coach.db import create_schema, learner_session
+    from coach.tasks import TaskModel, parse_parts, parse_tags
+    from coach.taxonomy import LEAF_NODES
+
+    create_schema()
+    session = learner_session()
+    try:
+        models = list(session.scalars(select(TaskModel)))
+    finally:
+        session.close()
+
+    counts: dict[str, int] = {leaf: 0 for leaf in LEAF_NODES}
+    for m in models:
+        tags = parse_tags(m.tags_json)
+        for name in [tags.get("primary"), *(tags.get("secondary") or [])]:
+            if name in counts:
+                counts[name] += 1
+        for p in parse_parts(m.parts_json):
+            for name in [(p.get("tags") or {}).get("primary"), *((p.get("tags") or {}).get("secondary") or [])]:
+                if name in counts:
+                    counts[name] += 1
+    covered = [leaf for leaf, n in counts.items() if n > 0]
+    uncovered = [leaf for leaf, n in counts.items() if n == 0]
+    return {"tasks": len(models), "covered": covered, "uncovered": uncovered, "counts": counts}
+
+
+def seed_from_file(path: str, apply: bool, owner: str, public: bool, replace: bool) -> dict:
+    from coach.db import create_schema
+    from coach.tasks import create_task, get_task
+    from coach.taxonomy import validate
+
+    create_schema()
+    raw = Path(path).read_text()
+    entries = json.loads(raw)
+    if not isinstance(entries, list):
+        raise ValueError("seed file must be a JSON array of task objects")
+
+    counts = {"seen": 0, "created": 0, "replaced": 0, "skipped": 0, "errors": []}
+    for entry in entries:
+        counts["seen"] += 1
+        if not isinstance(entry, dict):
+            counts["errors"].append("entry is not an object")
+            continue
+        tid = entry.get("id")
+        prompt = str(entry.get("prompt") or "").strip()
+        if not prompt:
+            counts["errors"].append(f"{tid or '(no id)'}: empty prompt")
+            continue
+        if tid and get_task(tid) is not None:
+            if not replace:
+                counts["skipped"] += 1
+                continue
+
+        tags = entry.get("tags")
+        if not tags and entry.get("auto"):
+            tags = _auto_tags(prompt)
+            if not tags:
+                counts["errors"].append(f"{tid or '(no id)'}: could not auto-categorize")
+                continue
+        try:
+            tags = validate(tags)
+        except ValueError as e:
+            counts["errors"].append(f"{tid or '(no id)'}: {e}")
+            continue
+
+        body = dict(
+            prompt=prompt,
+            owner=entry.get("owner") or owner,
+            scaffold=entry.get("scaffold"),
+            difficulty=entry.get("difficulty"),
+            max_score=entry.get("max_score"),
+            parts=entry.get("parts"),
+            context_notes=entry.get("context_notes"),
+            tags=tags,
+            task_type=entry.get("task_type") or "implement",
+            language=entry.get("language"),
+            delivery=entry.get("delivery") or "block",
+            source="seed",
+            is_public=bool(entry.get("is_public", public)),
+            task_id=tid,
+        )
+        try:
+            if apply:
+                if tid and replace:
+                    from coach.tasks import delete_task
+
+                    delete_task(tid)
+                    counts["replaced"] += 1
+                create_task(**body)
+            counts["created"] += 1
+        except ValueError as e:
+            counts["errors"].append(f"{tid or '(no id)'}: {e}")
+    return counts
+
+
+def _auto_tags(prompt: str) -> Optional[dict]:
+    import os
+
+    if not os.getenv("GOOGLE_API_KEY"):
+        return None
+    from coach.task_decomposer import TaskDecomposer
+
+    out = TaskDecomposer().describe_and_categorize(prompt)
+    return out.get("tags")
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def _print(obj: dict) -> None:
+    print(json.dumps(obj, indent=2, default=str))
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = argparse.ArgumentParser(prog="coach.migrate", description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "command",
+        nargs="?",
+        default="migrate",
+        choices=["migrate", "coverage", "seed"],
+        help="migrate (default) | coverage | seed",
+    )
+    parser.add_argument("--apply", action="store_true", help="write changes (default: dry run)")
+    parser.add_argument(
+        "--on-unmapped",
+        choices=["delete", "fallback", "keep"],
+        default="delete",
+        help="policy for tags with no current counterpart",
+    )
+    parser.add_argument("--fallback", default=None, help="leaf skill for --on-unmapped fallback")
+    parser.add_argument("--no-backup", action="store_true", help="skip the pre-apply DB backup")
+    parser.add_argument(
+        "--keep-empty-sessions",
+        dest="drop_empty_sessions",
+        action="store_false",
+        help="retain active sessions that have no recorded steps",
+    )
+    parser.set_defaults(drop_empty_sessions=True)
+    parser.add_argument("--file", default=None, help="seed JSON file (seed command)")
+    parser.add_argument("--owner", default="system", help="seed owner (seed command)")
+    parser.add_argument("--private", action="store_true", help="seed as private tasks")
+    parser.add_argument("--replace", action="store_true", help="replace existing seed ids")
+
+    args = parser.parse_args(argv)
+
+    if args.command == "coverage":
+        _print(coverage_report())
+        return 0
+
+    if args.command == "seed":
+        if not args.file:
+            print("error: seed requires --file PATH", file=sys.stderr)
+            return 2
+        _print(seed_from_file(args.file, args.apply, args.owner, not args.private, args.replace))
+        return 0
+
+    fallback = args.fallback
+    if args.on_unmapped == "fallback":
+        from coach.taxonomy import is_leaf
+
+        if not is_leaf(fallback):
+            print("error: --fallback must be a leaf skill from coach.taxonomy", file=sys.stderr)
+            return 2
+
+    if args.apply and args.no_backup:
+        _print(run_migration(True, args.on_unmapped, fallback, args.drop_empty_sessions, backup=False))
+        return 0
+
+    _print(run_migration(args.apply, args.on_unmapped, fallback, args.drop_empty_sessions))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

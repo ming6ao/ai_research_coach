@@ -23,6 +23,9 @@ python check_env.py
 | Install deps | `pip install -r requirements.txt` |
 | Test backend | `.venv/bin/python -m pytest` |
 | Reset activity/progress (keeps users/auth + task bank; `POST /admin/reset`; add `?wipe_tasks=true` to also drop the bank) | via the API — no CLI |
+| Migrate the retired taxonomy in place (dry-run by default; `--apply` backs up first) | `python -m coach.migrate [--apply]` |
+| Bank coverage per leaf skill | `python -m coach.migrate coverage` |
+| Seed/import tasks from JSON (`{id, prompt, tags, parts…}`; idempotent by id) | `python -m coach.migrate seed --file data/seed_tasks.json --apply` |
 | Lint frontend | `cd frontend && npm run lint` |
 | Typecheck frontend | `cd frontend && npx tsc -b` |
 | Test frontend | `cd frontend && npm test` |
@@ -120,3 +123,4 @@ EVAL_RETRY_MAX_DELAY=30.0       # Max backoff (seconds)
 - `.venv` is the virtualenv; `run.sh` uses `.venv/bin/uvicorn` directly
 - `data/` directory is gitignored; the SQLite DB is created on first run
 - The `.env` file contains a real API key — do not commit changes to it
+- Taxonomy migration: `coach/taxonomy_migration.py` holds the one-time old→new tag map (run `python -m coach.migrate --apply` with the server stopped; it backs up the DB). It rewrites tasks/beliefs/session snapshots in place; `--on-unmapped delete|fallback|keep` controls tasks whose tag has no current counterpart (default: delete). This is separate from `ALIASES`, which only serves LLM synonym robustness.

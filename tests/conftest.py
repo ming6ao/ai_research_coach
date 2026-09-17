@@ -22,9 +22,12 @@ def _isolated_db(tmp_path, monkeypatch):
 
     Every test gets its own throwaway SQLite file; tests that need a specific
     path (or a fresh file per case) can still override DB_PATH afterwards.
+    Also clears ``GOOGLE_API_KEY`` so no test makes a real network/LLM call
+    (``backend.main`` loads ``.env`` at import time).
     """
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "test-coach.db")
     monkeypatch.delenv("LEARNING_PARTNER_DB_URL", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
 
 
 @pytest.fixture()

@@ -80,6 +80,11 @@ Notes on the shape:
 - The fold in `coach/area_score.py` is depth-generic, so adding a level is a
   taxonomy-only change.
 
+For databases created under the previous 2-level vocabulary,
+`coach/taxonomy_migration.py` holds the one-time old→new tag map consumed by
+`python -m coach.migrate`, which rewrites tasks, beliefs, and session
+snapshots in place (dropping retired topics according to its policy).
+
 ### Task tagging contract
 
 - `tags: { primary: <leaf skill>, secondary: [<leaf skill>, …] }` — 1 primary,
