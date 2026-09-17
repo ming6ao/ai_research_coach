@@ -360,12 +360,12 @@ def plan_challenge(
                     recent.append(label[:160])
         except Exception:
             recent = []
-        generated = _call_challenge(
-            planner.decomposer,
+        tags = {"primary": prefer_node, "secondary": []} if prefer_node else None
+        generated = planner.decomposer.generate_challenge_task(
             difficulty,
             avoid_text="\n".join(recent[:8]),
             prefer_node=prefer_node or "",
-            tags=_target_tags(prefer_node),
+            tags=tags,
         )
         session.add_generated_task(generated)
         _persist_generated_task(session, generated, None)
@@ -373,33 +373,6 @@ def plan_challenge(
     except Exception as exc:
         logger.exception("[challenge] plan_challenge failed (%s: %s)", type(exc).__name__, exc)
         return None
-
-
-def _call_challenge(decomposer, difficulty, avoid_text="", prefer_node="", tags=None):
-    """Call generate_challenge_task, passing only kwargs the decomposer accepts.
-
-    Keeps fake/legacy decomposers (which lack the scope-targeting kwargs)
-    working without weakening the real one.
-    """
-    import inspect
-
-    sig = inspect.signature(decomposer.generate_challenge_task)
-    params = set(sig.parameters)
-    kwargs: dict = {}
-    if "avoid_text" in params:
-        kwargs["avoid_text"] = avoid_text
-    if "prefer_node" in params:
-        kwargs["prefer_node"] = prefer_node
-    if "tags" in params:
-        kwargs["tags"] = tags
-    return decomposer.generate_challenge_task(difficulty, **kwargs)
-
-
-def _target_tags(prefer_node: str = "") -> dict | None:
-    """Tags for a scope-widening challenge: the preferred skill as primary."""
-    if prefer_node:
-        return {"primary": prefer_node, "secondary": []}
-    return None
 
 
 def least_covered(session) -> str:

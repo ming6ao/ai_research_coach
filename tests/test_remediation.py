@@ -37,7 +37,7 @@ class FakeDecomposer:
             "root_difficulty": (original_task or {}).get("root_difficulty", (original_task or {}).get("difficulty", 2)),
         }
 
-    def generate_challenge_task(self, difficulty, avoid_text=""):
+    def generate_challenge_task(self, difficulty, avoid_text="", prefer_node="", tags=None):
         self.calls.append(("__challenge__", {}, difficulty, "challenge"))
         return {
             "id": f"remed_{uuid.uuid4().hex[:10]}",

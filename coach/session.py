@@ -74,7 +74,6 @@ class Session:
     index: int = 0
     results: List[EvaluationResult] = field(default_factory=list)
     ability: SkillState = field(default_factory=SkillState)
-    skill_states: Dict[str, SkillState] = field(default_factory=dict)
     asked_task_ids: Set[str] = field(default_factory=set)
     generated_task_ids: Set[str] = field(default_factory=set)
     node_states: Dict[str, AreaState] = field(default_factory=dict)
@@ -90,27 +89,6 @@ class Session:
     def __post_init__(self):
         if not self.tasks:
             self.tasks = _load_bank_tasks(self.candidate)
-        # Tolerate legacy sessions that stored per-skill dicts: collapse to
-        # the single overall ability (prefer the most-answered entry).
-        if self.skill_states and (
-            self.ability.questions_answered == 0
-            and self.ability.score == INITIAL_SCORE
-            and self.ability.variance == INITIAL_VARIANCE
-        ):
-            try:
-                best = max(
-                    self.skill_states.values(),
-                    key=lambda s: s.questions_answered,
-                )
-                self.ability = SkillState(
-                    score=best.score,
-                    variance=best.variance,
-                    questions_answered=best.questions_answered,
-                    evidence=list(best.evidence),
-                )
-            except Exception:
-                pass
-            self.skill_states = {}
 
     def get_skill_state(self, skill_id: str | None = None) -> SkillState:
         """Return the candidate's overall ability belief (legacy name kept).
@@ -209,9 +187,9 @@ class Session:
     def to_dict(self):
         """Compact episode-header state (trajectory lives in ``session_steps``).
 
-        ``results``, ``skill_states``, and ``node_states`` are intentionally
-        omitted: step data and per-node beliefs are persisted in
-        ``session_steps`` / ``user_skill_beliefs``.
+        ``results`` and ``node_states`` are intentionally omitted: step data
+        and per-node beliefs are persisted in ``session_steps`` /
+        ``user_skill_beliefs``.
         """
         return {
             "candidate": self.candidate,
@@ -229,8 +207,8 @@ class Session:
     def from_dict(cls, d):
         """Rebuild a Session from a compact (or legacy full) state dict.
 
-        Tolerates legacy full-form blobs (results / skill_states) so old rows
-        keep working; the in-memory ``results`` are normally hydrated from
+        Tolerates legacy full-form blobs (``results``) so old rows keep
+        working; the in-memory ``results`` are normally hydrated from
         ``session_steps`` afterwards.
         """
         s = cls(
@@ -254,32 +232,15 @@ class Session:
                 s.results.append(EvaluationResult.from_dict(r))
             except Exception:
                 pass
-        # Legacy sessions without a compact ability snapshot collapse
-        # skill_states into the overall ability (most-answered wins).
-        if not isinstance(d.get("ability"), dict) and s.skill_states:
-            try:
-                best = max(
-                    s.skill_states.values(),
-                    key=lambda st: st.questions_answered,
-                )
-                s.ability = SkillState(
-                    score=best.score,
-                    variance=best.variance,
-                    questions_answered=best.questions_answered,
-                    evidence=list(best.evidence),
-                )
-            except Exception:
-                pass
-            s.skill_states = {}
-        # Legacy per-family/tag state is retired; per-node beliefs are loaded
-        # from user_skill_beliefs via ensure_area_beliefs().
+        # Per-node beliefs are loaded from user_skill_beliefs via
+        # ensure_area_beliefs().
         return s
 
 
-def _compose_block_scaffold(task: dict) -> str | None:
-    """Compose a task-level scaffold from part prompts when none is stored.
+def _compose_step_scaffold(task: dict) -> str | None:
+    """Compose a scaffold from step prompts when none is stored.
 
-    One stub per part: ``def name(...)`` parsed from the part's prompt, or
+    One stub per step: ``def name(...)`` parsed from the step's prompt, or
     ``def {key}(*args): ...`` as a fallback.
     """
     parts = task.get("parts") or []
@@ -300,14 +261,14 @@ def _compose_block_scaffold(task: dict) -> str | None:
 def build_code_stub(task: dict) -> str | None:
     """Build an editor scaffold for a code task.
 
-    Scaffold-mode tasks already carry a `scaffold`. Code blocks without one
-    get their scaffold composed per part. For function-mode tasks (no
-    scaffold, no parts) we generate a stub from the signature mentioned in
-    the prompt so the coding area is pre-filled instead of blank.
+    A task that already carries a `scaffold` uses it. Otherwise the scaffold
+    is composed from the step prompts; a legacy partless task falls back to a
+    stub generated from the signature mentioned in the prompt, so the coding
+    area is never blank.
     """
     if task.get("scaffold"):
         return task["scaffold"]
-    composed = _compose_block_scaffold(task)
+    composed = _compose_step_scaffold(task)
     if composed:
         return composed
     m = re.search(r"def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)", task.get("prompt", ""))
@@ -341,16 +302,6 @@ def effective_parts(task: dict) -> list[dict]:
     return [part]
 
 
-def is_phased(task: dict) -> bool:
-    """True when a task delivers its parts one at a time.
-
-    Delivery is always step-by-step now; a task with no stored parts is
-    treated as one implicit step, so this is effectively always true. Kept
-    so callers can stay explicit about the delivery model.
-    """
-    return bool(effective_parts(task))
-
-
 def completed_phases(task: dict, session: Session) -> int:
     """Number of phases already passed for ``task`` in this session."""
     return int(session.task_progress.get(task.get("id"), 0) or 0)
@@ -369,7 +320,7 @@ def _phase_scaffold(task: dict, part: dict) -> Optional[str]:
     """Starter code for one phase: its own scaffold, else a composed stub."""
     if part.get("scaffold"):
         return part["scaffold"]
-    return _compose_block_scaffold({"parts": [part]})
+    return _compose_step_scaffold({"parts": [part]})
 
 
 def task_view(

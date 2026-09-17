@@ -92,22 +92,29 @@ transitions) lives in `session_steps`:
     "index": 3,
     "ability": { "score": 0.62, "variance": 0.09, "confidence": 0.66, "questions_answered": 3, "evidence": [...] },
     "asked_task_ids": ["task_ab12cd34ef"],
-    "generated_task_ids": ["task_ab12cd34ef"]
+    "generated_task_ids": ["task_ab12cd34ef"],
+    "task_progress": { "task_ab12cd34ef": 1 },
+    "phase_attempts": {},
+    "submission_index": 3
   }
 }
 ```
 
 - `Task` — the task dict (see `task_to_dict`, `coach/tasks.py`): `id`, `prompt`,
-  `difficulty` (1–5), `max_score`, `parts` (`[{key, prompt, tags, max_score,
-  difficulty}]`, empty for a single-question task), `context_notes`, `tags`
-  (`{primary, secondary[]}`), `task_type`, `source`, `is_public`, `owner`, plus
-  optional `scaffold`, `parent_task_id`, `target_text`. Generated follow-ups/
-  challenges add in-session-only keys: `generated: true`, `generated_kind`
-  (`remediate|escalate|pivot|challenge`), `root_task_id`, `root_difficulty`.
+  `difficulty` (1–5), `max_score`, `parts` (one or more steps:
+  `[{key, prompt, tags, max_score, difficulty, pass_score?, scaffold?}]`),
+  `context_notes`, `tags` (`{primary, secondary[]}`), `task_type`, `language`,
+  `source`, `is_public`, `owner`, plus optional `scaffold`, `parent_task_id`,
+  `target_text`. Generated follow-ups/challenges add in-session-only keys:
+  `generated: true`, `generated_kind` (`remediate|escalate|pivot|challenge`),
+  `root_task_id`, `root_difficulty`.
 - `ability` — Gaussian `SkillState` (`coach/session.py`): `score` (posterior
   mean), `variance`, `confidence`, `questions_answered`, `evidence[]`.
-- `index` — number of tasks submitted so far; incremented per answer and used as
+- `index` — number of tasks completed so far; used as
   `remaining = len(tasks) - index`.
+- `task_progress` / `phase_attempts` / `submission_index` — step bookkeeping:
+  steps passed per task, failed attempts on the current step, and the monotonic
+  `session_steps.step_index` counter.
 
 Past sessions are listed per candidate via `GET /api/v1/me/sessions`
 (`store.list_by_candidate`, newest first); `done` is derived at read time by
@@ -136,6 +143,7 @@ Task-level `difficulty`/`max_score` are derived from the steps when omitted.
 | `context_notes` | TEXT | 2–4 plain-English sentences, generated once at creation |
 | `tags_json` | TEXT | `{"primary": <leaf skill>, "secondary": [<leaf skill>…]}` (closed vocabulary from `coach/taxonomy.py`) |
 | `task_type` | TEXT | `implement | apply | debug | design | analyze` |
+| `language` | VARCHAR(32) | NOT NULL, default `python` — Monaco editor language id |
 | `source` | VARCHAR(32) | NOT NULL — `user`/`generated` |
 | `parent_task_id` | VARCHAR(64) | nullable — root task for generated follow-ups |
 | `target_text` | TEXT | nullable — judge's misconception/gap text for generated drills |
@@ -145,8 +153,8 @@ Task-level `difficulty`/`max_score` are derived from the steps when omitted.
 
 Index: `ix_tasks_owner (owner)`.
 
-Visibility (`list_visible_tasks`): a candidate sees `owner='system'` + `is_public=1`
-rows, their own rows, and any `is_public=1` row.
+Visibility (`list_visible_tasks`): a candidate sees their own rows and every
+`is_public=1` row (there are no system-owned rows).
 
 ### `session_steps`
 RL-shaped per-step log — one row per scored answer (an episode transition
@@ -236,12 +244,14 @@ The learner key used by `candidate` columns is resolved by
    `learner_misconceptions`, `learner_frontier`, `assessment_targets`,
    `assessment_tasks`), the superseded `task_attempts` table, and dropped task
    columns (`graph_json`, `target_node_id`, `target_node_slug`,
-   `expected_time_min`, `skill`).
-3. Adds `context_notes`, `target_text`, `tags_json`, `task_type` to `tasks` if
-   absent, and `status` / `resumed_from_share` / `fork_of` / `meta_json` to
-   `active_sessions` if absent.
+   `expected_time_min`, `skill`, `hints_json`, `cluster_id`, `followups_json`,
+   `version_index`, `depends_on_task_id`, `version_root_id`).
+3. Adds `context_notes`, `target_text`, `tags_json`, `task_type`, `language`,
+   `parts_json`, `delivery` to `tasks` if absent, and `status` /
+   `resumed_from_share` / `fork_of` / `meta_json` to `active_sessions` if
+   absent.
 4. `_migrate_skill_beliefs_to_ability` — adds `level`/`key` to
-   `user_skill_beliefs`, collapses all legacy per-skill rows to
+   `user_skill_beliefs`, collapses legacy per-skill rows to
    `('global', 'overall')` (most answered wins; per-node rows are rebuilt under
    the new hierarchy), drops the legacy `skill` column, dedupes
    `(candidate, level, key)`, and creates `uq_user_skill_beliefs`.

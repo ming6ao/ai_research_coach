@@ -21,15 +21,19 @@ FastAPI (backend/main.py, backend/v1/*, backend/auth_routes.py)
         │
         ├── coach/              parent assessment engine
         │   ├── score.py        Bayesian ability belief (picker inputs)
+        │   ├── area_score.py   per-node beliefs + read-time shrinkage
         │   ├── picker.py       EIG bank-task selection
-        │   ├── session.py      tasks/results/ability + phased progress
-        │   ├── selection.py    hybrid next-task selection (phased continuation)
+        │   ├── session.py      tasks/results/ability + step progress
+        │   ├── selection.py    hybrid next-task selection (step continuation)
         │   ├── remediation.py  judge-driven follow-up tasks
         │   ├── solvability.py  P(solve) estimate + adaptive difficulty ladder
-        │   ├── tasks.py        DB task bank + attempts + ability beliefs
+        │   ├── taxonomy.py     closed domain/area/skill vocabulary
+        │   ├── tasks.py        DB task bank + steps + ability beliefs
+        │   ├── steps.py        RL-shaped per-step session storage
         │   ├── task_decomposer.py  LLM: plain-English context + follow-up tasks
         │   ├── judge.py        LLM judge (score + rationale + coaching)
-        │   └── db.py           single SQLite connection + schema
+        │   ├── db.py           single SQLite connection + schema
+        │   └── migrate.py      taxonomy/delivery migration + coverage CLI
 ```
 (no `learner/` package — the overall ability belief is the only mastery model)
 
@@ -54,7 +58,7 @@ ai_research_coach/
 │   ├── selection.py       # hybrid next-task selection
 │   ├── remediation.py     # judge-driven follow-up planner
 │   ├── solvability.py     # P(solve) + difficulty ladder
-│   ├── tasks.py           # DB task bank (tasks/task_attempts/user_skill_beliefs)
+│   ├── tasks.py           # DB task bank (tasks/session_steps/user_skill_beliefs)
 │   ├── task_decomposer.py # LLM context notes + follow-up generation
 │   ├── judge.py           # LLM judge (score + rationale + coaching response)
 │   └── db.py              # single connection module (data/coach.db)
@@ -87,17 +91,17 @@ python check_env.py          # verify env + model connectivity
    creates a session. The candidate is derived from the bearer token (email) or
    a fresh `guest-<hex>` id. The first task is picked by `pick_next_task`.
 2. **Task loop** — the candidate writes code; the LLM judge returns a score, a rationale, and a
-   **coaching response** (misconception + step-by-step walkthrough with code). Code blocks
-   are judged per part; **phased** tasks (`delivery='phased'`) deliver one part at a time and
-   carry the candidate's code forward via `previous_code`.
+   **coaching response** (misconception + step-by-step walkthrough with code). Every task is
+   step-by-step: its steps are delivered one at a time and the candidate's code is carried
+   forward via `previous_code`.
 3. **Teaching pause** — the UI never auto-advances. The coaching response and per-part
    results are shown; the candidate clicks **Next question** / **Next step** / **Retry step**
    to continue. The next task is chosen by the hybrid `pick_next_task`:
 1. a pending generated task surfaces first,
-2. an active phased task continues (next phase, or the same phase after a failed attempt),
+2. an active step task continues (next step, or the same step after a failed attempt),
 3. otherwise a judge-driven follow-up fires after a weak answer or a named gap (a *simpler* generated task drills the judge's gap text),
 4. otherwise the EIG bank picker selects the informative task,
-5. `None` when the bank is exhausted and no follow-up remains.
+5. a fresh generated challenge when the bank is exhausted, else `None`.
 4. **Progress** — when `next_task` is `null`, the candidate is done.
    `POST /api/v1/sessions/{id}/completion` returns the progress snapshot (overall ability).
    Sessions stay in `active_sessions` for resume/history; "done" is derived
@@ -106,11 +110,12 @@ python check_env.py          # verify env + model connectivity
 ## Question selection
 
 - **Bayesian probing** (`coach/score.py` + `coach/picker.py`): a single Gaussian belief
-  `N(mean, variance)` over overall ability, updated by the judge score. The bank picker maximizes `EIG / expected_time`
-  and the session ends when the task bank is exhausted.
-- **Phased tasks** (`delivery='phased'`): the judge scores the active part; passing
+  `N(mean, variance)` over overall ability, updated by the judge score. The bank picker maximizes
+  `EIG / expected_time`; when the bank is exhausted a fresh generated challenge keeps the session
+  going until the candidate finishes.
+- **Step-by-step tasks**: the judge scores the active step; passing
   (`score >= pass_score`, default `round(0.7 * max_score)`) or reaching
-  `PHASE_MAX_ATTEMPTS` advances to the next part with the candidate's prior code.
+  `PHASE_MAX_ATTEMPTS` advances to the next step with the candidate's prior code.
 - **Follow-ups** (`coach/remediation.py`): the judge's gap text
   (misconception/feedback) drives one simpler drill task on weak answers;
   clean solves generate nothing. Budget caps keep the loop finite.
@@ -127,7 +132,7 @@ All v1 resources return a `{data}` envelope; list endpoints add
 | `POST /api/v1/sessions/{id}/answers` `{task_id, answer}` | Score + coach + `next_task` + `ability_update` (+ `already_answered` on replay) |
 | `POST /api/v1/sessions/{id}/completion` | Progress snapshot `{done, ability, mastery}` |
 | `DELETE /api/v1/sessions/{id}` | Delete a session (204, ownership-guarded) |
-| `POST /api/v1/tasks` `{prompt, tags, scaffold?, difficulty?, max_score?, parts?, task_type?, language?, delivery?, is_public?, context_notes?}` | Create a user question (201; `tags` required) |
+| `POST /api/v1/tasks` `{prompt, tags, scaffold?, difficulty?, max_score?, parts?, task_type?, language?, is_public?, context_notes?}` | Create a user question (201; `tags` required) |
 | `GET /api/v1/tasks?q=&page=&page_size=` | List visible tasks (paginated) |
 | `GET /api/v1/tasks/{id}` | Task detail |
 | `PATCH /api/v1/tasks/{id}` | Edit a question (owner or admin) |
@@ -153,7 +158,7 @@ per-skill beliefs so old databases converge). Per-step data lives in
 ## How to extend (no code changes)
 
 - **Add a question**: `POST /api/v1/tasks` with `prompt` and optional
-  `scaffold`/`difficulty`/`max_score`/`parts`/`delivery`/`context_notes`. User rows are
+  `scaffold`/`difficulty`/`max_score`/`parts`/`context_notes`. User rows are
   private by default (guests create public rows); generated follow-ups link via
   `parent_task_id`/`target_text`.
 - **Change the model**: set `EVAL_MODEL` in `.env` (e.g. `gemini-3.5-flash-lite`).
@@ -204,7 +209,7 @@ python -m coach.migrate --apply         # back up the DB, then migrate in place
 python -m coach.migrate coverage        # per-leaf-skill bank coverage
 ```
 
-`--apply` rewrites task tags (block + parts), per-node belief rows,
+`--apply` rewrites task and step tags, per-node belief rows,
 active-session snapshots, and step/share snapshots, preserving task ids,
 owners, and attempt links. Tasks whose primary skill was retired can be
 deleted (`--on-unmapped delete`, default), retagged (`--on-unmapped fallback
@@ -213,8 +218,8 @@ old→new map lives in `coach/taxonomy_migration.py`.
 
 To wipe the bank instead, `POST /admin/reset?wipe_tasks=true` (admin-only)
 clears activity and every task. There is no separate seed file: the `tasks`
-table is the single source of truth, authored via `POST /api/v1/tasks`, the
-curator UI, or the admin taxonomy form.
+table is the single source of truth, authored via `POST /api/v1/tasks` or the
+curator UI.
 
 ## Tests
 

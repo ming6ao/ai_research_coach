@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AdminTaxonomy } from '../../api/client';
+import type { Taxonomy } from '../../api/client';
 import { Markdown } from '../Markdown/Markdown';
 
 const inputCls =
@@ -11,7 +11,7 @@ export function TaxonomyOptions({
   taxonomy,
   exclude = [],
 }: {
-  taxonomy: AdminTaxonomy;
+  taxonomy: Taxonomy;
   exclude?: string[];
 }) {
   return (
@@ -41,7 +41,7 @@ function TagSelect({
   onChange,
   exclude,
 }: {
-  taxonomy: AdminTaxonomy;
+  taxonomy: Taxonomy;
   value: string;
   onChange: (tag: string) => void;
   exclude?: string[];
@@ -66,7 +66,7 @@ export function TagEditor({
   onSecondary,
   primaryLabel = 'primary tag *',
 }: {
-  taxonomy: AdminTaxonomy;
+  taxonomy: Taxonomy;
   primary: string;
   secondary: string[];
   onPrimary: (tag: string) => void;

@@ -4,11 +4,9 @@ import { TaskEditor } from './TaskEditor';
 
 interface Props {
   onClose: () => void;
-  initialTaskId?: string | null;
-  adminMode?: boolean;
 }
 
-export function CuratorView({ onClose, initialTaskId = null, adminMode = false }: Props) {
+export function CuratorView({ onClose }: Props) {
   const [tasks, setTasks] = useState<CuratorTask[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -39,44 +37,18 @@ export function CuratorView({ onClose, initialTaskId = null, adminMode = false }
     }
   };
 
-  // Admin entry: open one specific task in the editor (no list).
-  useEffect(() => {
-    if (adminMode && initialTaskId) {
-      let cancelled = false;
-      setLoading(true);
-      apiClient
-        .getTask(initialTaskId)
-        .then((t) => {
-          if (!cancelled) setEditing(t);
-        })
-        .catch((e) => {
-          if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false);
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
-    return undefined;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adminMode, initialTaskId]);
-
   // Debounced search for the curator list.
   useEffect(() => {
-    if (adminMode) return;
     const t = setTimeout(() => {
       setQ(searchInput.trim());
     }, 300);
     return () => clearTimeout(t);
-  }, [searchInput, adminMode]);
+  }, [searchInput]);
 
   useEffect(() => {
-    if (adminMode) return;
     void load(q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, adminMode]);
+  }, [q]);
 
   const openNew = () => {
     setEditing(null);
@@ -89,58 +61,15 @@ export function CuratorView({ onClose, initialTaskId = null, adminMode = false }
     setEditing(task);
     setCreating(false);
     setNotice(editing && !creating ? `Saved ${task.id}.` : `Created ${task.id}.`);
-    if (!adminMode) void load(q);
+    void load(q);
   };
 
   const handleDeleted = (taskId: string) => {
     setEditing(null);
     setCreating(false);
     setNotice(`Deleted ${taskId}.`);
-    if (!adminMode) void load(q);
+    void load(q);
   };
-
-  if (adminMode) {
-    return (
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="flex shrink-0 items-center justify-between border-b border-[var(--color-border-default)] px-4 py-2">
-          <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
-            Curator editor {editing ? `— ${editing.id}` : ''}
-          </h2>
-          <div className="flex items-center gap-2">
-            {notice && <span className="text-xs text-green-500">{notice}</span>}
-            {error && <span className="text-xs text-[var(--color-error)]">{error}</span>}
-            <button
-              onClick={onClose}
-              className="rounded-lg px-3 py-1.5 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-        {loading && !editing ? (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-[var(--color-text-muted)]">Loading task…</p>
-          </div>
-        ) : editing ? (
-          <TaskEditor
-            key={editing.id}
-            task={editing}
-            adminMode
-            onSaved={handleSaved}
-            onDeleted={handleDeleted}
-            onClose={onClose}
-            onError={setError}
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-[var(--color-error)]">
-              {error || 'Could not load that task.'}
-            </p>
-          </div>
-        )}
-      </div>
-    );
-  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">

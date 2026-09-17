@@ -6,7 +6,7 @@ topic was intentionally removed). It is a migration artifact used only by
 ``coach.migrate`` — it is **not** part of ``ALIASES`` (which stays focused on
 LLM synonym robustness) and is never consulted at runtime.
 
-Mapping policy (see docs/builtin-question-bank-and-mastery-design.md §2):
+Mapping policy:
 
 - Frontier-relevant old tags map to the closest current leaf skill.
 - Dated/generic content is dropped: classic tabular ML (``ml_classical``),

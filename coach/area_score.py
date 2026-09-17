@@ -39,7 +39,7 @@ from coach.score import (
     bayesian_update,
     measurement_variance,
 )
-from coach.taxonomy import ALL_NODES, NODE_LEVEL, NODE_PARENT, path_of
+from coach.taxonomy import ALL_NODES, NODE_LEVEL, NODE_PARENT
 
 # Shrinkage strength: single knob for how quickly a level's own evidence
 # outvotes its parent's estimate. Tuned against synthetic sequences in tests.
@@ -179,8 +179,3 @@ def area_report_dict(
         "domains": domains,
         "nodes": nodes_flat,
     }
-
-
-def path_levels(node: str) -> list[str]:
-    """Backwards-compatible helper: root-to-node path for a node."""
-    return path_of(node)

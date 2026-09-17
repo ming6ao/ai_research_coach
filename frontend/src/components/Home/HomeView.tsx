@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAssessmentStore } from '../../stores/assessmentStore';
 import { useAuthStore } from '../../stores/authStore';
-import { apiClient, type AdminTaxonomy, type MasteryArea, type MasteryEntry, type UnifiedSession } from '../../api/client';
+import { apiClient, type Taxonomy, type MasteryArea, type MasteryEntry, type UnifiedSession } from '../../api/client';
 
 function label(id: string | null | undefined): string {
   if (!id) return '';
@@ -59,7 +59,7 @@ export function HomeView() {
   const { startAssessment, loading, overview, overviewLoading, loadOverview } = useAssessmentStore();
   const [showSessions, setShowSessions] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [taxonomy, setTaxonomy] = useState<AdminTaxonomy | null>(null);
+  const [taxonomy, setTaxonomy] = useState<Taxonomy | null>(null);
 
   useEffect(() => {
     loadOverview();

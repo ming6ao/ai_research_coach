@@ -139,7 +139,6 @@ export interface FeedbackEntry {
   result: EvaluationResult;
   feedback: string;
   coach?: CoachContent;
-  hints_used?: string[];
   tags?: TaskTags;
   parts?: TaskPart[];
   language?: string;
@@ -278,7 +277,7 @@ async function v1<T>(path: string, body?: unknown, method?: string): Promise<T> 
   return res.data;
 }
 
-export interface AdminTaxonomy {
+export interface Taxonomy {
   tree: Record<string, Record<string, string[]>>;
   domains: string[];
   areas: Record<string, string[]>;
@@ -399,5 +398,5 @@ export const apiClient = {
     ),
 
   taxonomy: () =>
-    v1<AdminTaxonomy>('/taxonomy', undefined, 'GET'),
+    v1<Taxonomy>('/taxonomy', undefined, 'GET'),
 };

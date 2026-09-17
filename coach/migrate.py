@@ -140,7 +140,7 @@ def migrate_tasks(apply: bool, mode: str, fallback: Optional[str]) -> dict:
     from coach.db import create_schema, learner_session
     from coach.tasks import (
         TaskModel,
-        derive_block_tags,
+        derive_step_tags,
         parse_parts,
         parse_tags,
         serialize_parts,
@@ -199,7 +199,7 @@ def migrate_tasks(apply: bool, mode: str, fallback: Optional[str]) -> dict:
 
             if parts:
                 # Block tags are a summary: re-derive from the mapped parts.
-                final_tags = derive_block_tags(new_parts) or {
+                final_tags = derive_step_tags(new_parts) or {
                     "primary": fallback or old_block.get("primary"),
                     "secondary": [],
                 }

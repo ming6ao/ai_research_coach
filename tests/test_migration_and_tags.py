@@ -155,8 +155,8 @@ def test_categorize_fallback_without_api_key(monkeypatch):
     from coach.task_decomposer import TaskDecomposer
 
     d = TaskDecomposer()
-    assert d.categorize_task("Implement a hash table.") is None
-    assert d.describe_task("anything") == ""
+    out = d.describe_and_categorize("Implement a hash table.")
+    assert out == {"context_notes": "", "tags": None}
 
 
 def test_categorize_combined_call_shape(monkeypatch):

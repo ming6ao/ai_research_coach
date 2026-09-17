@@ -34,7 +34,6 @@ def _check_task_owner(task: dict, user: Optional[dict]) -> None:
 @router.get("", summary="List visible tasks")
 def list_tasks(
     q: Optional[str] = None,
-    tag: Optional[str] = None,
     node: Optional[str] = None,
     page: PageParams = Depends(),
     user: Optional[dict] = Depends(get_current_user),
@@ -47,7 +46,7 @@ def list_tasks(
     if q and q.strip():
         needle = q.strip().lower()
         tasks = [t for t in tasks if needle in (t.get("prompt") or "").lower()]
-    target_raw = (node or tag or "").strip()
+    target_raw = (node or "").strip()
     if target_raw:
         from coach.taxonomy import ancestors, resolve_node
 

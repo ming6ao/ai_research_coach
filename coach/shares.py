@@ -122,10 +122,9 @@ def build_share_snapshot(session, steps: list[dict]) -> dict:
 def feedback_from_steps(steps: list[dict]) -> list[dict]:
     """Render step rows as the review ``results`` records the frontend expects.
 
-    Mirrors the legacy ``feedback_json`` entry shape. Every task is
-    step-by-step, so the active step's index/total are derived from the
-    scored part key; a legacy single-submission step (several scored parts)
-    shows all its parts with no step chip.
+    Every task is step-by-step, so the active step's index/total are derived
+    from the scored part key; a legacy step that scored several parts shows
+    all of them with no step chip.
     """
     from coach.session import effective_parts
 
@@ -153,7 +152,6 @@ def feedback_from_steps(steps: list[dict]) -> list[dict]:
                 "result": st.get("result") or {},
                 "feedback": coaching.get("feedback", ""),
                 "coach": coaching,
-                "hints_used": st.get("hints_used") or [],
                 "tags": task.get("tags"),
                 "parts": parts,
                 "language": task.get("language") or "python",

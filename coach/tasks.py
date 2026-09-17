@@ -4,15 +4,14 @@ Tasks live in the shared SQLite file (``data/coach.db``) via the SQLAlchemy
 ``Base`` in ``coach.db`` — the database is the source of truth for tasks
 (there is no code-embedded catalog).
 
-Each task optionally carries ``context_notes``: 2-4 plain-English sentences
-generated once at creation time. There is no knowledge graph, no nodes/edges,
-and no skill tags — every task is eligible for every candidate.
+Each task carries ``context_notes`` (2-4 plain-English sentences generated
+once at creation time) and closed-vocabulary tags. There is no knowledge
+graph and no nodes/edges.
 
-A task may be a **code block**: a task-level ``scaffold`` covering a set of
-related functions (``parts_json``). A part is
-``{key, prompt, tags, max_score, difficulty}``; parts carry no scaffold and no
-hints, except that every task is delivered step-by-step, so each part may
-carry its own ``scaffold`` and ``pass_score``.
+A task is a **step sequence**: its ``parts_json`` holds ordered steps
+``{key, prompt, tags, max_score, difficulty, pass_score?, scaffold?}``
+delivered one at a time, pass-gated, with the candidate's code carried
+forward. A partless task is wrapped into one implicit step at creation.
 
 Visibility: a candidate sees their own rows and every public row. There is no
 system-owned bucket — every task has a user owner. Guests create public rows
@@ -261,12 +260,12 @@ def validate_parts(parts) -> list[dict]:
     return out
 
 
-def derive_block_tags(parts: list[dict]) -> dict | None:
-    """Block-level tags from its parts: first part's primary + up to 2 others.
+def derive_step_tags(parts: list[dict]) -> dict | None:
+    """Task-level tags from its steps: first step's primary + up to 2 others.
 
-    The belief system consumes each part's own tags; the block-level tags are
+    The belief system consumes each step's own tags; the task-level tags are
     a display/picker summary derived here when the author omits them. Returns
-    ``None`` when the block has no parts (the caller then requires tags).
+    ``None`` when the task has no steps (the caller then requires tags).
     """
     primaries = [p["tags"]["primary"] for p in parts if (p.get("tags") or {}).get("primary")]
     if not primaries:
@@ -358,7 +357,7 @@ def create_task(
     tid = task_id or f"task_{uuid.uuid4().hex[:10]}"
 
     if tags is None and parts:
-        tags = derive_block_tags(parts)
+        tags = derive_step_tags(parts)
     if tags is None:
         raise ValueError(
             "Tags are required: provide tags.primary (a leaf skill) — "
@@ -483,11 +482,6 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
         session.close()
 
 
-def update_task_context(task_id: str, context_notes: str) -> Optional[dict]:
-    """Overwrite a task's plain-English context notes (admin edit path)."""
-    return update_task(task_id, context_notes=context_notes)
-
-
 def get_task(task_id: str) -> Optional[dict]:
     from coach.db import create_schema
 
@@ -516,42 +510,6 @@ def list_visible_tasks(candidate: str) -> list[dict]:
         return out
     finally:
         session.close()
-
-
-def record_attempt(
-    candidate: str,
-    task_id: str,
-    fraction: float,
-    score: float,
-    max_score: float,
-    hints_used: Optional[list] = None,
-) -> str:
-    """Record a scored attempt as a ``session_steps`` row (compat shim).
-
-    ``session_id`` is optional (legacy callers); a synthetic episode id is
-    used so rows stay unique under ``uq_session_steps``. Admin
-    aggregation is by candidate, so a step without a real episode is still counted.
-    ``hints_used`` is accepted for legacy callers but always stored as ``[]``.
-    """
-    from coach.steps import insert_step
-
-    return insert_step(
-        session_id=f"legacy-{uuid.uuid4().hex[:8]}",
-        candidate=candidate,
-        step_index=0,
-        task={"id": task_id, "max_score": max_score or 5},
-        role="bank",
-        user_answer="",
-        score=score or 0.0,
-        max_score=max_score or 5.0,
-        fraction=fraction or 0.0,
-        reward=fraction or 0.0,
-        hints_used=hints_used,
-        state_before=None,
-        state_after=None,
-        result={"score": score or 0.0, "max_score": max_score or 5.0},
-        coaching=None,
-    )
 
 
 def _belief_row(session, candidate: str, level: str, key: str):
@@ -656,14 +614,6 @@ def get_area_beliefs(candidate: str) -> dict[tuple[str, str], dict]:
         return {(m.level, m.key): _belief_to_dict(m) for m in rows}
     finally:
         session.close()
-
-
-# Backwards-compatible aliases for the single overall ability belief.
-get_ability = get_skill_belief
-
-
-def save_ability(candidate: str, mean: float, variance: float, questions_answered: int) -> None:
-    return save_skill_belief(candidate, mean, variance, questions_answered)
 
 
 def _list_tasks(

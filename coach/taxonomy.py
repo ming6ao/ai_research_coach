@@ -225,22 +225,8 @@ ALL_NODES: list[str] = DOMAINS + AREA_NODES + LEAF_NODES
 ALL_TAGS: list[str] = list(LEAF_NODES)
 
 # Synonym/alternate-name map -> canonical node id (usually a leaf). Keeps LLM
-# categorization and human entry robust to near-duplicate phrasing, and lets
-# retired family/tag names still resolve to a sensible node.
+# categorization and human entry robust to near-duplicate phrasing.
 ALIASES: dict[str, str] = {
-    # retired family / area names
-    "dl_arch": "architectures",
-    "deep_learning_architectures": "architectures",
-    "llm_genai": "pretraining",
-    "mlops_serving": "ml_platform",
-    "mlops": "ml_platform",
-    "data_etl": "data_and_storage_infra",
-    "stats_probability": "probability_statistics",
-    "stats": "probability_statistics",
-    "optimization": "optimization_theory",
-    "eval": "evaluation",
-    "training": "pretraining_objectives",
-    "python": "testing",
     # pretraining / post-training
     "pretraining": "pretraining_objectives",
     "pretraining_finetuning": "pretraining_objectives",
@@ -385,15 +371,6 @@ def is_area(node: str | None) -> bool:
     return canon is not None and NODE_LEVEL.get(canon, 0) == 2
 
 
-# Back-compat aliases for the old two-level API.
-def is_valid_tag(tag: str | None) -> bool:
-    return is_leaf(tag)
-
-
-def is_valid_family(family: str | None) -> bool:
-    return is_area(family)
-
-
 def normalize_node(name: str | None) -> str | None:
     return resolve_node(name)
 
@@ -436,11 +413,6 @@ def domain_of(node: str | None) -> str | None:
 def area_of(node: str | None) -> str | None:
     path = path_of(node)
     return path[1] if len(path) > 1 else None
-
-
-# Backwards-compatible alias: the old "family" is now the area level.
-def family_of(tag: str | None) -> str | None:
-    return area_of(tag)
 
 
 def validate(tags: dict | None) -> dict:
