@@ -75,6 +75,100 @@ def _save_area_beliefs(session) -> None:
         pass
 
 
+def _update_beliefs(session, task, targets, result, observation, global_difficulty):
+    """Apply one scored observation: global ability once + per-target tag/family.
+
+    Returns ``(before, after, new_score, new_variance, new_questions)``.
+    """
+    from coach.score import bayesian_update, effective_score, measurement_variance
+    from coach.session import SkillState
+    from coach.steps import belief_state
+    from coach.taxonomy import family_of
+
+    state_obj = session.get_ability()
+    session.ensure_area_beliefs()
+    before = belief_state(session)
+
+    obs_variance = measurement_variance(global_difficulty, state_obj.score)
+    new_score, new_variance = bayesian_update(
+        state_obj.score, state_obj.variance, observation, obs_variance
+    )
+    session.ability = SkillState(
+        score=new_score,
+        variance=new_variance,
+        questions_answered=state_obj.questions_answered + 1,
+        evidence=state_obj.evidence + [result.rationale],
+    )
+
+    scored_by_key = {p["key"]: p for p in (result.parts or [])}
+    for part in targets:
+        part_max = int(part.get("max_score") or 5)
+        part_score = scored_by_key.get(part["key"], {}).get("score") or part_max * 0.5
+        part_obs = effective_score(part_score / part_max if part_max else 0.0)
+        part_tags = part.get("tags") or {}
+        primary_tag = part_tags.get("primary")
+        family = family_of(primary_tag) if primary_tag else None
+        part_difficulty = int(part.get("difficulty") or task.get("difficulty") or 1)
+        if primary_tag:
+            tag_state = session.get_tag_state(primary_tag)
+            session.tag_states[primary_tag] = tag_state.update(part_difficulty, part_obs)
+        if family:
+            fam_state = session.get_family_state(family)
+            session.family_states[family] = fam_state.update(part_difficulty, part_obs)
+
+    after = belief_state(session)
+    return before, after, new_score, new_variance, state_obj.questions_answered + 1
+
+
+def _persist_beliefs(session, new_score, new_variance, new_questions) -> None:
+    """Persist global + per-area beliefs (best-effort)."""
+    try:
+        from coach.tasks import save_skill_belief as _save_belief
+
+        _save_belief(session.candidate, new_score, new_variance, new_questions)
+        _save_area_beliefs(session)
+    except Exception:
+        pass
+
+
+def _latest_task_step(session_id: str, task_id: str):
+    """Latest recorded step for a task in a session, or None."""
+    from coach.steps import list_steps
+
+    steps = [
+        s for s in list_steps(session_id)
+        if (s.get("task_id") or (s.get("task_snapshot") or {}).get("id")) == task_id
+    ]
+    return steps[-1] if steps else None
+
+
+def _last_code_for(session_id: str, task_id: str):
+    """Candidate's latest submitted code for a task (phase carry-forward)."""
+    try:
+        from coach.steps import answer_for_task
+
+        return answer_for_task(session_id, task_id)
+    except Exception:
+        return None
+
+
+def _replay_response(session, session_id: str, step: dict) -> dict:
+    """Stored-result response for an idempotent re-submit."""
+    from coach.selection import pick_next_task
+
+    return {
+        "data": {
+            "result": step.get("result") or {},
+            "coach": step.get("coaching") or {},
+            "next_task": pick_next_task(session.candidate, session, session_id=session_id),
+            "remaining": len(session.tasks) - session.index,
+            "ability_update": None,
+            "mastery": _mastery_dict(session),
+            "already_answered": True,
+        }
+    }
+
+
 def _load_session(store, session_id: str):
     """Load a session, hydrate its results from steps, and return (session, state)."""
     from coach.session import Session
@@ -135,6 +229,7 @@ def _materialize_prefix(session, session_id: str, state: dict) -> bool:
             session.results.append(EvaluationResult.from_dict(st.get("result") or {}))
         except Exception:
             pass
+    session.submission_index = max(session.submission_index, len(steps))
     get_store().set_resumed_from_share(session_id, None)
     return True
 
@@ -319,12 +414,12 @@ def delete_session(session_id: str, user: Optional[dict] = Depends(get_current_u
 def submit_answer(
     session_id: str, req: AnswerSubmitRequest, user: Optional[dict] = Depends(get_current_user)
 ):
+    from coach.config import PHASE_MAX_ATTEMPTS, default_pass_score
     from coach.judge import LLMJudge, score_targets
-    from coach.score import bayesian_update, effective_score, measurement_variance
+    from coach.score import effective_score
     from coach.selection import pick_next_task
-    from coach.session import SkillState, task_view
-    from coach.steps import belief_state, insert_step
-    from coach.taxonomy import family_of
+    from coach.session import active_phase, completed_phases, is_phased, task_view
+    from coach.steps import insert_step
 
     store = get_store()
     session, state = _load_session(store, session_id)
@@ -336,18 +431,29 @@ def submit_answer(
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task {req.task_id} not found.")
 
-    if req.task_id in session.asked_task_ids:
+    phased = is_phased(task)
+
+    # Idempotency: block tasks replay by task id; phased tasks replay only an
+    # identical answer to the current (unadvanced) phase.
+    if phased:
+        active = active_phase(task, session)
+        if active is None:
+            latest = _latest_task_step(session_id, task["id"])
+            if latest is not None:
+                return _replay_response(session, session_id, latest)
+            raise HTTPException(status_code=400, detail="This task is already complete.")
+        latest = _latest_task_step(session_id, task["id"])
+        latest_parts = (latest.get("result") or {}).get("parts") or [] if latest else []
+        if (
+            latest is not None
+            and latest.get("user_answer") == req.answer
+            and latest_parts
+            and latest_parts[0].get("key") == active["key"]
+        ):
+            return _replay_response(session, session_id, latest)
+    elif req.task_id in session.asked_task_ids:
         existing = next((r for r in session.results if r.task_id == req.task_id), None)
         if existing is not None:
-            from coach.shares import feedback_from_steps
-
-            steps = []
-            try:
-                from coach.steps import list_steps
-
-                steps = list_steps(session_id)
-            except Exception:
-                pass
             return {
                 "data": {
                     "result": existing.to_dict(),
@@ -362,64 +468,62 @@ def submit_answer(
                 }
             }
 
-    # A version successor is evaluated against its predecessor's submitted
-    # code, carried forward as context.
-    previous_code = None
-    if task.get("depends_on_task_id"):
-        try:
-            from coach.steps import answer_for_task
+    # Resolve the scoring target. A phased task scores only its active part,
+    # judged against the candidate's previous code for the same task.
+    if phased:
+        parts = task.get("parts") or []
+        idx = completed_phases(task, session)
+        active = parts[idx]
+        pass_score = int(
+            active.get("pass_score") or default_pass_score(int(active.get("max_score") or 5))
+        )
+        previous_code = _last_code_for(session_id, task["id"])
+        judge_task = {
+            **task,
+            "parts": [active],
+            "max_score": int(active.get("max_score") or 5),
+            "difficulty": int(active.get("difficulty") or task.get("difficulty") or 2),
+        }
+        targets = [active]
+        global_difficulty = int(active.get("difficulty") or task.get("difficulty") or 2)
+        role = "phase"
+    else:
+        previous_code = None
+        judge_task = task
+        targets = score_targets(task)
+        global_difficulty = task.get("difficulty", 1)
+        role = str(task.get("generated_kind") or "remediate") if task.get("generated") else "bank"
 
-            previous_code = answer_for_task(session_id, task["depends_on_task_id"])
-        except Exception:
-            previous_code = None
-    result, coach = LLMJudge().evaluate(task, req.answer, previous_code=previous_code)
+    result, coach = LLMJudge().evaluate(judge_task, req.answer, previous_code=previous_code)
 
-    state_obj = session.get_ability()
-    session.ensure_area_beliefs()
-    before = belief_state(session)
-
-    # Global ability updates once with the aggregate block fraction.
     observation = effective_score(result.fraction)
-    obs_variance = measurement_variance(task.get("difficulty", 1), state_obj.score)
-    new_score, new_variance = bayesian_update(
-        state_obj.score, state_obj.variance, observation, obs_variance
-    )
-    session.ability = SkillState(
-        score=new_score,
-        variance=new_variance,
-        questions_answered=state_obj.questions_answered + 1,
-        evidence=state_obj.evidence + [result.rationale],
+    before, after, new_score, new_variance, new_questions = _update_beliefs(
+        session, task, targets, result, observation, global_difficulty
     )
 
-    # Per-part belief updates: each part's own score feeds its own primary
-    # tag and family, at the part's own difficulty (§3). Secondary tags never
-    # feed the estimator (coverage/diversity only).
-    targets = score_targets(task)
-    scored_by_key = {p["key"]: p for p in (result.parts or [])}
-    for part in targets:
-        part_max = int(part.get("max_score") or 5)
-        part_score = scored_by_key.get(part["key"], {}).get("score") or part_max * 0.5
-        part_obs = effective_score(part_score / part_max if part_max else 0.0)
-        part_tags = part.get("tags") or {}
-        primary_tag = part_tags.get("primary")
-        family = family_of(primary_tag) if primary_tag else None
-        part_difficulty = int(part.get("difficulty") or task.get("difficulty") or 1)
-        if primary_tag:
-            tag_state = session.get_tag_state(primary_tag)
-            session.tag_states[primary_tag] = tag_state.update(part_difficulty, part_obs)
-        if family:
-            fam_state = session.get_family_state(family)
-            session.family_states[family] = fam_state.update(part_difficulty, part_obs)
+    step_index = session.submission_index
+    if phased:
+        attempts = session.phase_attempts.get(task["id"], 0) + 1
+        passed = result.score >= pass_score
+        advanced = passed or attempts >= PHASE_MAX_ATTEMPTS
+        if advanced:
+            session.task_progress[task["id"]] = idx + 1
+            session.phase_attempts[task["id"]] = 0
+            if session.task_progress[task["id"]] >= len(parts):
+                session.asked_task_ids.add(task["id"])
+                session.index += 1
+        else:
+            session.phase_attempts[task["id"]] = attempts
+        session.results.append(result)
+    else:
+        session.asked_task_ids.add(req.task_id)
+        session.results.append(result)
+        session.index += 1
 
-    after = belief_state(session)
-
-    role = "bank"
-    if task.get("generated"):
-        role = str(task.get("generated_kind") or "remediate")
     insert_step(
         session_id,
         session.candidate,
-        session.index,
+        step_index,
         task,
         role,
         req.answer,
@@ -434,21 +538,9 @@ def submit_answer(
         coach.to_dict(),
         inherited=False,
     )
+    session.submission_index += 1
 
-    try:
-        from coach.tasks import save_skill_belief as _save_belief
-
-        _save_belief(
-            session.candidate, new_score, new_variance,
-            state_obj.questions_answered + 1,
-        )
-        _save_area_beliefs(session)
-    except Exception:
-        pass
-
-    session.asked_task_ids.add(req.task_id)
-    session.results.append(result)
-    session.index += 1
+    _persist_beliefs(session, new_score, new_variance, new_questions)
 
     ability_update = {
         "new_score": new_score,
@@ -545,12 +637,11 @@ def redo_step(
     user: Optional[dict] = Depends(get_current_user),
 ):
     from coach.judge import LLMJudge, score_targets
-    from coach.score import bayesian_update, effective_score, measurement_variance
+    from coach.score import effective_score
     from coach.selection import pick_next_task
-    from coach.session import Session, SkillState
+    from coach.session import Session
     from coach.shares import get_share
-    from coach.steps import belief_state, insert_step
-    from coach.taxonomy import family_of
+    from coach.steps import insert_step
 
     store = get_store()
     session, state = _load_session(store, session_id)
@@ -594,42 +685,40 @@ def redo_step(
         )
 
     task = steps[k].get("task_snapshot") or {}
-    result, coach = LLMJudge().evaluate(task, req.answer)
+    phased = (task.get("delivery") or "block") == "phased" and bool(task.get("parts"))
+    previous_code = None
+    if phased:
+        stored_parts = (steps[k].get("result") or {}).get("parts") or []
+        stored_key = stored_parts[0].get("key") if stored_parts else None
+        active = next(
+            (p for p in task["parts"] if p.get("key") == stored_key),
+            task["parts"][0],
+        )
+        judge_task = {
+            **task,
+            "parts": [active],
+            "max_score": int(active.get("max_score") or 5),
+            "difficulty": int(active.get("difficulty") or task.get("difficulty") or 2),
+        }
+        targets = [active]
+        global_difficulty = int(active.get("difficulty") or task.get("difficulty") or 2)
+        try:
+            from coach.steps import answer_for_task
 
-    state_obj = session.get_ability()
-    session.ensure_area_beliefs()
-    before = belief_state(session)
+            previous_code = answer_for_task(session_id, task.get("id"))
+        except Exception:
+            previous_code = None
+    else:
+        judge_task = task
+        targets = score_targets(task)
+        global_difficulty = task.get("difficulty", 1)
+
+    result, coach = LLMJudge().evaluate(judge_task, req.answer, previous_code=previous_code)
 
     observation = effective_score(result.fraction)
-    obs_variance = measurement_variance(task.get("difficulty", 1), state_obj.score)
-    new_score, new_variance = bayesian_update(
-        state_obj.score, state_obj.variance, observation, obs_variance
+    before, after, new_score, new_variance, new_questions = _update_beliefs(
+        session, task, targets, result, observation, global_difficulty
     )
-
-    session.ability = SkillState(
-        score=new_score,
-        variance=new_variance,
-        questions_answered=state_obj.questions_answered + 1,
-        evidence=state_obj.evidence + [result.rationale],
-    )
-
-    targets = score_targets(task)
-    scored_by_key = {p["key"]: p for p in (result.parts or [])}
-    for part in targets:
-        part_max = int(part.get("max_score") or 5)
-        part_score = scored_by_key.get(part["key"], {}).get("score") or part_max * 0.5
-        part_obs = effective_score(part_score / part_max if part_max else 0.0)
-        part_tags = part.get("tags") or {}
-        primary_tag = part_tags.get("primary")
-        family = family_of(primary_tag) if primary_tag else None
-        part_difficulty = int(part.get("difficulty") or task.get("difficulty") or 1)
-        if primary_tag:
-            tag_state = session.get_tag_state(primary_tag)
-            session.tag_states[primary_tag] = tag_state.update(part_difficulty, part_obs)
-        if family:
-            fam_state = session.get_family_state(family)
-            session.family_states[family] = fam_state.update(part_difficulty, part_obs)
-    after = belief_state(session)
 
     insert_step(
         session_id,
@@ -649,20 +738,15 @@ def redo_step(
         coach.to_dict(),
         inherited=False,
     )
+    session.submission_index = max(session.submission_index, k + 1)
 
-    try:
-        from coach.tasks import save_skill_belief as _save_belief
-
-        _save_belief(
-            session.candidate, new_score, new_variance,
-            state_obj.questions_answered + 1,
-        )
-        _save_area_beliefs(session)
-    except Exception:
-        pass
+    _persist_beliefs(session, new_score, new_variance, new_questions)
 
     session.asked_task_ids.add(task.get("id"))
-    session.index = k + 1
+    if phased:
+        session.task_progress[task.get("id")] = len(task.get("parts") or [])
+        session.phase_attempts[task.get("id")] = 0
+    session.index = max(session.index, k + 1)
     session.results = [r for r in session.results if r.task_id != task.get("id")]
     session.results.append(result)
     store.set_resumed_from_share(session_id, None)

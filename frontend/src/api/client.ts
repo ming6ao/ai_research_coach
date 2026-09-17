@@ -7,6 +7,8 @@ export interface TaskPart {
   max_score: number;
   difficulty: number;
   tags?: TaskTags;
+  scaffold?: string;
+  pass_score?: number;
 }
 
 export interface TaskTags {
@@ -30,6 +32,10 @@ export interface Task {
   tags?: TaskTags;
   task_type?: string;
   language?: string;
+  delivery?: 'block' | 'phased';
+  phase_index?: number;
+  phase_total?: number;
+  pass_score?: number;
   remediation?: { focus?: string; kind?: string; root_task_id?: string };
 }
 
@@ -39,6 +45,7 @@ export interface EvaluationResult {
   max_score: number;
   rationale: string;
   coach?: CoachContent;
+  parts?: Array<{ key: string; score: number; rationale: string }>;
 }
 
 export interface CoachStep {
@@ -131,6 +138,9 @@ export interface FeedbackEntry {
   tags?: TaskTags;
   parts?: TaskPart[];
   language?: string;
+  delivery?: string;
+  phase_index?: number | null;
+  phase_total?: number | null;
 }
 
 export interface UnifiedSession {
@@ -293,6 +303,7 @@ export interface TaskCreateBody {
   version_index?: number;
   depends_on_task_id?: string;
   version_root_id?: string;
+  delivery?: 'block' | 'phased';
   owner?: string;
 }
 

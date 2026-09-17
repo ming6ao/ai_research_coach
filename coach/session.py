@@ -79,6 +79,13 @@ class Session:
     generated_task_ids: Set[str] = field(default_factory=set)
     family_states: Dict[str, AreaState] = field(default_factory=dict)
     tag_states: Dict[str, AreaState] = field(default_factory=dict)
+    # Phased delivery bookkeeping: task_id -> phases passed / attempts on the
+    # current phase. ``submission_index`` is the monotonic step counter (it
+    # replaces ``index`` for ``session_steps.step_index`` so repeated phase
+    # submissions never collide).
+    task_progress: Dict[str, int] = field(default_factory=dict)
+    phase_attempts: Dict[str, int] = field(default_factory=dict)
+    submission_index: int = 0
     _area_restored: bool = field(default=False, init=False)
 
     def __post_init__(self):
@@ -218,6 +225,9 @@ class Session:
             "ability": self.ability.to_dict(),
             "asked_task_ids": list(self.asked_task_ids),
             "generated_task_ids": list(self.generated_task_ids),
+            "task_progress": dict(self.task_progress),
+            "phase_attempts": dict(self.phase_attempts),
+            "submission_index": self.submission_index,
         }
 
     @classmethod
@@ -237,6 +247,13 @@ class Session:
             s.ability = SkillState.from_dict(d["ability"])
         s.asked_task_ids = set(d.get("asked_task_ids", []) or [])
         s.generated_task_ids = set(d.get("generated_task_ids", []) or [])
+        s.task_progress = {
+            str(k): int(v) for k, v in (d.get("task_progress", {}) or {}).items()
+        }
+        s.phase_attempts = {
+            str(k): int(v) for k, v in (d.get("phase_attempts", {}) or {}).items()
+        }
+        s.submission_index = int(d.get("submission_index", 0) or 0)
         for r in d.get("results") or []:
             try:
                 s.results.append(EvaluationResult.from_dict(r))
@@ -309,15 +326,32 @@ def build_code_stub(task: dict) -> str | None:
     return None
 
 
-def _version_total(task: dict, session: Session) -> int:
-    """Total number of versions in this task's version chain."""
-    root_id = task.get("version_root_id") or task.get("id")
-    indexes = {
-        (t.get("version_index") or 1)
-        for t in session.tasks
-        if (t.get("version_root_id") or t.get("id")) == root_id
-    }
-    return max(indexes) if indexes else 1
+def is_phased(task: dict) -> bool:
+    """True when a task delivers its parts one at a time."""
+    return (task.get("delivery") or "block") == "phased" and bool(task.get("parts"))
+
+
+def completed_phases(task: dict, session: Session) -> int:
+    """Number of phases already passed for ``task`` in this session."""
+    return int(session.task_progress.get(task.get("id"), 0) or 0)
+
+
+def active_phase(task: dict, session: Session) -> Optional[dict]:
+    """The active part for a phased task, or None when complete/not phased."""
+    if not is_phased(task):
+        return None
+    parts = task.get("parts") or []
+    idx = completed_phases(task, session)
+    if idx < 0 or idx >= len(parts):
+        return None
+    return parts[idx]
+
+
+def _phase_scaffold(task: dict, part: dict) -> Optional[str]:
+    """Starter code for one phase: its own scaffold, else a composed stub."""
+    if part.get("scaffold"):
+        return part["scaffold"]
+    return _compose_block_scaffold({"parts": [part]})
 
 
 def task_view(
@@ -325,34 +359,40 @@ def task_view(
 ) -> dict | None:
     """Build the client-facing view of a task.
 
-    Code blocks emit their ``parts`` and aggregate ``max_score``; version
-    successors additionally carry ``previous_code`` (the predecessor's
-    submitted answer), ``version_index``, ``version_total``, and
-    ``depends_on_task_id``.
+    Code blocks emit all their ``parts``. Phased tasks emit only the active
+    phase's part plus ``phase_index``/``phase_total`` and its own scaffold, so
+    the learner sees one step at a time with their prior code carried forward
+    via ``previous_code``.
     """
     if task is None:
         return None
+    parts = task.get("parts") or []
+    phased = is_phased(task)
+    active = active_phase(task, session) if phased else None
     view = {
         "id": task["id"],
         "type": "code",
         "prompt": task["prompt"],
         "difficulty": task.get("difficulty", 1),
         "max_score": task.get("max_score", 5),
-        "scaffold": build_code_stub(task),
+        "scaffold": _phase_scaffold(task, active) if active else build_code_stub(task),
         "tags": task.get("tags") or {"primary": "python", "secondary": []},
         "task_type": task.get("task_type") or "implement",
         "language": task.get("language") or "python",
     }
-    parts = task.get("parts") or []
-    if parts:
+    if phased and active:
+        idx = completed_phases(task, session)
+        view["delivery"] = "phased"
+        view["phase_index"] = idx + 1
+        view["phase_total"] = len(parts)
+        view["parts"] = [active]
+        view["max_score"] = int(active.get("max_score") or 5)
+        if active.get("pass_score") is not None:
+            view["pass_score"] = int(active.get("pass_score"))
+    elif parts:
         view["parts"] = parts
     if previous_code:
         view["previous_code"] = previous_code
-    if task.get("version_index") and task["version_index"] > 1:
-        view["version_index"] = task["version_index"]
-        view["version_total"] = _version_total(task, session)
-    if task.get("depends_on_task_id"):
-        view["depends_on_task_id"] = task["depends_on_task_id"]
     if task.get("context_notes"):
         view["context_notes"] = task["context_notes"]
     if task.get("generated"):

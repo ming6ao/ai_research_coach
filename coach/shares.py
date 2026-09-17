@@ -128,6 +128,17 @@ def feedback_from_steps(steps: list[dict]) -> list[dict]:
     for st in steps:
         task = st.get("task_snapshot") or {}
         coaching = st.get("coaching") or {}
+        parts = task.get("parts")
+        phase_index = None
+        phase_total = None
+        if (task.get("delivery") or "block") == "phased" and parts:
+            phase_total = len(parts)
+            result_parts = (st.get("result") or {}).get("parts") or []
+            key = result_parts[0].get("key") if result_parts else None
+            keys = [p.get("key") for p in parts]
+            if key in keys:
+                phase_index = keys.index(key) + 1
+                parts = [parts[phase_index - 1]]
         out.append(
             {
                 "task_id": st.get("task_id") or task.get("id"),
@@ -139,9 +150,12 @@ def feedback_from_steps(steps: list[dict]) -> list[dict]:
                 "coach": coaching,
                 "hints_used": st.get("hints_used") or [],
                 "tags": task.get("tags"),
-                "parts": task.get("parts"),
+                "parts": parts,
                 "language": task.get("language") or "python",
                 "scored": True,
+                "delivery": task.get("delivery") or "block",
+                "phase_index": phase_index,
+                "phase_total": phase_total,
             }
         )
     return out

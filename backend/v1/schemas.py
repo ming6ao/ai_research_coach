@@ -50,6 +50,7 @@ class TaskCreateRequest(BaseModel):
     version_index: Optional[int] = Field(default=None, ge=1)
     depends_on_task_id: Optional[str] = Field(default=None, max_length=128)
     version_root_id: Optional[str] = Field(default=None, max_length=128)
+    delivery: Optional[str] = Field(default=None, max_length=16)
 
 
 class TaskPatchRequest(BaseModel):
@@ -67,6 +68,7 @@ class TaskPatchRequest(BaseModel):
     depends_on_task_id: Optional[str] = Field(default=None, max_length=128)
     version_root_id: Optional[str] = Field(default=None, max_length=128)
     owner: Optional[str] = Field(default=None, max_length=255)
+    delivery: Optional[str] = Field(default=None, max_length=16)
 
 
 class AdminSeedCreateRequest(BaseModel):
@@ -83,3 +85,4 @@ class AdminSeedCreateRequest(BaseModel):
     version_index: Optional[int] = Field(default=None, ge=1)
     depends_on_task_id: Optional[str] = Field(default=None, max_length=128)
     version_root_id: Optional[str] = Field(default=None, max_length=128)
+    delivery: Optional[str] = Field(default=None, max_length=16)

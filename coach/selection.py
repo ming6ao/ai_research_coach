@@ -2,9 +2,10 @@
 
 1. Pending generated task — an injected follow-up not yet asked surfaces first
    (generated tasks are excluded from the bank picker).
-2. Version successor — after a submission (or on resume), the unasked task
-   whose ``depends_on_task_id`` equals the last answered task's id (e.g. a
-   thread-safe queue follows a plain bounded queue).
+2. Active phased task — a ``delivery='phased'`` task that has been started but
+   not completed continues (next phase after a pass, or the same phase after a
+   failed attempt). Its view carries the candidate's prior code forward as
+   ``previous_code``.
 3. Judge-driven follow-up — after a submission, ``plan_followup`` may inject
    an adaptive drill (simpler on failure; harder escalation or sibling
    prerequisite pivot after a solved follow-up).
@@ -13,48 +14,59 @@
    task via ``plan_challenge`` so the session keeps going indefinitely.
    ``None`` is returned only when generation also fails; the session ends
    explicitly when the user chooses Finish / View progress.
+
+Version chains are retired from selection: successors are never picked and
+are migrated into phased tasks (see ``coach.tasks.merge_version_chain``).
 """
 
 from __future__ import annotations
 
 from typing import Optional
 
-from coach.session import task_view
+from coach.session import is_phased, task_view
 
 
-def _version_successor(session, task: Optional[dict] = None) -> Optional[dict]:
-    """Return the unasked version successor of ``task``, or None.
-
-    Without an explicit task (resume path) the last answered task is used.
-    A successor is a task whose ``depends_on_task_id`` points at ``task`` and
-    that has not been asked in this session yet.
-    """
-    if task is None:
-        if session.results:
-            last = session.results[-1]
-            by_id = {t.get("id"): t for t in (getattr(session, "tasks", []) or [])}
-            task = by_id.get(getattr(last, "task_id", None))
-    if not task:
-        return None
-    for t in (getattr(session, "tasks", []) or []):
-        if t.get("depends_on_task_id") == task["id"] and t["id"] not in session.asked_task_ids:
-            return t
-    return None
-
-
-def _previous_code_for(session_id: Optional[str], successor: dict) -> Optional[str]:
-    """Fetch the predecessor's submitted code from ``session_steps``."""
+def _last_code_for(session_id: Optional[str], task_id: str) -> Optional[str]:
+    """Fetch the candidate's latest submitted code for a task, or None."""
     if not session_id:
-        return None
-    pred_id = successor.get("depends_on_task_id")
-    if not pred_id:
         return None
     try:
         from coach.steps import answer_for_task
 
-        return answer_for_task(session_id, pred_id)
+        return answer_for_task(session_id, task_id)
     except Exception:
         return None
+
+
+def _task_started(session, task: dict) -> bool:
+    """True once a phased task has at least one attempt or passed phase."""
+    task_id = task.get("id")
+    return bool(
+        session.task_progress.get(task_id, 0)
+        or session.phase_attempts.get(task_id, 0)
+    )
+
+
+def _active_phased_task(session, task: Optional[dict] = None) -> Optional[dict]:
+    """A started-but-unfinished phased task, or None.
+
+    Called with the just-submitted task (post-submit path) or without one
+    (resume path, where it scans the session's tasks).
+    """
+    def unfinished(t: dict) -> bool:
+        return (
+            is_phased(t)
+            and t.get("id") not in session.asked_task_ids
+            and session.task_progress.get(t.get("id"), 0) < len(t.get("parts") or [])
+            and _task_started(session, t)
+        )
+
+    if task is not None and unfinished(task):
+        return task
+    for t in getattr(session, "tasks", []) or []:
+        if unfinished(t):
+            return t
+    return None
 
 
 def pick_next_task(
@@ -68,14 +80,14 @@ def pick_next_task(
     """Choose the next task to present.
 
     ``last_submission`` carries ``{"task", "answer", "result", "coach"}``
-    from a just-recorded submission (``answer`` is the predecessor's code,
-    carried forward into a version successor). ``sample_top_n`` (> 1)
-    samples uniformly from the top-N EIG bank candidates instead of always
-    taking the single best; it applies to the bank-picker branch only.
-    ``family`` restricts the bank-picker branch to tasks in one family (used
-    to seed a session with a question in an area); it never affects
-    pending/follow-up branches. ``session_id`` lets the resume path fetch a
-    predecessor's code from ``session_steps`` for version successors.
+    from a just-recorded submission (``answer`` is the candidate's code,
+    carried into the next phase). ``sample_top_n`` (> 1) samples uniformly
+    from the top-N EIG bank candidates instead of always taking the single
+    best; it applies to the bank-picker branch only. ``family`` restricts the
+    bank-picker branch to tasks in one family (used to seed a session with a
+    question in an area); it never affects pending/follow-up branches.
+    ``session_id`` lets the resume path fetch the candidate's prior code for
+    an in-progress phased task.
     """
     from coach.picker import next_task as next_task_bank
 
@@ -87,15 +99,15 @@ def pick_next_task(
     if pending is not None:
         return task_view(pending, session)
 
-    # 2. Version successor after a submission (or on resume).
-    successor = _version_successor(session, (last_submission or {}).get("task"))
-    if successor is not None:
+    # 2. Continue / retry an active phased task.
+    active = _active_phased_task(session, (last_submission or {}).get("task"))
+    if active is not None:
         previous_code = None
         if last_submission and last_submission.get("answer"):
             previous_code = last_submission.get("answer")
         else:
-            previous_code = _previous_code_for(session_id, successor)
-        return task_view(successor, session, previous_code=previous_code)
+            previous_code = _last_code_for(session_id, active["id"])
+        return task_view(active, session, previous_code=previous_code)
 
     # 3. Judge-driven follow-up after a submission (LLM drill/escalate/pivot).
     if last_submission is not None:

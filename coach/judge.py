@@ -138,9 +138,10 @@ _SCHEMA = types.Schema(
 
 _SYSTEM_PROMPT = """\
 You are a strict technical judge AND a patient coach for AI/ML coding tasks. \
-The task asks the candidate to implement one or more functions (the "parts" \
-list in the user message, each with its own max score). Evaluate each listed \
-function independently for correctness, edge-case handling, and clarity. \
+The task asks the candidate to implement one or more parts (a part may be a \
+function or a phase of a larger problem); the "parts" list in the user \
+message gives each with its own max score. Evaluate each listed part \
+independently for correctness, edge-case handling, and clarity. \
 Return a JSON object with five keys:
 
   "parts": an array with exactly one entry per part key, each entry \
@@ -213,7 +214,7 @@ class LLMJudge:
         user = (
             f"Task:\n{task.get('prompt', '')}\n\n"
             f"Implementation language: {language}\n\n"
-            f"Parts to implement:\n{parts_block}\n\n"
+            f"Parts to implement (score every part):\n{parts_block}\n\n"
         )
         if previous_code:
             user += (

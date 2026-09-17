@@ -93,6 +93,7 @@ def create_seed(req: AdminSeedCreateRequest, user: dict = Depends(_require_admin
             version_index=req.version_index,
             depends_on_task_id=req.depends_on_task_id,
             version_root_id=req.version_root_id,
+            delivery=req.delivery or "block",
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))

@@ -82,6 +82,9 @@ def resume_share(
         "ability": ability,
         "asked_task_ids": s.get("asked_task_ids", []),
         "generated_task_ids": s.get("generated_task_ids", []),
+        "task_progress": s.get("task_progress", {}),
+        "phase_attempts": s.get("phase_attempts", {}),
+        "submission_index": s.get("submission_index", 0),
     }
     session = Session.from_dict(session_dict)
 

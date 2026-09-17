@@ -93,41 +93,46 @@ def test_scaffold_auto_composition():
     assert "def g(*args):" in stub  # fallback for parts without a signature
 
 
-def test_version_successor_selected_with_code_carry_forward(tmp_path, monkeypatch):
+def test_version_successors_retired_from_selection(tmp_path, monkeypatch):
+    """Version chains are retired: a successor is never auto-selected."""
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "ver.db")
     from coach.selection import pick_next_task
     from coach.session import Session
-    from coach.steps import insert_step
 
     pred, succ = _make_pred_succ()
-    session = Session("c", tasks=[pred, succ])
+    other = {
+        "id": "other", "prompt": "Another task.", "difficulty": 2, "max_score": 5,
+        "tags": {"primary": "python", "secondary": []},
+    }
+    session = Session("c", tasks=[pred, succ, other])
     session.asked_task_ids.add("pred")
-    session.results.append(EvaluationResult("pred", 5, 5, "ok"))
-    insert_step(
-        "sess", "c", 0, pred, "bank", "OLD QUEUE CODE", 5, 5, 1.0, 1.0, [],
-        None, None, {}, None,
-    )
-
-    # After a submission the successor surfaces, with the predecessor's code
-    # carried into the view.
-    picked = pick_next_task(
-        session.candidate, session,
-        last_submission={"task": pred, "answer": "NEW QUEUE CODE"},
-        session_id="sess",
-    )
+    picked = pick_next_task(session.candidate, session)
     assert picked is not None
-    assert picked["id"] == "succ"
-    assert picked["version_index"] == 2
-    assert picked["version_total"] == 2
-    assert picked["depends_on_task_id"] == "pred"
-    assert picked["previous_code"] == "NEW QUEUE CODE"
+    assert picked["id"] != "succ"
 
-    # Resume path (no last_submission): the predecessor code is fetched from
-    # session_steps instead.
-    picked2 = pick_next_task(session.candidate, session, session_id="sess")
-    assert picked2 is not None
-    assert picked2["id"] == "succ"
-    assert picked2["previous_code"] == "OLD QUEUE CODE"
+
+def test_merge_version_chain_to_phased(tmp_path, monkeypatch):
+    """A version chain migrates into one phased task (parts = versions)."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "merge.db")
+    from coach.tasks import create_task, get_task, merge_version_chain
+
+    root = create_task(
+        prompt="Implement a queue.", source="seed", is_public=True,
+        parts=[{"key": "a", "prompt": "def put(x): ...",
+                "tags": {"primary": "data_structures"}, "max_score": 5, "difficulty": 2}],
+    )
+    create_task(
+        prompt="Make it thread-safe.", source="seed", is_public=True,
+        parts=[{"key": "b", "prompt": "def put(x): ...",
+                "tags": {"primary": "data_structures"}, "max_score": 5, "difficulty": 4}],
+        depends_on_task_id=root["id"],
+    )
+    merged = merge_version_chain(root["id"], delete_originals=True)
+    assert merged is not None
+    assert merged["delivery"] == "phased"
+    assert len(merged["parts"]) == 2
+    assert merged["parts"][0]["pass_score"] == 4  # round(0.7 * 5)
+    assert get_task(root["id"]) is None  # originals removed
 
 
 def test_successor_excluded_from_bank_picker():

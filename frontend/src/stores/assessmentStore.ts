@@ -14,12 +14,16 @@ export interface ResultWithFeedback {
   tags?: TaskTags;
   parts?: TaskPart[];
   language?: string;
+  phase_index?: number;
+  phase_total?: number;
 }
 
 interface AssessmentState {
   sessionId: string | null;
   candidate: string;
   currentTask: Task | null;
+  /** Next task held behind the teaching pause until `advance()` is called. */
+  pendingTask: Task | null;
   taskIndex: number;
   totalTasks: number;
   results: ResultWithFeedback[];
@@ -34,6 +38,7 @@ interface AssessmentState {
   startAssessment: (initialQuestion?: string, opts?: { randomFirst?: boolean; family?: string }) => Promise<void>;
   resumeSession: (response: ResumeResponse) => void;
   submitAnswer: (taskId: string, answer: string) => Promise<void>;
+  advance: () => void;
   completeSession: () => Promise<void>;
   loadOverview: () => Promise<void>;
   reset: () => void;
@@ -52,6 +57,8 @@ function toResultWithFeedback(entry: FeedbackEntry): ResultWithFeedback {
     tags: entry.tags,
     parts: entry.parts,
     language: entry.language,
+    phase_index: entry.phase_index ?? undefined,
+    phase_total: entry.phase_total ?? undefined,
   };
 }
 
@@ -74,6 +81,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
   sessionId: null,
   candidate: '',
   currentTask: null,
+  pendingTask: null,
   taskIndex: 0,
   totalTasks: 0,
   results: [],
@@ -91,6 +99,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       sessionId: res.id,
       candidate: res.candidate,
       currentTask: res.current_task,
+      pendingTask: null,
       taskIndex: res.task_index,
       totalTasks: res.total_tasks,
       results,
@@ -109,6 +118,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         sessionId: res.id,
         candidate: res.candidate,
         currentTask: res.current_task,
+        pendingTask: null,
         taskIndex: 0,
         totalTasks: res.total_tasks,
         results: [],
@@ -143,6 +153,9 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         scored: true,
         tags: currentTask?.tags,
         parts: currentTask?.parts,
+        language: currentTask?.language,
+        phase_index: currentTask?.phase_index,
+        phase_total: currentTask?.phase_total,
       };
 
       // Tolerate legacy payloads that still send skill_update.
@@ -159,6 +172,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       set({
         results: [...results, rf],
         currentTask: res.next_task,
+        pendingTask: res.next_task,
         taskIndex: get().taskIndex + 1,
         ability: newAbility,
         mastery: res.mastery ?? get().mastery,
@@ -169,6 +183,10 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
     } finally {
       set({ loading: false });
     }
+  },
+
+  advance: () => {
+    set({ pendingTask: null });
   },
 
   completeSession: async () => {
@@ -213,6 +231,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       sessionId: null,
       candidate: '',
       currentTask: null,
+      pendingTask: null,
       taskIndex: 0,
       totalTasks: 0,
       results: [],

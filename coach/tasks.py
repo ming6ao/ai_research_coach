@@ -45,6 +45,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from coach.db import Base, learner_session
+from coach.config import DELIVERIES, default_pass_score
 
 SYSTEM_OWNER = "system"
 
@@ -76,6 +77,7 @@ class TaskModel(Base):
     version_index: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     depends_on_task_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     version_root_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    delivery: Mapped[str] = mapped_column(String(16), nullable=False, default="block")
     is_public: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
@@ -176,13 +178,24 @@ def parse_parts(parts_json: Optional[str]) -> list[dict]:
         if not key or not prompt or key in seen:
             continue
         seen.add(key)
-        out.append({
+        part_max = max(1, min(100, int(item.get("max_score") or 5)))
+        part_difficulty = max(1, min(5, int(item.get("difficulty") or 1)))
+        try:
+            pass_score = int(item.get("pass_score"))
+        except (TypeError, ValueError):
+            pass_score = default_pass_score(part_max)
+        entry = {
             "key": key,
             "prompt": prompt,
             "tags": parse_tags(json.dumps(item.get("tags")) if not isinstance(item.get("tags"), str) else item.get("tags")),
-            "max_score": max(1, min(100, int(item.get("max_score") or 5))),
-            "difficulty": max(1, min(5, int(item.get("difficulty") or 1))),
-        })
+            "max_score": part_max,
+            "difficulty": part_difficulty,
+            "pass_score": max(0, min(part_max, pass_score)),
+        }
+        scaffold = str(item.get("scaffold") or "").strip()[:16000]
+        if scaffold:
+            entry["scaffold"] = scaffold
+        out.append(entry)
     return out
 
 
@@ -230,13 +243,25 @@ def validate_parts(parts) -> list[dict]:
             difficulty = max(1, min(5, int(item.get("difficulty") or 1)))
         except (TypeError, ValueError):
             raise ValueError(f"Part {key!r} difficulty must be an integer 1..5.")
-        out.append({
+        scaffold = str(item.get("scaffold") or "").strip()
+        if len(scaffold) > 16000:
+            raise ValueError(f"Part {key!r} scaffold must be at most 16000 characters.")
+        try:
+            pass_score = int(item.get("pass_score"))
+        except (TypeError, ValueError):
+            pass_score = default_pass_score(max_score)
+        pass_score = max(0, min(max_score, pass_score))
+        part = {
             "key": key,
             "prompt": prompt,
             "tags": tags,
             "max_score": max_score,
             "difficulty": difficulty,
-        })
+            "pass_score": pass_score,
+        }
+        if scaffold:
+            part["scaffold"] = scaffold
+        out.append(part)
     return out
 
 
@@ -270,6 +295,7 @@ def task_to_dict(model: TaskModel) -> dict:
         "source": model.source,
         "is_public": bool(model.is_public),
         "owner": model.owner,
+        "delivery": (getattr(model, "delivery", "") or "block"),
     }
     parts = parse_parts(getattr(model, "parts_json", "") or "[]")
     if parts:
@@ -313,6 +339,7 @@ def create_task(
     version_index: Optional[int] = None,
     depends_on_task_id: Optional[str] = None,
     version_root_id: Optional[str] = None,
+    delivery: str = "block",
 ) -> dict:
     """Persist a task row and return its dict form.
 
@@ -334,6 +361,9 @@ def create_task(
 
     if task_type not in TASK_TYPES:
         raise ValueError(f"Unknown task_type: {task_type!r}.")
+    delivery = str(delivery or "block").strip().lower() or "block"
+    if delivery not in DELIVERIES:
+        raise ValueError(f"Unknown delivery: {delivery!r}. Expected one of: {', '.join(DELIVERIES)}.")
     parts = validate_parts(parts)
     tid = task_id or f"task_{uuid.uuid4().hex[:10]}"
 
@@ -381,6 +411,7 @@ def create_task(
             version_index=max(1, int(resolved_index or 1)),
             depends_on_task_id=depends_on_task_id,
             version_root_id=resolved_root,
+            delivery=delivery,
             is_public=1 if is_public else 0,
             created_at=_utcnow_naive(),
         )
@@ -406,7 +437,7 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
         "prompt", "scaffold", "difficulty", "max_score", "parts",
         "is_public", "context_notes", "tags", "task_type", "language",
         "version_index", "depends_on_task_id", "version_root_id",
-        "owner",
+        "owner", "delivery",
     }
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if "prompt" in updates and not str(updates["prompt"]).strip():
@@ -422,6 +453,12 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
         updates["parts"] = validate_parts(updates["parts"])
     if "task_type" in updates and updates["task_type"] not in TASK_TYPES:
         raise ValueError(f"Unknown task_type: {updates['task_type']!r}.")
+    if "delivery" in updates:
+        updates["delivery"] = str(updates["delivery"] or "block").strip().lower() or "block"
+        if updates["delivery"] not in DELIVERIES:
+            raise ValueError(
+                f"Unknown delivery: {updates['delivery']!r}. Expected one of: {', '.join(DELIVERIES)}."
+            )
     session = learner_session()
     try:
         model = session.get(TaskModel, task_id)
@@ -445,6 +482,8 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
             model.tags_json = serialize_tags(updates["tags"])
         if "task_type" in updates:
             model.task_type = updates["task_type"]
+        if "delivery" in updates:
+            model.delivery = updates["delivery"]
         if "language" in updates:
             model.language = normalize_language(updates["language"])
         if "version_index" in updates:
@@ -705,6 +744,70 @@ def list_tasks_for_owner(
 ) -> list[dict]:
     """List one owner's tasks for the curator UI (with attempt counts)."""
     return _list_tasks(owner=owner, q=q, limit=limit)
+
+
+def merge_version_chain(
+    root_id: str,
+    *,
+    delete_originals: bool = False,
+) -> Optional[dict]:
+    """Merge a version chain into one ``delivery='phased'`` task (migration).
+
+    Collects ``root_id`` plus every successor whose ``version_root_id`` or
+    ``depends_on_task_id`` resolves to the chain root, orders them by
+    ``version_index``, and creates a phased task whose parts are the versions
+    in order. Each phase keeps the version's prompt, scaffold, tags,
+    ``max_score`` and ``difficulty``; ``pass_score`` defaults via
+    ``default_pass_score``.
+
+    ``delete_originals`` removes the source rows afterwards (their recorded
+    steps cascade — pass ``False`` to keep history). Returns the new task, or
+    ``None`` when the chain has fewer than two versions.
+    """
+    root = get_task(root_id)
+    if root is None:
+        return None
+    chain_root = root.get("version_root_id") or root.get("id")
+    versions = [
+        t for t in _list_tasks(limit=500)
+        if (t.get("version_root_id") or t.get("id")) == chain_root
+    ]
+    versions.sort(key=lambda t: (t.get("version_index") or 1, t.get("created_at") or ""))
+    if len(versions) < 2:
+        return None
+
+    parts = []
+    for i, t in enumerate(versions):
+        part = {
+            "key": t["id"],
+            "prompt": t["prompt"],
+            "tags": t.get("tags") or {"primary": "python", "secondary": []},
+            "max_score": int(t.get("max_score") or 5),
+            "difficulty": int(t.get("difficulty") or 2),
+            "pass_score": default_pass_score(int(t.get("max_score") or 5)),
+        }
+        if t.get("scaffold"):
+            part["scaffold"] = t["scaffold"]
+        parts.append(part)
+
+    merged = create_task(
+        prompt=root.get("prompt") or "",
+        owner=root.get("owner") or SYSTEM_OWNER,
+        difficulty=max(int(v.get("difficulty") or 2) for v in versions),
+        max_score=sum(int(v.get("max_score") or 5) for v in versions),
+        source=root.get("source") or "user",
+        is_public=bool(root.get("is_public")),
+        context_notes=root.get("context_notes") or None,
+        tags=root.get("tags"),
+        task_type=root.get("task_type") or "implement",
+        language=root.get("language"),
+        parts=parts,
+        delivery="phased",
+    )
+    if delete_originals:
+        for t in versions:
+            delete_task(t["id"])
+    return merged
 
 
 def delete_task(task_id: str) -> dict:

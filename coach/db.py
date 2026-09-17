@@ -338,6 +338,8 @@ def create_schema():
                 conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN depends_on_task_id TEXT")
             if "version_root_id" not in cols:
                 conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN version_root_id TEXT")
+            if "delivery" not in cols:
+                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN delivery TEXT DEFAULT 'block'")
         except Exception:
             pass
     with _schema_lock:

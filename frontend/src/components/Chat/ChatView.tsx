@@ -68,6 +68,45 @@ function shortGapText(coach: ResultWithFeedback['coach']): string {
   return singleLine.length > 120 ? `${singleLine.slice(0, 117).trimEnd()}…` : singleLine;
 }
 
+/** Per-part outcomes (a phased task has one active part). */
+function PartResults({ r }: { r: ResultWithFeedback }) {
+  const parts = r.result.parts;
+  if (!parts || parts.length === 0) return null;
+  return (
+    <ul className="space-y-1.5">
+      {parts.map((p) => {
+        const part = r.parts?.find((x) => x.key === p.key);
+        const max = part?.max_score ?? 5;
+        const pct = max ? Math.round((p.score / max) * 100) : 0;
+        const tone =
+          pct >= 80
+            ? 'text-[var(--color-success)]'
+            : pct <= 40
+              ? 'text-[var(--color-error)]'
+              : 'text-[var(--color-warning)]';
+        return (
+          <li
+            key={p.key}
+            className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-2.5 py-1.5"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0 truncate font-mono text-[12px] text-[var(--color-text-primary)]">
+                {p.key}
+              </span>
+              <span className={`shrink-0 text-[11px] font-semibold ${tone}`}>
+                {p.score}/{max} · {pct}%
+              </span>
+            </div>
+            {p.rationale && (
+              <p className="mt-0.5 text-[11px] leading-4 text-[var(--color-text-muted)]">{p.rationale}</p>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function CoachingBubble({ r }: { r: ResultWithFeedback }) {
   const coach = r.coach;
   const verdict = verdictFor(r);
@@ -82,6 +121,7 @@ function CoachingBubble({ r }: { r: ResultWithFeedback }) {
             </span>
           )}
         </p>
+        <PartResults r={r} />
         {coach && coach.steps.length > 0 ? (
           <ol className="space-y-3">
             {coach.steps.map((step, i) => (
@@ -116,13 +156,32 @@ function followUpLabel(remediation?: Task['remediation']): string | null {
   }
 }
 
-function TaskPromptBubble({ prompt, parts, remediation, tags }: { prompt: string; parts?: Task['parts']; remediation?: Task['remediation']; tags?: Task['tags'] }) {
+function TaskPromptBubble({
+  prompt,
+  parts,
+  remediation,
+  tags,
+  phaseIndex,
+  phaseTotal,
+}: {
+  prompt: string;
+  parts?: Task['parts'];
+  remediation?: Task['remediation'];
+  tags?: Task['tags'];
+  phaseIndex?: number;
+  phaseTotal?: number;
+}) {
   const label = followUpLabel(remediation);
   return (
     <CoachBubble>
       <div className="space-y-1">
         <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
           Question
+          {phaseIndex != null && phaseTotal != null && (
+            <span className="rounded-full border border-[var(--color-border-default)] px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-[var(--color-text-secondary)]">
+              Step {phaseIndex} of {phaseTotal}
+            </span>
+          )}
           {label && (
             <span className="inline-flex items-center gap-1 rounded-full border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-2.5 py-0.5 text-[11px] font-semibold normal-case tracking-normal text-[var(--color-accent)]">
               {label}
@@ -166,12 +225,19 @@ function DoneBubble() {
 }
 
 export function ChatView() {
-  const { sessionId, results, currentTask, loading, initialQuestion, completeSession } =
-    useAssessmentStore();
+  const {
+    sessionId,
+    results,
+    currentTask,
+    pendingTask,
+    loading,
+    initialQuestion,
+    advance,
+    completeSession,
+  } = useAssessmentStore();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const [code, setCode] = useState('');
-  const [submittedTaskId, setSubmittedTaskId] = useState<string | null>(null);
   const [shareState, setShareState] = useState<'idle' | 'copying' | 'copied' | 'error'>('idle');
 
   const handleShare = async () => {
@@ -187,26 +253,35 @@ export function ChatView() {
   };
 
   const taskId = currentTask?.id ?? null;
+  const phaseIndex = currentTask?.phase_index ?? null;
   useEffect(() => {
-    // A version successor carries its predecessor's code to build on.
+    // A phased step carries the candidate's prior code; otherwise start from
+    // the scaffold.
     setCode(currentTask?.previous_code ?? currentTask?.scaffold ?? '');
-    setSubmittedTaskId(null);
-  }, [taskId, currentTask?.scaffold, currentTask?.previous_code]);
+  }, [taskId, phaseIndex, currentTask?.scaffold, currentTask?.previous_code]);
 
   const handleSubmit = (note: string) => {
     if (!currentTask) return;
-    setSubmittedTaskId(currentTask.id);
     const answer = note ? `${code}${NOTE_SEPARATOR}${note}` : code;
     useAssessmentStore.getState().submitAnswer(currentTask.id, answer);
   };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [results.length, currentTask?.id, loading]);
+  }, [results.length, currentTask?.id, pendingTask?.phase_index, loading]);
 
   const hasHistory = results.length > 0;
-  const waiting = submittedTaskId === currentTask?.id;
+  const showTask = !!currentTask && !pendingTask;
   const finished = !currentTask && results.length > 0 && !loading;
+
+  const last = results[results.length - 1];
+  const isPhase = pendingTask?.delivery === 'phased';
+  const retryingPhase =
+    !!pendingTask &&
+    !!last &&
+    pendingTask.id === last.task_id &&
+    (pendingTask.phase_index ?? 1) === (last.phase_index ?? 1);
+  const nextLabel = retryingPhase ? 'Retry step' : isPhase ? 'Next step' : 'Next question';
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -236,19 +311,32 @@ export function ChatView() {
 
           {results.map((r, i) => (
             <Fragment key={`res-${i}`}>
-              <TaskPromptBubble prompt={r.prompt} parts={r.parts} tags={r.tags} />
+              <TaskPromptBubble
+                prompt={r.prompt}
+                parts={r.parts}
+                tags={r.tags}
+                phaseIndex={r.phase_index}
+                phaseTotal={r.phase_total}
+              />
               <UserCodeBubble answer={r.userAnswer} language={r.language} />
               <CoachingBubble r={r} />
             </Fragment>
           ))}
 
-          {!waiting && currentTask && (
-            <TaskPromptBubble prompt={currentTask.prompt} parts={currentTask.parts} remediation={currentTask.remediation} tags={currentTask.tags} />
+          {showTask && currentTask && (
+            <TaskPromptBubble
+              prompt={currentTask.prompt}
+              parts={currentTask.parts}
+              remediation={currentTask.remediation}
+              tags={currentTask.tags}
+              phaseIndex={currentTask.phase_index}
+              phaseTotal={currentTask.phase_total}
+            />
           )}
 
-          {!waiting && currentTask && (
+          {showTask && currentTask && (
             <CodeEditor
-              key={`${currentTask.id}-${submittedTaskId === currentTask.id ? 'locked' : 'editable'}`}
+              key={`${currentTask.id}:${currentTask.phase_index ?? 0}`}
               code={code}
               language={currentTask.language}
               onChange={setCode}
@@ -256,9 +344,8 @@ export function ChatView() {
             />
           )}
 
-          {!waiting && currentTask && (
+          {showTask && currentTask && (
             <div className="space-y-2">
-
               <Composer
                 placeholder="Add a note (optional) and submit…"
                 onSubmit={handleSubmit}
@@ -276,6 +363,19 @@ export function ChatView() {
                   </button>
                 </p>
               )}
+            </div>
+          )}
+
+          {/* Teaching pause: hold the next task until the candidate continues. */}
+          {pendingTask && (
+            <div className="flex justify-center pt-1">
+              <button
+                onClick={advance}
+                disabled={loading}
+                className="rounded-lg bg-[var(--color-accent)] px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {nextLabel}
+              </button>
             </div>
           )}
 
