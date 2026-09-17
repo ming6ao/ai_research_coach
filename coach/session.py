@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Set
 from coach.area_score import AreaState
 from coach.score import INITIAL_SCORE, INITIAL_VARIANCE, confidence_from_variance
 from coach.judge import EvaluationResult
-from coach.taxonomy import family_of
+from coach.taxonomy import area_of, domain_of
 
 
 def _load_bank_tasks(candidate: str) -> list:
@@ -77,8 +77,7 @@ class Session:
     skill_states: Dict[str, SkillState] = field(default_factory=dict)
     asked_task_ids: Set[str] = field(default_factory=set)
     generated_task_ids: Set[str] = field(default_factory=set)
-    family_states: Dict[str, AreaState] = field(default_factory=dict)
-    tag_states: Dict[str, AreaState] = field(default_factory=dict)
+    node_states: Dict[str, AreaState] = field(default_factory=dict)
     # Phased delivery bookkeeping: task_id -> phases passed / attempts on the
     # current phase. ``submission_index`` is the monotonic step counter (it
     # replaces ``index`` for ``session_steps.step_index`` so repeated phase
@@ -139,84 +138,80 @@ class Session:
         return self.get_skill_state()
 
     def ensure_area_beliefs(self) -> None:
-        """Load persisted per-family/tag statistics into this session."""
-        self._restore_area_beliefs()
+        """Load persisted per-node statistics into this session."""
+        self._restore_node_beliefs()
 
     def add_generated_task(self, task: dict) -> None:
         """Persist a generated remediation task in the session and track it."""
         self.tasks.append(task)
         self.generated_task_ids.add(task["id"])
 
-    def get_family_state(self, family: str) -> AreaState:
-        """Return (and lazily create) the AreaState for a family."""
-        self._restore_area_beliefs()
-        if family not in self.family_states:
-            self.family_states[family] = AreaState()
-        return self.family_states[family]
+    def get_node_state(self, node: str) -> AreaState:
+        """Return (and lazily create) the AreaState for a taxonomy node."""
+        self._restore_node_beliefs()
+        if node not in self.node_states:
+            self.node_states[node] = AreaState()
+        return self.node_states[node]
 
-    def get_tag_state(self, tag: str) -> AreaState:
-        """Return (and lazily create) the AreaState for a fine tag."""
-        self._restore_area_beliefs()
-        if tag not in self.tag_states:
-            self.tag_states[tag] = AreaState()
-        return self.tag_states[tag]
-
-    def _restore_area_beliefs(self) -> None:
-        """Restore persisted family/tag statistics into a fresh session.
+    def _restore_node_beliefs(self) -> None:
+        """Restore persisted per-node statistics into a fresh session.
 
         Mirrors the global-ability restore in ``get_skill_state``: a session
-        with no area evidence loads its own (level, key) sufficient
-        statistics from ``user_skill_beliefs`` so mastery carries across
-        sessions. Safe to call repeatedly (runs once).
+        with no node evidence loads its own per-node sufficient statistics
+        from ``user_skill_beliefs`` so mastery carries across sessions. Safe to
+        call repeatedly (runs once).
         """
-        if self._area_restored or self.family_states or self.tag_states:
+        if self._area_restored or self.node_states:
             return
         self._area_restored = True
         try:
             from coach.tasks import get_area_beliefs
+            from coach.taxonomy import NODE_LEVEL
 
             for (level, key), b in get_area_beliefs(self.candidate).items():
-                st = AreaState(
+                node_level = NODE_LEVEL.get(key)
+                if node_level is None:
+                    continue  # legacy/retired node — skip
+                self.node_states[key] = AreaState(
                     mean=b["mean"],
                     variance=b["variance"],
                     questions_answered=b["questions_answered"],
                 )
-                if level == "family":
-                    self.family_states[key] = st
-                elif level == "tag":
-                    self.tag_states[key] = st
         except Exception:
             pass
 
-    def attempts_for_family(self, task: dict) -> int:
-        """Number of in-session observations for a task's primary family."""
+    def attempts_for_node(self, task: dict) -> int:
+        """Number of in-session observations for a task's primary skill."""
         tags = task.get("tags") or {}
-        family = family_of(tags.get("primary")) or "python"
-        return self.get_family_state(family).questions_answered
-
-    def attempts_for_tag(self, task: dict) -> int:
-        """Number of in-session observations for a task's primary tag."""
-        tags = task.get("tags") or {}
-        tag = tags.get("primary")
-        if not tag:
+        primary = tags.get("primary")
+        if not primary:
             return 0
-        return self.get_tag_state(tag).questions_answered
+        return self.get_node_state(primary).questions_answered
 
-    def previous_family(self) -> Optional[str]:
-        """Primary family of the most recently asked task, if any."""
+    def previous_area(self) -> Optional[str]:
+        """Primary area of the most recently asked task, if any."""
         asked = self.asked_task_ids
         for t in reversed(self.tasks):
             if t["id"] in asked:
                 tags = t.get("tags") or {}
-                return family_of(tags.get("primary"))
+                return area_of(tags.get("primary"))
+        return None
+
+    def previous_domain(self) -> Optional[str]:
+        """Primary domain of the most recently asked task, if any."""
+        asked = self.asked_task_ids
+        for t in reversed(self.tasks):
+            if t["id"] in asked:
+                tags = t.get("tags") or {}
+                return domain_of(tags.get("primary"))
         return None
 
     def to_dict(self):
         """Compact episode-header state (trajectory lives in ``session_steps``).
 
-        ``results``, ``skill_states``, ``family_states``, and ``tag_states``
-        are intentionally omitted: step data and per-level beliefs are
-        persisted in ``session_steps`` / ``user_skill_beliefs``.
+        ``results``, ``skill_states``, and ``node_states`` are intentionally
+        omitted: step data and per-node beliefs are persisted in
+        ``session_steps`` / ``user_skill_beliefs``.
         """
         return {
             "candidate": self.candidate,
@@ -234,9 +229,9 @@ class Session:
     def from_dict(cls, d):
         """Rebuild a Session from a compact (or legacy full) state dict.
 
-        Tolerates legacy full-form blobs (results / skill_states /
-        family_states / tag_states) so old rows keep working; the in-memory
-        ``results`` are normally hydrated from ``session_steps`` afterwards.
+        Tolerates legacy full-form blobs (results / skill_states) so old rows
+        keep working; the in-memory ``results`` are normally hydrated from
+        ``session_steps`` afterwards.
         """
         s = cls(
             candidate=d.get("candidate", ""),
@@ -276,12 +271,8 @@ class Session:
             except Exception:
                 pass
             s.skill_states = {}
-        s.family_states = {
-            k: AreaState.from_dict(v) for k, v in (d.get("family_states", {}) or {}).items()
-        }
-        s.tag_states = {
-            k: AreaState.from_dict(v) for k, v in (d.get("tag_states", {}) or {}).items()
-        }
+        # Legacy per-family/tag state is retired; per-node beliefs are loaded
+        # from user_skill_beliefs via ensure_area_beliefs().
         return s
 
 
@@ -376,7 +367,7 @@ def task_view(
         "difficulty": task.get("difficulty", 1),
         "max_score": task.get("max_score", 5),
         "scaffold": _phase_scaffold(task, active) if active else build_code_stub(task),
-        "tags": task.get("tags") or {"primary": "python", "secondary": []},
+        "tags": task.get("tags") or {"primary": None, "secondary": []},
         "task_type": task.get("task_type") or "implement",
         "language": task.get("language") or "python",
     }

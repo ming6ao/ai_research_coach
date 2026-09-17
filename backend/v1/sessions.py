@@ -46,7 +46,7 @@ def _ability_dict(session) -> dict:
 
 
 def _mastery_dict(session) -> dict:
-    """Read-time shrunk mastery block (global + families + tags)."""
+    """Read-time shrunk mastery block (global + nested domain/area/skill)."""
     from coach.area_score import AreaState, area_report_dict
 
     ability = session.get_ability()
@@ -55,35 +55,38 @@ def _mastery_dict(session) -> dict:
         variance=ability.variance,
         questions_answered=ability.questions_answered,
     )
-    return area_report_dict(global_state, session.family_states, session.tag_states)
+    return area_report_dict(global_state, session.node_states)
 
 
 def _save_area_beliefs(session) -> None:
-    """Persist per-family and per-tag sufficient statistics (best-effort)."""
+    """Persist per-node sufficient statistics (best-effort)."""
     try:
         from coach.tasks import save_area_belief
+        from coach.taxonomy import NODE_LEVEL
 
-        for fam, st in session.family_states.items():
+        level_names = {1: "domain", 2: "area", 3: "skill"}
+        for node, st in session.node_states.items():
+            level = level_names.get(NODE_LEVEL.get(node, 0))
+            if not level:
+                continue
             save_area_belief(
-                session.candidate, "family", fam, st.mean, st.variance, st.questions_answered
-            )
-        for tag, st in session.tag_states.items():
-            save_area_belief(
-                session.candidate, "tag", tag, st.mean, st.variance, st.questions_answered
+                session.candidate, level, node, st.mean, st.variance, st.questions_answered
             )
     except Exception:
         pass
 
 
 def _update_beliefs(session, task, targets, result, observation, global_difficulty):
-    """Apply one scored observation: global ability once + per-target tag/family.
+    """Apply one scored observation: global ability once + per-target nodes.
 
-    Returns ``(before, after, new_score, new_variance, new_questions)``.
+    Each scored part's primary leaf skill updates that skill, its area, its
+    domain (every ancestor), at the part's own difficulty. Returns
+    ``(before, after, new_score, new_variance, new_questions)``.
     """
     from coach.score import bayesian_update, effective_score, measurement_variance
     from coach.session import SkillState
     from coach.steps import belief_state
-    from coach.taxonomy import family_of
+    from coach.taxonomy import ancestors
 
     state_obj = session.get_ability()
     session.ensure_area_beliefs()
@@ -107,14 +110,11 @@ def _update_beliefs(session, task, targets, result, observation, global_difficul
         part_obs = effective_score(part_score / part_max if part_max else 0.0)
         part_tags = part.get("tags") or {}
         primary_tag = part_tags.get("primary")
-        family = family_of(primary_tag) if primary_tag else None
         part_difficulty = int(part.get("difficulty") or task.get("difficulty") or 1)
         if primary_tag:
-            tag_state = session.get_tag_state(primary_tag)
-            session.tag_states[primary_tag] = tag_state.update(part_difficulty, part_obs)
-        if family:
-            fam_state = session.get_family_state(family)
-            session.family_states[family] = fam_state.update(part_difficulty, part_obs)
+            for node in [primary_tag, *ancestors(primary_tag)]:
+                st = session.get_node_state(node)
+                session.node_states[node] = st.update(part_difficulty, part_obs)
 
     after = belief_state(session)
     return before, after, new_score, new_variance, state_obj.questions_answered + 1
@@ -234,28 +234,28 @@ def _materialize_prefix(session, session_id: str, state: dict) -> bool:
     return True
 
 
-_COMBINED_CACHE: dict[str, tuple[str, dict]] = {}
+_COMBINED_CACHE: dict[str, tuple[str, Optional[dict]]] = {}
 _COMBINED_CACHE_MAX = 1000
 
 
-def _describe_and_categorize(prompt: str) -> tuple[str, dict]:
+def _describe_and_categorize(prompt: str) -> tuple[str, Optional[dict]]:
     """One combined context-notes + tag-categorization call per prompt.
 
     The result is cached per request so ``_describe_context`` and
     ``_categorize_tags`` never trigger a second LLM round-trip for the same
-    task (§6: task creation uses a single Gemini call).
+    task. ``tags`` is ``None`` when categorization could not be resolved.
     """
     key = (prompt or "").strip()
     if key in _COMBINED_CACHE:
         return _COMBINED_CACHE[key]
-    notes = ""
-    tags = {"primary": "python", "secondary": []}
+    notes: str = ""
+    tags: Optional[dict] = None
     try:
         from coach.task_decomposer import TaskDecomposer
 
         out = TaskDecomposer().describe_and_categorize(prompt)
         notes = out.get("context_notes") or ""
-        tags = out.get("tags") or tags
+        tags = out.get("tags") or None
     except Exception:
         pass
     if len(_COMBINED_CACHE) >= _COMBINED_CACHE_MAX:
@@ -273,10 +273,22 @@ def _describe_context(prompt: str, explicit: Optional[str] = None) -> str:
 
 
 def _categorize_tags(prompt: str, explicit: Optional[dict] = None) -> dict:
-    """Explicit tags win; otherwise one best-effort LLM categorization."""
+    """Explicit tags win; otherwise one best-effort LLM categorization.
+
+    Raises ``HTTPException(422)`` when categorization cannot determine a valid
+    primary leaf skill — an uncategorized task must not be created.
+    """
     if explicit is not None:
         return explicit
     _notes, tags = _describe_and_categorize(prompt)
+    if not tags or not tags.get("primary"):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Could not categorize this question into the taxonomy. "
+                "Provide tags.primary (a leaf skill) explicitly, or retry."
+            ),
+        )
     return tags
 
 
@@ -318,15 +330,18 @@ def create_session(
     candidate = _candidate_for(user, request)
     is_guest = candidate.startswith("guest-")
 
-    family: Optional[str] = None
-    if req.family:
-        from coach.taxonomy import FAMILIES
+    node: Optional[str] = None
+    raw_node = (req.node or req.family or "").strip()
+    if raw_node:
+        from coach.taxonomy import resolve_node
 
-        family = (req.family or "").strip()
-        if family not in FAMILIES:
+        node = resolve_node(raw_node)
+        if node is None:
+            from coach.taxonomy import ALL_NODES
+
             raise HTTPException(
                 status_code=422,
-                detail=f"Unknown family '{family}'. Expected one of: {', '.join(FAMILIES)}.",
+                detail=f"Unknown taxonomy node '{raw_node}'. Expected one of: {', '.join(ALL_NODES)}.",
             )
 
     session_id = store.create(candidate)
@@ -357,9 +372,9 @@ def create_session(
 
     if custom_task:
         first_task = task_view(custom_task, session)
-    elif req.family:
+    elif node:
         first_task = pick_next_task(
-            candidate, session, family=family, sample_top_n=RANDOM_FIRST_TOP_N
+            candidate, session, node=node, sample_top_n=RANDOM_FIRST_TOP_N
         )
         if first_task is None:
             first_task = pick_next_task(candidate, session)

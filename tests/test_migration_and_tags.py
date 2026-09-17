@@ -47,11 +47,11 @@ def test_legacy_beliefs_migrate_to_level_key(tmp_path, monkeypatch):
     from coach.tasks import get_area_beliefs, get_skill_belief
 
     beliefs = get_area_beliefs("u1")
-    # Family row survives; junk collapsed to one global/overall (most answered).
-    assert ("family", "python") in beliefs
+    # Legacy per-skill rows are retired (taxonomy replaced): everything
+    # collapses to one global/overall row (most answered).
+    assert ("family", "python") not in beliefs
     assert ("global", "overall") in beliefs
     assert beliefs[("global", "overall")]["questions_answered"] == 5
-    assert beliefs[("family", "python")]["questions_answered"] == 3
     # Scalar global lookup does not raise MultipleResultsFound.
     g = get_skill_belief("u1")
     assert g is not None and g["questions_answered"] == 5
@@ -82,16 +82,16 @@ def test_tags_round_trip_create_get_patch(tmp_path, monkeypatch):
 
     t = create_task(
         prompt="Implement softmax.",
-        tags={"primary": "softmax", "secondary": ["loss_functions"]},
+        tags={"primary": "normalization", "secondary": ["pretraining_objectives"]},
         task_type="implement",
     )
-    assert t["tags"] == {"primary": "activation_normalization", "secondary": ["loss_functions"]}
+    assert t["tags"] == {"primary": "normalization", "secondary": ["pretraining_objectives"]}
     assert t["task_type"] == "implement"
     got = get_task(t["id"])
-    assert got["tags"] == {"primary": "activation_normalization", "secondary": ["loss_functions"]}
+    assert got["tags"] == {"primary": "normalization", "secondary": ["pretraining_objectives"]}
 
-    updated = update_task(t["id"], tags={"primary": "cnn"}, task_type="apply")
-    assert updated["tags"] == {"primary": "cnn", "secondary": []}
+    updated = update_task(t["id"], tags={"primary": "vision_encoders"}, task_type="apply")
+    assert updated["tags"] == {"primary": "vision_encoders", "secondary": []}
     assert updated["task_type"] == "apply"
 
     with pytest.raises(ValueError):
@@ -108,7 +108,7 @@ def test_unknown_tag_rejected_on_create_and_patch_api(tmp_path, monkeypatch):
     bad = client.post("/api/v1/tasks", json={"prompt": "q", "tags": {"primary": "bogus"}})
     assert bad.status_code == 422
 
-    good = client.post("/api/v1/tasks", json={"prompt": "q", "tags": {"primary": "python"}})
+    good = client.post("/api/v1/tasks", json={"prompt": "q", "tags": {"primary": "testing"}})
     assert good.status_code == 201
 
     # Authenticated owner PATCH with an unknown tag is rejected (422).
@@ -119,7 +119,7 @@ def test_unknown_tag_rejected_on_create_and_patch_api(tmp_path, monkeypatch):
     headers = {"Authorization": f"Bearer {token}"}
     mine = client.post(
         "/api/v1/tasks",
-        json={"prompt": "mine", "tags": {"primary": "cnn"}},
+        json={"prompt": "mine", "tags": {"primary": "vision_encoders"}},
         headers=headers,
     )
     assert mine.status_code == 201
@@ -129,10 +129,10 @@ def test_unknown_tag_rejected_on_create_and_patch_api(tmp_path, monkeypatch):
     )
     assert bad_patch.status_code == 422
     good_patch = client.patch(
-        f"/api/v1/tasks/{tid}", json={"tags": {"primary": "mlp"}, "task_type": "apply"}, headers=headers
+        f"/api/v1/tasks/{tid}", json={"tags": {"primary": "grpo"}, "task_type": "apply"}, headers=headers
     )
     assert good_patch.status_code == 200
-    assert good_patch.json()["data"]["tags"]["primary"] == "mlp"
+    assert good_patch.json()["data"]["tags"]["primary"] == "grpo"
     assert good_patch.json()["data"]["task_type"] == "apply"
 
 
@@ -141,11 +141,11 @@ def test_task_view_emits_tags_and_task_type():
 
     session = Session("c", tasks=[])
     view = task_view(
-        {"id": "x", "prompt": "p", "difficulty": 2, "tags": {"primary": "cnn", "secondary": []},
+        {"id": "x", "prompt": "p", "difficulty": 2, "tags": {"primary": "vision_encoders", "secondary": []},
          "task_type": "implement", "scaffold": "def f():\n    pass\n"},
         session,
     )
-    assert view["tags"]["primary"] == "cnn"
+    assert view["tags"]["primary"] == "vision_encoders"
     assert view["task_type"] == "implement"
 
 
@@ -154,7 +154,7 @@ def test_categorize_fallback_without_api_key(monkeypatch):
     from coach.task_decomposer import TaskDecomposer
 
     d = TaskDecomposer()
-    assert d.categorize_task("Implement a hash table.") == {"primary": "python", "secondary": []}
+    assert d.categorize_task("Implement a hash table.") is None
     assert d.describe_task("anything") == ""
 
 
@@ -165,8 +165,8 @@ def test_categorize_combined_call_shape():
     class FakeResp:
         text = json.dumps({
             "context_notes": "Softmax is a prerequisite of classification heads.",
-            "primary_tag": "random forest",
-            "secondary_tag": ["PCA", "bogus"],
+            "primary_tag": "attention",
+            "secondary_tag": ["rope", "bogus"],
         })
 
     class FakeModels:
@@ -180,8 +180,8 @@ def test_categorize_combined_call_shape():
     d = TaskDecomposer(client=FakeClient())
     out = d.describe_and_categorize("classify stuff")
     assert out["context_notes"].startswith("Softmax")
-    assert out["tags"]["primary"] == "trees_ensembles"
-    assert out["tags"]["secondary"] == ["dimensionality_reduction"]  # bogus dropped
+    assert out["tags"]["primary"] == "attention_variants"
+    assert out["tags"]["secondary"] == ["positional_encoding"]  # bogus dropped
 
 
 def test_generated_task_inherits_root_tags():
@@ -189,9 +189,9 @@ def test_generated_task_inherits_root_tags():
 
     task = TaskDecomposer._build(
         "remed_x", 2, "Implement drill.", "gap", "def f():\n    pass\n",
-        kind="remediate", tags={"primary": "backprop", "secondary": ["mlp"]},
+        kind="remediate", tags={"primary": "calculus_autodiff", "secondary": ["normalization"]},
     )
-    assert task["tags"] == {"primary": "backprop", "secondary": ["mlp"]}
+    assert task["tags"] == {"primary": "calculus_autodiff", "secondary": ["normalization"]}
 
 
 def test_build_carries_context_notes():
@@ -219,3 +219,18 @@ def test_task_type_validated():
 
     with pytest.raises(ValueError):
         create_task(prompt="x", task_type="bogus")
+
+
+def test_create_task_requires_tags(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "notags.db")
+    from coach.tasks import create_task
+
+    with pytest.raises(ValueError, match="Tags are required"):
+        create_task(prompt="uncategorized question")
+    # A block with tagged parts still auto-derives block-level tags.
+    task = create_task(
+        prompt="block",
+        parts=[{"key": "a", "prompt": "def a(): ...", "tags": {"primary": "grpo"},
+                "max_score": 5, "difficulty": 2}],
+    )
+    assert task["tags"]["primary"] == "grpo"

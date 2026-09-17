@@ -239,17 +239,16 @@ def delete_session_data(session_id: str) -> None:
 
 
 def belief_state(session) -> dict:
-    """Serialized belief snapshot: global + family + tag sufficient stats.
+    """Serialized belief snapshot: global + per-node sufficient stats.
 
     This is the RL ``s_t`` — what gets stored per step and carried through
     shares. ``session.ensure_area_beliefs()`` must be called first so the
-    per-level stats reflect the candidate's persisted beliefs.
+    per-node stats reflect the candidate's persisted beliefs.
     """
     ability = session.get_ability()
     return {
         "global": ability.to_dict(),
-        "families": {k: v.to_dict() for k, v in session.family_states.items()},
-        "tags": {k: v.to_dict() for k, v in session.tag_states.items()},
+        "nodes": {k: v.to_dict() for k, v in session.node_states.items()},
     }
 
 
@@ -272,7 +271,6 @@ def backfill_session_steps() -> None:
         measurement_variance,
     )
     from coach.session import SkillState
-    from coach.taxonomy import family_of
 
     # Ensure tables exist (no-op inside create_schema thanks to the guard).
     create_schema()
@@ -326,13 +324,12 @@ def _backfill_one(sid: str, candidate: str, s: dict, results: list, feedback: li
         measurement_variance,
     )
     from coach.session import SkillState
-    from coach.taxonomy import family_of
+    from coach.taxonomy import ancestors
 
     tasks = s.get("tasks") or []
     by_id = {t.get("id"): t for t in tasks}
     ability = SkillState()
-    fam_states: dict[str, AreaState] = {}
-    tag_states: dict[str, AreaState] = {}
+    node_states: dict[str, AreaState] = {}
 
     for i, res in enumerate(results):
         task = by_id.get((res or {}).get("task_id")) or (
@@ -346,8 +343,7 @@ def _backfill_one(sid: str, candidate: str, s: dict, results: list, feedback: li
 
         before = {
             "global": ability.to_dict(),
-            "families": {k: v.to_dict() for k, v in fam_states.items()},
-            "tags": {k: v.to_dict() for k, v in tag_states.items()},
+            "nodes": {k: v.to_dict() for k, v in node_states.items()},
         }
 
         difficulty = task.get("difficulty", 1)
@@ -363,18 +359,14 @@ def _backfill_one(sid: str, candidate: str, s: dict, results: list, feedback: li
         )
         tags = task.get("tags") or {}
         primary = tags.get("primary")
-        fam = family_of(primary) if primary else None
         if primary:
-            st = tag_states.get(primary, AreaState())
-            tag_states[primary] = st.update(difficulty, observation)
-        if fam:
-            st = fam_states.get(fam, AreaState())
-            fam_states[fam] = st.update(difficulty, observation)
+            for node in [primary, *ancestors(primary)]:
+                st = node_states.get(node, AreaState())
+                node_states[node] = st.update(difficulty, observation)
 
         after = {
             "global": ability.to_dict(),
-            "families": {k: v.to_dict() for k, v in fam_states.items()},
-            "tags": {k: v.to_dict() for k, v in tag_states.items()},
+            "nodes": {k: v.to_dict() for k, v in node_states.items()},
         }
 
         role = "bank"

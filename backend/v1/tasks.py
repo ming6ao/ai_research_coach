@@ -35,6 +35,7 @@ def _check_task_owner(task: dict, user: Optional[dict]) -> None:
 def list_tasks(
     q: Optional[str] = None,
     tag: Optional[str] = None,
+    node: Optional[str] = None,
     page: PageParams = Depends(),
     user: Optional[dict] = Depends(get_current_user),
 ):
@@ -46,29 +47,26 @@ def list_tasks(
     if q and q.strip():
         needle = q.strip().lower()
         tasks = [t for t in tasks if needle in (t.get("prompt") or "").lower()]
-    if tag and tag.strip():
-        from coach.taxonomy import family_of, is_valid_family, is_valid_tag, normalize_tag
+    target_raw = (node or tag or "").strip()
+    if target_raw:
+        from coach.taxonomy import ancestors, resolve_node
 
-        target = normalize_tag(tag.strip())
-        if target is None:
-            target = tag.strip()
-        want_family = is_valid_family(target)
-        if not want_family and not is_valid_tag(target):
-            target = None
-        out = []
-        for t in tasks:
-            tags = t.get("tags") or {}
-            prim = tags.get("primary")
-            sec = tags.get("secondary") or []
-            if want_family:
-                hit = (family_of(prim) == target) or any(
-                    family_of(s) == target for s in sec
-                )
-            else:
-                hit = prim == target or target in sec
-            if hit:
-                out.append(t)
-        tasks = out
+        target = resolve_node(target_raw)
+
+        def _matches(n: Optional[str]) -> bool:
+            canon = resolve_node(n)
+            if canon is None or target is None:
+                return False
+            return canon == target or target in ancestors(canon)
+
+        if target is not None:
+            out = []
+            for t in tasks:
+                tags = t.get("tags") or {}
+                candidates = [tags.get("primary"), *(tags.get("secondary") or [])]
+                if any(_matches(n) for n in candidates):
+                    out.append(t)
+            tasks = out
     items, meta = paginate(tasks, page.page, page.page_size)
     return {"data": items, "meta": meta}
 

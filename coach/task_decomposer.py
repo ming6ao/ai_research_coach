@@ -20,6 +20,7 @@ from google import genai
 from google.genai import types
 
 from coach.config import MODEL, http_retry_options
+from coach.taxonomy import format_vocabulary
 
 logger = logging.getLogger(__name__)
 
@@ -113,36 +114,21 @@ _FOLLOWUP_SCHEMA = types.Schema(
     required=["prompt", "difficulty"],
 )
 
-_CATEGORIZE_SYSTEM_PROMPT = """\
+_CATEGORIZE_SYSTEM_PROMPT = f"""\
 You are a curriculum librarian. Given a coding task, classify it into ONE \
-primary fine tag and at most TWO secondary fine tags from the closed \
-vocabulary below. Primary must be the single best match. Return JSON with \
+primary skill and at most TWO secondary skills from the closed vocabulary \
+below. Primary must be the single best leaf-skill match. Return JSON with \
 exactly three keys:
   "context_notes": 2-4 plain English sentences describing prerequisites, what \
     builds on what, and common confusions (concrete, focused on THIS task).
-  "primary_tag": one fine tag (or a family name if no fine tag fits well).
-  "secondary_tag": a JSON array of 0-2 fine tags.
+  "primary_tag": one leaf skill from the vocabulary (never a domain/area).
+  "secondary_tag": a JSON array of 0-2 leaf skills.
 
-Vocabulary (fine tag -> family):
-  python: data_structures, functional, generators_iterators
-  data_etl: pandas_cleaning, joins_merges, missing_outliers
-  feature_eng: scaling_encoding, feature_construction, imbalanced_classes
-  ml_classical: linear_regression, classification_logistic, trees_ensembles, \
-    clustering_kmeans, dimensionality_reduction, knn_svm_naivebayes
-  stats_probability: bias_variance, distributions, hypothesis_pvalue, \
-    bayes_mle, bootstrap_ci
-  training: loss_functions, regularization, backprop, lr_scheduling, \
-    overfitting_underfitting
-  optimization: gradient_descent_sgd, optimizers_adam, hyperparameter_tuning
-  dl_arch: mlp, cnn, rnn_lstm, attention_transformer, activation_normalization
-  llm_genai: tokenization_bpe, pretraining_finetuning, rag_retrieval, \
-    quantization, kv_cache
-  eval: metrics_classification, regression_metrics, cross_validation, \
-    data_leakage_calibration
-  mlops_serving: deployment_serving, monitoring_drift, explainability, \
-    reproducibility_tracking
+Vocabulary (domain -> area -> skills):
+{format_vocabulary()}
 
-Use only tags from this vocabulary; no other strings."""
+Use only leaf skills from this vocabulary; no other strings. If no skill fits \
+confidently, return an empty primary_tag."""
 
 _COMBINED_SCHEMA = types.Schema(
     type=types.Type.OBJECT,
@@ -219,35 +205,31 @@ class TaskDecomposer:
         except Exception:
             return ""
 
-    def categorize_task(self, prompt: str) -> dict:
-        """Return ``{primary, secondary}`` tags for a prompt, or the fallback.
+    def categorize_task(self, prompt: str) -> Optional[dict]:
+        """Return ``{primary, secondary}`` tags for a prompt, or ``None``.
 
-        Deterministic fallback ``{"primary": "python", "secondary": []}`` when
-        there is no API key or the call fails.
+        Returns ``None`` when there is no API key, the call fails, or the
+        model cannot produce a valid leaf primary — the caller must then
+        reject creation (an uncategorized task is not allowed).
         """
         try:
-            return self.describe_and_categorize(prompt).get("tags") or {
-                "primary": "python",
-                "secondary": [],
-            }
+            return self.describe_and_categorize(prompt).get("tags")
         except Exception:
-            return {"primary": "python", "secondary": []}
+            return None
 
     def describe_and_categorize(self, prompt: str) -> dict:
         """Combined context-notes + tag categorization (ONE LLM call).
 
-        Returns ``{"context_notes": str, "tags": {primary, secondary}}``.
-        Without an API key or on any failure, returns
-        ``{"context_notes": "", "tags": {"primary": "python", "secondary": []}}``
-        so task creation stays hermetic.
+        Returns ``{"context_notes": str, "tags": {primary, secondary} | None}``.
+        Without an API key or on any failure, ``tags`` is ``None`` (there is no
+        fallback tag); callers must reject task creation.
         """
         import os
 
-        from coach.taxonomy import validate as validate_tags
+        from coach.taxonomy import normalize_tag, validate as validate_tags
 
-        fallback = {"context_notes": "", "tags": {"primary": "python", "secondary": []}}
         if not os.getenv("GOOGLE_API_KEY"):
-            return dict(fallback)
+            return {"context_notes": "", "tags": None}
         raw = ""
         try:
             client = self._client()
@@ -267,16 +249,17 @@ class TaskDecomposer:
             secondary = payload.get("secondary_tag") or []
             if not isinstance(secondary, list):
                 secondary = []
-            # LLM output is sanitized, not silently trusted: invalid secondary
-            # tags are dropped (a strict rejection would nuke the whole call).
-            from coach.taxonomy import FAMILIES, normalize_tag
-
-            secondary = [t for t in (normalize_tag(s) for s in secondary) if t and t not in FAMILIES][:2]
-            tags = validate_tags({"primary": primary or "python", "secondary": secondary})
+            # LLM output is sanitized: invalid secondary tags are dropped, and
+            # a non-leaf/invalid primary yields no tags at all.
+            secondary = [t for t in (normalize_tag(s) for s in secondary) if t][:2]
+            try:
+                tags = validate_tags({"primary": primary, "secondary": secondary})
+            except ValueError:
+                return {"context_notes": notes, "tags": None}
             return {"context_notes": notes, "tags": tags}
         except Exception:
-            logger.warning("[categorize] fallback used after failure (%s)", raw[:200])
-            return dict(fallback)
+            logger.warning("[categorize] categorization failed (%s)", raw[:200])
+            return {"context_notes": "", "tags": None}
 
     # -- judge-driven follow-up generation -------------------------------
 
@@ -390,17 +373,16 @@ class TaskDecomposer:
         self,
         difficulty: int,
         avoid_text: str = "",
-        prefer_family: str = "",
-        prefer_tag: str = "",
+        prefer_node: str = "",
         tags: dict | None = None,
     ) -> dict:
         """Generate a fresh adaptive task keeping an open-ended session going.
 
         Used when the task bank is exhausted: picks an important skill at the
         requested difficulty, avoiding recently-drilled gaps in ``avoid_text``.
-        ``prefer_family``/``prefer_tag`` steer the generated task toward an
-        under-explored area (scope widening, §5). ``tags`` are attached as-is
-        (defaults to ``prefer_tag`` as primary when provided).
+        ``prefer_node`` (a leaf skill) steers the generated task toward an
+        under-explored area (scope widening). ``tags`` are attached as-is
+        (defaults to ``prefer_node`` as primary when provided).
         Same raise-on-failure contract as ``generate_followup_task``.
         """
         import os
@@ -415,10 +397,8 @@ class TaskDecomposer:
         try:
             client = self._client()
             body = f"Desired difficulty (1-5): {difficulty}\n"
-            if prefer_tag:
-                body += f"Target fine tag: {prefer_tag}\n"
-            elif prefer_family:
-                body += f"Target family: {prefer_family}\n"
+            if prefer_node:
+                body += f"Target skill: {prefer_node}\n"
             if avoid_text and avoid_text.strip():
                 body += f"\nRecently drilled gaps to avoid repeating:\n{avoid_text.strip()[:1500]}\n"
             body += (
@@ -446,7 +426,7 @@ class TaskDecomposer:
             scaffold = str(payload.get("scaffold") or "").strip() or _scaffold_for(prompt, None)
             task = self._build(
                 task_id, difficulty, prompt, "open-ended challenge", scaffold,
-                kind="challenge", tags=tags or ({"primary": prefer_tag} if prefer_tag else None),
+                kind="challenge", tags=tags or ({"primary": prefer_node} if prefer_node else None),
                 context_notes=str(payload.get("context_notes") or ""),
             )
             task["target_text"] = ""
@@ -487,10 +467,7 @@ class TaskDecomposer:
         if tags:
             from coach.taxonomy import validate as validate_tags
 
-            try:
-                task["tags"] = validate_tags(tags)
-            except Exception:
-                task["tags"] = {"primary": "python", "secondary": []}
+            task["tags"] = validate_tags(tags)
         if parent_task_id:
             task["parent_task_id"] = parent_task_id
         if root_task_id:

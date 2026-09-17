@@ -49,59 +49,50 @@ hints, remediation loop, or session lifecycle.
 
 ## 2. Vocabulary (code-gradable ML topics)
 
-**9 families and 36 fine tags.** The vocabulary is deliberately limited to
-topics that can be graded by executing candidate code — a conceptual question
-(e.g. "explain the CAP theorem") is not in the catalog unless it can be posed
-as a self-contained Python exercise.
+**A three-level vocabulary: `domain → area → skill`.** Three domains (18
+areas, 110 leaf skills) cover both frontier ML research modelling and ML
+systems/infrastructure engineering, down to low-level GPU kernels. The
+vocabulary is deliberately limited to topics that can be graded by executing
+candidate code, are still current, and are load-bearing for frontier work —
+classic tabular ML and generic language drills are excluded.
 
-Rationale for the size:
-
-- A typical session is 5–12 questions. Fine tags must be coarse enough to
-  accumulate evidence within a handful of sessions; a much finer vocabulary
-  would leave most tag bars as pure priors.
-- Tags are covered by whatever tasks exist in the bank (§3), so the vocabulary
-  must be small enough for a practical task set to cover every tag.
-
-| Family | Fine tags |
+| Domain | Areas |
 |---|---|
-| `python` | `data_structures`, `functional`, `generators_iterators` |
-| `data_etl` | `pandas_cleaning`, `joins_merges`, `missing_outliers` |
-| `feature_eng` | `scaling_encoding`, `feature_construction`, `imbalanced_classes` |
-| `ml_classical` | `linear_regression`, `classification_logistic`, `trees_ensembles`, `clustering_kmeans`, `dimensionality_reduction`, `knn_svm_naivebayes` |
-| `stats_probability` | `bias_variance`, `distributions`, `hypothesis_pvalue`, `bayes_mle`, `bootstrap_ci` |
-| `training` | `loss_functions`, `regularization`, `backprop`, `lr_scheduling`, `overfitting_underfitting` |
-| `optimization` | `gradient_descent_sgd`, `optimizers_adam`, `hyperparameter_tuning` |
-| `dl_arch` | `mlp`, `cnn`, `rnn_lstm`, `attention_transformer`, `activation_normalization` |
-| `llm_genai` | `tokenization_bpe`, `pretraining_finetuning`, `rag_retrieval`, `quantization`, `kv_cache` |
-| `eval` | `metrics_classification`, `regression_metrics`, `cross_validation`, `data_leakage_calibration` |
-| `mlops_serving` | `deployment_serving`, `monitoring_drift`, `explainability`, `reproducibility_tracking` |
+| `research` | `pretraining`, `post_training`, `reinforcement_learning`, `architectures`, `generative_modeling`, `multimodal`, `agents`, `evaluation`, `research_method` |
+| `systems` | `kernels_and_gpu`, `distributed_training`, `inference_and_serving`, `performance_engineering`, `hardware`, `data_and_storage_infra`, `ml_platform` |
+| `foundations` | `math`, `software_engineering` |
 
-Notes on what was excluded and why:
+Examples that motivated the redesign: `research/pretraining/scaling_laws`,
+`research/post_training/preference_optimization`,
+`research/reinforcement_learning/grpo`,
+`systems/kernels_and_gpu/flash_attention`,
+`systems/inference_and_serving/paged_attention`. The old broad buckets
+`python` and `optimization` are gone (split across `foundations` and the two
+research/systems domains); old/niche content (`ml_classical`, `data_etl`,
+`feature_eng`, SHAP/LIME explainability, tabular scaling) was dropped.
 
-- **No standalone `vision`, `generative_models`, `nlp`, or `sys_*` infra
-  families.** Their canonical questions are conceptual and cannot be graded by
-  executing a short Python function (e.g. Raft consensus, GPU batching, diffusion
-  training). Gradeable content from those areas folds into the families above:
-  `producer_consumer`/`threading_locks` → `python`; `attention`/`transformer` →
-  `dl_arch`; `tokenization_bpe`, `kv_cache`, `quantization` → `llm_genai`.
-- **One canonical tag per concept.** No duplicates or near-duplicates
-  (e.g. a single `attention_transformer` tag rather than separate `attention`
-  and `transformer_attention`; `bootstrap_ci` lives only under
-  `stats_probability`).
-- **No tag maps to more than one family** (single source of truth
-  `TAG_TO_FAMILY`).
+Notes on the shape:
+
+- **Only leaves carry beliefs.** `global` is the candidate's overall estimate
+  (not a taxonomy node); each answer updates the leaf skill, its area, its
+  domain, and the global belief.
+- **No tag maps to more than one parent** (single tree, `NODE_PARENT`).
+- The fold in `coach/area_score.py` is depth-generic, so adding a level is a
+  taxonomy-only change.
 
 ### Task tagging contract
 
-- `tags: { primary: <fine tag>, secondary: [<fine tag>, …] }` — 1 primary,
-  0–2 secondary; each maps to exactly one family.
+- `tags: { primary: <leaf skill>, secondary: [<leaf skill>, …] }` — 1 primary,
+  0–2 secondary; each resolves to exactly one node in the tree.
 - Closed vocabulary validated server-side (`coach/taxonomy.py` is the single
-  source of truth: `FAMILIES`, `TAG_TO_FAMILY`, `ALIASES`, `validate`,
-  `family_of`).
-- **Only the primary tag feeds the belief system** (one answer updates exactly
-  one tag + one family + the global estimate). Secondary tags contribute to
-  coverage reporting and task diversity only — never to the estimator. This
-  avoids double-counting one answer into multiple tags.
+  source of truth: `TAXONOMY`, `DOMAINS`, `AREAS`, `LEAF_NODES`, `NODE_PARENT`,
+  `ancestors`, `ALIASES`, `validate`).
+- **Tags are required.** A missing/invalid primary, a non-leaf primary, or a
+  curation path that cannot decide raises 422 — there is no fallback tag.
+- **Only the primary skill feeds the belief system** (one answer updates exactly
+  one skill, its area, its domain, and the global estimate). Secondary tags
+  contribute to coverage reporting and task diversity only — never to the
+  estimator. This avoids double-counting one answer into multiple nodes.
 - Each task also carries `task_type` (`implement | apply | debug | design |
   analyze`). A "design" scenario is still implemented as a code task whose
   `scaffold` pins the key component, and is judged normally.

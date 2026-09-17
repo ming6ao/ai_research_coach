@@ -33,7 +33,7 @@ def _create_owned(client, token, prompt, owner_email, is_public=True):
         json={
             "prompt": prompt,
             "is_public": is_public,
-            "tags": {"primary": "python", "secondary": []},
+            "tags": {"primary": "testing", "secondary": []},
         },
         headers=_h(token),
     )
@@ -47,8 +47,8 @@ def test_taxonomy_is_public(client):
     res = client.get("/api/v1/taxonomy")
     assert res.status_code == 200
     data = res.json()["data"]
-    assert data["families"] and "python" in data["families"]
-    assert "data_structures" in data["tags"]["python"]
+    assert data["domains"] and "research" in data["domains"]
+    assert "flash_attention" in data["areas"]["kernels_and_gpu"]
     assert "implement" in data["task_types"]
 
 

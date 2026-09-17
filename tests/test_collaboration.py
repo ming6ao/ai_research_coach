@@ -52,6 +52,7 @@ def client(tmp_path, monkeypatch):
         max_score=5,
         source="seed",
         is_public=True,
+        tags={"primary": "experiment_design"},
         task_id="seed_ml_01",
     )
     _seed_task(
@@ -61,6 +62,7 @@ def client(tmp_path, monkeypatch):
         max_score=5,
         source="seed",
         is_public=True,
+        tags={"primary": "collectives_and_overlap"},
         task_id="seed_sys_01",
     )
     from backend.main import app
@@ -258,7 +260,7 @@ def test_legacy_backfill_reconstructs_steps(tmp_path, monkeypatch):
     sess = Session(
         "guest-legacy-0001",
         tasks=[{"id": "seed_ml_01", "prompt": "Q", "difficulty": 2, "max_score": 5,
-                "hints": [], "tags": {"primary": "python", "secondary": []}}],
+                "hints": [], "tags": {"primary": "testing", "secondary": []}}],
     )
     sess.asked_task_ids.add("seed_ml_01")
     sess.index = 1
@@ -272,7 +274,7 @@ def test_legacy_backfill_reconstructs_steps(tmp_path, monkeypatch):
     fb = [{"task_id": "seed_ml_01", "prompt": "Q", "user_answer": "def f(): pass",
            "result": {"score": 5.0, "max_score": 5.0}, "feedback": "Great",
            "coach": {"feedback": "Great"}, "hints_used": [],
-           "tags": {"primary": "python", "secondary": []}, "scored": True}]
+           "tags": {"primary": "testing", "secondary": []}, "scored": True}]
     with sqlite_conn() as conn:
         conn.execute(
             "INSERT INTO active_sessions (session_id, candidate, session_json, feedback_json, updated_at) "

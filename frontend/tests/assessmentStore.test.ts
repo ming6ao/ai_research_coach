@@ -112,7 +112,7 @@ test('submit with null next_task leaves no current task (done)', async () => {
   mock.restoreAll();
 });
 
-test('startAssessment forwards the family opt to the API', async () => {
+test('startAssessment forwards the node opt to the API', async () => {
   (globalThis as Record<string, unknown>).localStorage = new MemoryStorage();
   const start = mock.method(apiClient, 'start', async () =>
     ({
@@ -124,9 +124,9 @@ test('startAssessment forwards the family opt to the API', async () => {
     }) as StartResponse,
   );
 
-  await useAssessmentStore.getState().startAssessment(undefined, { family: 'dl_arch' });
+  await useAssessmentStore.getState().startAssessment(undefined, { node: 'kernels_and_gpu' });
   assert.equal(start.mock.callCount(), 1);
-  assert.deepEqual(start.mock.calls[0].arguments[1], { family: 'dl_arch' });
+  assert.deepEqual(start.mock.calls[0].arguments[1], { node: 'kernels_and_gpu' });
   assert.equal(useAssessmentStore.getState().sessionId, 's1');
   mock.restoreAll();
 });
@@ -169,8 +169,8 @@ test('loadOverview stores the cross-session progress snapshot', async () => {
       ability: { score: 0.7, confidence: 0.6, questions_answered: 3 },
       mastery: {
         global: { score: 0.7, confidence: 0.6, questions_answered: 3 },
-        families: {},
-        tags: {},
+        domains: {},
+        nodes: {},
       },
       sessions: [{ id: 's1', candidate: 'guest-abc12345', done: true, updated_at: '2026-01-01T00:00:00' }],
     }) as OverviewResponse,

@@ -326,16 +326,15 @@ def plan_followup(
 def plan_challenge(
     session,
     planner: Optional[RemediationPlanner] = None,
-    prefer_family: str = "",
-    prefer_tag: str = "",
+    prefer_node: str = "",
 ) -> Optional[dict]:
     """Mint a fresh adaptive task keeping an open-ended session going.
 
     Used when the bank is exhausted: difficulty tracks overall ability
-    (~80% P(solve)), avoiding recently-drilled gaps. ``prefer_family`` /
-    ``prefer_tag`` steer generation toward an under-explored area (scope
-    widening, §5). Returns the generated task (appended to ``session.tasks``)
-    or None on budget/generation failure.
+    (~80% P(solve)), avoiding recently-drilled gaps. ``prefer_node`` steers
+    generation toward an under-explored skill (scope widening). Returns the
+    generated task (appended to ``session.tasks``) or None on budget/generation
+    failure.
     """
     try:
         planner = planner or RemediationPlanner()
@@ -365,9 +364,8 @@ def plan_challenge(
             planner.decomposer,
             difficulty,
             avoid_text="\n".join(recent[:8]),
-            prefer_family=prefer_family or "",
-            prefer_tag=prefer_tag or "",
-            tags=_target_tags(session, prefer_tag=prefer_tag, prefer_family=prefer_family),
+            prefer_node=prefer_node or "",
+            tags=_target_tags(prefer_node),
         )
         session.add_generated_task(generated)
         _persist_generated_task(session, generated, None)
@@ -377,7 +375,7 @@ def plan_challenge(
         return None
 
 
-def _call_challenge(decomposer, difficulty, avoid_text="", prefer_family="", prefer_tag="", tags=None):
+def _call_challenge(decomposer, difficulty, avoid_text="", prefer_node="", tags=None):
     """Call generate_challenge_task, passing only kwargs the decomposer accepts.
 
     Keeps fake/legacy decomposers (which lack the scope-targeting kwargs)
@@ -390,47 +388,41 @@ def _call_challenge(decomposer, difficulty, avoid_text="", prefer_family="", pre
     kwargs: dict = {}
     if "avoid_text" in params:
         kwargs["avoid_text"] = avoid_text
-    if "prefer_family" in params:
-        kwargs["prefer_family"] = prefer_family
-    if "prefer_tag" in params:
-        kwargs["prefer_tag"] = prefer_tag
+    if "prefer_node" in params:
+        kwargs["prefer_node"] = prefer_node
     if "tags" in params:
         kwargs["tags"] = tags
     return decomposer.generate_challenge_task(difficulty, **kwargs)
 
 
-def _target_tags(session, prefer_tag: str = "", prefer_family: str = "") -> dict | None:
-    """Tags for a scope-widening challenge: prefer_tag primary, else family."""
-    if prefer_tag:
-        return {"primary": prefer_tag, "secondary": []}
-    if prefer_family:
-        return {"primary": prefer_family, "secondary": []}
+def _target_tags(prefer_node: str = "") -> dict | None:
+    """Tags for a scope-widening challenge: the preferred skill as primary."""
+    if prefer_node:
+        return {"primary": prefer_node, "secondary": []}
     return None
 
 
-def least_covered(session) -> tuple[str, str]:
-    """Least-covered (family, tag) from in-session attempt counts (§5).
+def least_covered(session) -> str:
+    """Least-covered leaf skill from in-session attempt counts.
 
-    Returns the tag with the fewest in-session observations (ties broken by
-    family coverage then lexicographic order) and its family. Used to steer
-    tag-directed generation when the bank has no eligible task.
+    Ties are broken by domain coverage, then area coverage, then
+    lexicographic order. Used to steer skill-directed generation when the bank
+    has no eligible task.
     """
-    from coach.taxonomy import ALL_TAGS, FAMILIES
+    from coach.taxonomy import LEAF_NODES, area_of, domain_of
 
     try:
-        by_family = {
-            fam: session.get_family_state(fam).questions_answered for fam in FAMILIES
-        }
-        best_family = min(FAMILIES, key=lambda f: (by_family[f], f))
-        candidates = [t for t in ALL_TAGS if t in best_family]
-        if not candidates:
-            candidates = ALL_TAGS
-        best_tag = min(
-            candidates, key=lambda t: (session.get_tag_state(t).questions_answered, t)
+        return min(
+            LEAF_NODES,
+            key=lambda n: (
+                session.get_node_state(domain_of(n)).questions_answered,
+                session.get_node_state(area_of(n)).questions_answered,
+                session.get_node_state(n).questions_answered,
+                n,
+            ),
         )
-        return best_family, best_tag
     except Exception:
-        return "python", "python"
+        return LEAF_NODES[0]
 
 
 def _persist_generated_task(session, generated: dict, parent_task: dict | None) -> None:

@@ -43,11 +43,12 @@ def _progress_for_candidate(candidate: str) -> tuple[Optional[dict], Optional[di
     """Persisted (ability, mastery) snapshot for a candidate, or (None, None).
 
     Built directly from ``user_skill_beliefs`` rows so the home page can show
-    cross-session progress without a live session. Mastery folds family/tag
+    cross-session progress without a live session. Mastery folds per-node
     statistics with read-time shrinkage exactly like ``_mastery_dict``.
     """
     from coach.area_score import AreaState, area_report_dict
     from coach.tasks import get_area_beliefs, get_skill_belief
+    from coach.taxonomy import NODE_LEVEL
 
     global_b = get_skill_belief(candidate)
     if global_b is None:
@@ -57,16 +58,14 @@ def _progress_for_candidate(candidate: str) -> tuple[Optional[dict], Optional[di
         variance=global_b["variance"],
         questions_answered=global_b["questions_answered"],
     )
-    family_states, tag_states = {}, {}
+    node_states: dict = {}
     for (level, key), b in get_area_beliefs(candidate).items():
-        st = AreaState(
+        if NODE_LEVEL.get(key) is None:
+            continue  # legacy/retired node
+        node_states[key] = AreaState(
             mean=b["mean"], variance=b["variance"], questions_answered=b["questions_answered"]
         )
-        if level == "family":
-            family_states[key] = st
-        elif level == "tag":
-            tag_states[key] = st
-    mastery = area_report_dict(global_state, family_states, tag_states)
+    mastery = area_report_dict(global_state, node_states)
     from coach.score import confidence_from_variance
 
     ability = {

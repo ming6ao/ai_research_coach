@@ -31,6 +31,7 @@ class FakeDecomposer:
             "generated_kind": mode,
             "target_text": target_text,
             "context_notes": "",
+            "tags": (original_task or {}).get("tags") or {"primary": "caching"},
             "parent_task_id": (original_task or {}).get("id"),
             "root_task_id": (original_task or {}).get("root_task_id") or (original_task or {}).get("id"),
             "root_difficulty": (original_task or {}).get("root_difficulty", (original_task or {}).get("difficulty", 2)),
@@ -49,6 +50,7 @@ class FakeDecomposer:
             "generated_kind": "challenge",
             "target_text": "",
             "context_notes": "",
+            "tags": {"primary": "caching"},
         }
 
 
@@ -64,6 +66,7 @@ def _base_task(difficulty=3):
         "difficulty": difficulty,
         "prompt": "Design a cache.",
         "max_score": 5,
+        "tags": {"primary": "caching", "secondary": []},
     }
 
 

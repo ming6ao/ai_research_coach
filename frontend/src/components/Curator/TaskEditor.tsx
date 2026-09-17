@@ -51,7 +51,7 @@ function blankPart(): PartDraft {
     max_score: '5',
     difficulty: '2',
     pass_score: '4',
-    primary: 'python',
+    primary: '',
     secondary: [],
   };
 }
@@ -64,7 +64,7 @@ function partsToDrafts(parts?: TaskPart[]): PartDraft[] {
     max_score: String(p.max_score),
     difficulty: String(p.difficulty),
     pass_score: String(p.pass_score ?? defaultPassScore(p.max_score)),
-    primary: p.tags?.primary ?? 'python',
+    primary: p.tags?.primary ?? '',
     secondary: p.tags?.secondary ?? [],
   }));
 }
@@ -79,7 +79,7 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
   const [taskType, setTaskType] = useState(task?.task_type ?? 'implement');
   const [language, setLanguage] = useState(task?.language ?? 'python');
   const [delivery, setDelivery] = useState<Delivery>((task?.delivery as Delivery) ?? 'block');
-  const [primary, setPrimary] = useState(task?.tags?.primary ?? 'python');
+  const [primary, setPrimary] = useState(task?.tags?.primary ?? '');
   const [secondary, setSecondary] = useState<string[]>(task?.tags?.secondary ?? []);
   const [contextNotes, setContextNotes] = useState(task?.context_notes ?? '');
   const [isPublic, setIsPublic] = useState(task ? task.is_public : true);
@@ -97,15 +97,19 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
       .then((t) => {
         setTaxonomy(t);
         if (!task) {
-          const firstTag = t.tags[t.families[0] ?? '']?.[0];
-          if (firstTag) setPrimary(firstTag);
+          const firstSkill = t.skills[0];
+          if (firstSkill) setPrimary(firstSkill);
         }
       })
       .catch((e) => onError(e instanceof Error ? e.message : String(e)));
   }, [task, onError]);
 
   const allTags = taxonomy
-    ? taxonomy.families.flatMap((fam) => (taxonomy.tags[fam] ?? []).map((tag) => ({ tag, fam })))
+    ? taxonomy.domains.flatMap((domain) =>
+        Object.entries(taxonomy.tree[domain] ?? {}).flatMap(([area, skills]) =>
+          skills.map((tag) => ({ tag, area, domain })),
+        ),
+      )
     : [];
 
   const toggleSecondary = (tag: string) => {
@@ -144,7 +148,7 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
       return null;
     }
     if (!primary) {
-      const msg = 'Select a primary tag.';
+      const msg = 'Select a primary skill.';
       setFormError(msg);
       onError(msg);
       return null;
@@ -163,6 +167,12 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
       }
       if (seen.has(p.key.trim())) {
         const msg = `Duplicate step key: ${p.key.trim()}`;
+        setFormError(msg);
+        onError(msg);
+        return null;
+      }
+      if (!p.primary) {
+        const msg = `Step ${p.key.trim()} needs a primary skill.`;
         setFormError(msg);
         onError(msg);
         return null;
@@ -267,15 +277,18 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
 
   const renderTagPicker = (value: string, onChange: (t: string) => void) => (
     <select value={value} onChange={(e) => onChange(e.target.value)} className={inputCls}>
-      {taxonomy.families.map((fam) => (
-        <optgroup key={fam} label={fam}>
-          {(taxonomy.tags[fam] ?? []).map((tag) => (
-            <option key={tag} value={tag}>
-              {tag}
-            </option>
-          ))}
-        </optgroup>
-      ))}
+      {value === '' && <option value="">Select a skill…</option>}
+      {taxonomy.domains.map((domain) =>
+        Object.entries(taxonomy.tree[domain] ?? {}).map(([area, skills]) => (
+          <optgroup key={`${domain}/${area}`} label={`${domain} / ${area}`}>
+            {skills.map((tag) => (
+              <option key={tag} value={tag}>
+                {tag}
+              </option>
+            ))}
+          </optgroup>
+        )),
+      )}
     </select>
   );
 
@@ -456,8 +469,8 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
               <div className="max-h-40 overflow-y-auto rounded-lg border border-[var(--color-border-default)] p-2">
                 {allTags
                   .filter((t) => t.tag !== primary)
-                  .sort((a, b) => a.fam.localeCompare(b.fam) || a.tag.localeCompare(b.tag))
-                  .map(({ tag, fam }) => {
+                  .sort((a, b) => a.area.localeCompare(b.area) || a.tag.localeCompare(b.tag))
+                  .map(({ tag, area, domain }) => {
                     const active = secondary.includes(tag);
                     const disabled = !active && secondary.length >= 2;
                     return (
@@ -471,7 +484,7 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
                             ? 'border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 text-[var(--color-text-primary)]'
                             : 'border-[var(--color-border-default)] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
                         } ${disabled ? 'opacity-40' : ''}`}
-                        title={fam}
+                        title={`${domain} / ${area}`}
                       >
                         {tag}
                       </button>
@@ -551,7 +564,7 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
                       {allTags
                         .filter((t) => t.tag !== p.primary)
                         .slice(0, 24)
-                        .map(({ tag, fam }) => {
+                        .map(({ tag, area, domain }) => {
                           const active = p.secondary.includes(tag);
                           const disabled = !active && p.secondary.length >= 2;
                           return (
@@ -565,7 +578,7 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
                                   ? 'border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 text-[var(--color-text-primary)]'
                                   : 'border-[var(--color-border-default)] text-[var(--color-text-muted)]'
                               } ${disabled ? 'opacity-40' : ''}`}
-                              title={fam}
+                              title={`${domain} / ${area}`}
                             >
                               {tag}
                             </button>
@@ -669,7 +682,7 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
           <TaskPreview
             prompt={prompt || '…'}
             parts={previewParts}
-            tags={{ primary, secondary }}
+            tags={primary ? { primary, secondary } : undefined}
             scaffold={scaffold}
             language={language}
             phaseIndex={1}

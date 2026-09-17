@@ -1,4 +1,4 @@
-"""v1 taxonomy resource: closed tag/family/task-type vocabulary (public).
+"""v1 taxonomy resource: closed domain/area/skill/task-type vocabulary (public).
 
 Curators author questions with the same closed vocabulary as the admin seed
 form, so the dropdowns never drift from ``coach/taxonomy.py``. Unlike
@@ -10,14 +10,16 @@ from fastapi import APIRouter
 router = APIRouter(tags=["v1:taxonomy"])
 
 
-@router.get("/taxonomy", summary="Tag/family/task-type vocabulary")
+@router.get("/taxonomy", summary="Domain/area/skill + task-type vocabulary")
 def taxonomy():
-    from coach.taxonomy import FAMILIES, TAGS, TASK_TYPES
+    from coach.taxonomy import AREAS, DOMAINS, LEAF_NODES, TASK_TYPES, TAXONOMY
 
     return {
         "data": {
-            "families": FAMILIES,
-            "tags": TAGS,
+            "tree": TAXONOMY,
+            "domains": DOMAINS,
+            "areas": AREAS,
+            "skills": LEAF_NODES,
             "task_types": list(TASK_TYPES),
         }
     }

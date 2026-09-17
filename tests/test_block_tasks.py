@@ -15,13 +15,13 @@ def _make_pred_succ():
     pred = {
         "id": "pred", "prompt": "Implement a plain queue. Signature: def put(item):",
         "difficulty": 2, "max_score": 5,
-        "tags": {"primary": "data_structures", "secondary": []},
+        "tags": {"primary": "concurrency_async", "secondary": []},
         "version_index": 1, "version_root_id": "pred",
     }
     succ = {
         "id": "succ", "prompt": "Make the queue thread-safe.",
         "difficulty": 4, "max_score": 5,
-        "tags": {"primary": "data_structures", "secondary": []},
+        "tags": {"primary": "concurrency_async", "secondary": []},
         "version_index": 2, "version_root_id": "pred", "depends_on_task_id": "pred",
     }
     return pred, succ
@@ -35,15 +35,15 @@ def test_parts_validation(tmp_path, monkeypatch):
     with pytest.raises(ValueError):
         create_task(
             prompt="b", parts=[
-                {"key": "a", "prompt": "p", "tags": {"primary": "python"}, "max_score": 5, "difficulty": 2},
-                {"key": "a", "prompt": "q", "tags": {"primary": "python"}, "max_score": 5, "difficulty": 2},
+                {"key": "a", "prompt": "p", "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2},
+                {"key": "a", "prompt": "q", "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2},
             ]
         )
     # Empty prompt rejected.
     with pytest.raises(ValueError):
         create_task(
             prompt="b", parts=[
-                {"key": "a", "prompt": "", "tags": {"primary": "python"}, "max_score": 5, "difficulty": 2},
+                {"key": "a", "prompt": "", "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2},
             ]
         )
     # Unknown tag rejected with a part-scoped message.
@@ -65,16 +65,16 @@ def test_block_aggregates_and_derives_tags(tmp_path, monkeypatch):
         source="seed",
         is_public=True,
         parts=[
-            {"key": "a", "prompt": "def a(x): ...", "tags": {"primary": "cnn"},
+            {"key": "a", "prompt": "def a(x): ...", "tags": {"primary": "vision_encoders"},
              "max_score": 5, "difficulty": 3},
-            {"key": "b", "prompt": "def b(y): ...", "tags": {"primary": "rnn_lstm"},
+            {"key": "b", "prompt": "def b(y): ...", "tags": {"primary": "state_space_models"},
              "max_score": 5, "difficulty": 4},
         ],
     )
     assert t["max_score"] == 10  # aggregate
     assert t["difficulty"] == 4  # max part difficulty when omitted
-    assert t["tags"]["primary"] == "cnn"  # auto-derived
-    assert t["tags"]["secondary"] == ["rnn_lstm"]
+    assert t["tags"]["primary"] == "vision_encoders"  # auto-derived
+    assert t["tags"]["secondary"] == ["state_space_models"]
     assert get_task(t["id"])["parts"][1]["key"] == "b"
 
 
@@ -102,7 +102,7 @@ def test_version_successors_retired_from_selection(tmp_path, monkeypatch):
     pred, succ = _make_pred_succ()
     other = {
         "id": "other", "prompt": "Another task.", "difficulty": 2, "max_score": 5,
-        "tags": {"primary": "python", "secondary": []},
+        "tags": {"primary": "testing", "secondary": []},
     }
     session = Session("c", tasks=[pred, succ, other])
     session.asked_task_ids.add("pred")
@@ -119,12 +119,12 @@ def test_merge_version_chain_to_phased(tmp_path, monkeypatch):
     root = create_task(
         prompt="Implement a queue.", source="seed", is_public=True,
         parts=[{"key": "a", "prompt": "def put(x): ...",
-                "tags": {"primary": "data_structures"}, "max_score": 5, "difficulty": 2}],
+                "tags": {"primary": "concurrency_async"}, "max_score": 5, "difficulty": 2}],
     )
     create_task(
         prompt="Make it thread-safe.", source="seed", is_public=True,
         parts=[{"key": "b", "prompt": "def put(x): ...",
-                "tags": {"primary": "data_structures"}, "max_score": 5, "difficulty": 4}],
+                "tags": {"primary": "concurrency_async"}, "max_score": 5, "difficulty": 4}],
         depends_on_task_id=root["id"],
     )
     merged = merge_version_chain(root["id"], delete_originals=True)
@@ -142,7 +142,7 @@ def test_successor_excluded_from_bank_picker():
     pred, succ = _make_pred_succ()
     other = {
         "id": "other", "prompt": "Another task.", "difficulty": 2, "max_score": 5,
-        "tags": {"primary": "python", "secondary": []},
+        "tags": {"primary": "testing", "secondary": []},
     }
     session = Session("c", tasks=[pred, succ, other])
     session.asked_task_ids.add("pred")
@@ -155,17 +155,17 @@ def test_successor_excluded_from_bank_picker():
 def test_score_targets_blocks_and_legacy():
     block = {
         "id": "x", "prompt": "p",
-        "parts": [{"key": "a", "prompt": "pa", "tags": {"primary": "cnn"},
+        "parts": [{"key": "a", "prompt": "pa", "tags": {"primary": "vision_encoders"},
                    "max_score": 5, "difficulty": 2}],
     }
     assert score_targets(block)[0]["key"] == "a"
-    assert score_targets(block)[0]["tags"]["primary"] == "cnn"
+    assert score_targets(block)[0]["tags"]["primary"] == "vision_encoders"
 
     # A legacy single-question task becomes one implicit part named after the
     # function in the prompt.
     legacy = {
         "id": "y", "prompt": "Implement foo. Signature: def foo(x): ...",
-        "max_score": 5, "difficulty": 2, "tags": {"primary": "python", "secondary": []},
+        "max_score": 5, "difficulty": 2, "tags": {"primary": "testing", "secondary": []},
     }
     targets = score_targets(legacy)
     assert len(targets) == 1

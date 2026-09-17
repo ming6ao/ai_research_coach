@@ -31,7 +31,7 @@ def test_create_and_list_tasks_endpoint():
     from backend.main import app
 
     client = TestClient(app)
-    res = client.post("/api/v1/tasks", json={"prompt": "My own question?"})
+    res = client.post("/api/v1/tasks", json={"prompt": "My own question?", "tags": {"primary": "testing"}})
     assert res.status_code == 201
     task = res.json()["data"]
     assert task["prompt"] == "My own question?"
@@ -48,8 +48,8 @@ def test_private_by_default_shared_when_public(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "p.db")
     from coach.tasks import create_task, list_visible_tasks
 
-    own = create_task(prompt="private q", owner="a@x.com", is_public=False)
-    pub = create_task(prompt="public q", owner="b@x.com", is_public=True)
+    own = create_task(prompt="private q", owner="a@x.com", is_public=False, tags={"primary": "testing"})
+    pub = create_task(prompt="public q", owner="b@x.com", is_public=True, tags={"primary": "caching"})
     assert any(t["id"] == own["id"] for t in list_visible_tasks("a@x.com"))
     assert not any(t["id"] == own["id"] for t in list_visible_tasks("b@x.com"))
     assert any(t["id"] == pub["id"] for t in list_visible_tasks("a@x.com"))
@@ -95,6 +95,7 @@ def test_context_notes_round_trip(tmp_path, monkeypatch):
         prompt="Explain caching.",
         owner="a@x.com",
         context_notes="Eviction is a prerequisite of caching, often confused with invalidation.",
+        tags={"primary": "caching"},
     )
     assert task["context_notes"].startswith("Eviction")
     assert get_task(task["id"])["context_notes"] == task["context_notes"]

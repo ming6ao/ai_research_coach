@@ -42,15 +42,17 @@ def whoami(user: dict = Depends(_require_user)):
     return {"user": user, "is_admin": is_admin(user)}
 
 
-@admin_router.get("/taxonomy", summary="Tag/family/task-type vocabulary for the admin seed form")
+@admin_router.get("/taxonomy", summary="Domain/area/skill/task-type vocabulary for the admin seed form")
 def taxonomy(user: dict = Depends(_require_admin)):
-    """Closed tag vocabulary (single source of truth) so the admin seed
-    form's dropdowns never drift from ``coach/taxonomy.py``."""
-    from coach.taxonomy import FAMILIES, TAGS, TASK_TYPES
+    """Closed vocabulary (single source of truth) so the admin seed form's
+    dropdowns never drift from ``coach/taxonomy.py``."""
+    from coach.taxonomy import AREAS, DOMAINS, LEAF_NODES, TASK_TYPES, TAXONOMY
 
     return {
-        "families": FAMILIES,
-        "tags": TAGS,
+        "tree": TAXONOMY,
+        "domains": DOMAINS,
+        "areas": AREAS,
+        "skills": LEAF_NODES,
         "task_types": list(TASK_TYPES),
     }
 
@@ -101,24 +103,24 @@ def create_seed(req: AdminSeedCreateRequest, user: dict = Depends(_require_admin
 
 
 @admin_router.get("/reset/preview")
-def reset_preview(user: dict = Depends(_require_admin)):
+def reset_preview(wipe_tasks: bool = False, user: dict = Depends(_require_admin)):
     """Dry-run: which app-data rows a DB reset would wipe (users/auth kept)."""
     from coach.db import reset_database
 
-    return {"ok": True, **reset_database(preview=True)}
+    return {"ok": True, **reset_database(preview=True, wipe_tasks=wipe_tasks)}
 
 
 @admin_router.post("/reset")
-def reset_database_endpoint(user: dict = Depends(_require_admin)):
-    """Wipe activity/progress data; preserve identity/auth and the task bank.
+def reset_database_endpoint(wipe_tasks: bool = False, user: dict = Depends(_require_admin)):
+    """Wipe activity/progress data; preserve identity/auth.
 
-    Deletes sessions, steps, beliefs, and shares (users/auth tokens and the
-    ``tasks`` table are preserved — the DB is the source of truth for
-    questions). Admin-only.
+    Deletes sessions, steps, beliefs, and shares. The task bank (``tasks``) is
+    preserved by default — pass ``?wipe_tasks=true`` to also delete every task
+    (used when re-authoring questions against a new taxonomy). Admin-only.
     """
     from coach.db import reset_database
 
-    return {"ok": True, **reset_database(preview=False)}
+    return {"ok": True, **reset_database(preview=False, wipe_tasks=wipe_tasks)}
 
 
 @admin_router.get("/guest-data/preview")

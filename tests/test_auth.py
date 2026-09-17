@@ -29,6 +29,7 @@ def client(tmp_path, monkeypatch):
         max_score=5,
         source="seed",
         is_public=True,
+        tags={"primary": "testing"},
         task_id="seed_auth_01",
     )
     from backend.main import app

@@ -185,7 +185,7 @@ def score_targets(task: dict) -> list[dict]:
         {
             "key": key,
             "prompt": task.get("prompt", ""),
-            "tags": task.get("tags") or {"primary": "python", "secondary": []},
+            "tags": task.get("tags") or {"primary": None, "secondary": []},
             "max_score": int(task.get("max_score") or 5),
             "difficulty": int(task.get("difficulty") or 1),
         }

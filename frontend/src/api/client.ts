@@ -75,13 +75,22 @@ export interface MasteryEntry {
   score: number;
   confidence: number;
   questions_answered: number;
-  family?: string;
+  level?: number;
+  parent?: string | null;
+}
+
+export interface MasteryArea extends MasteryEntry {
+  skills: Record<string, MasteryEntry>;
+}
+
+export interface MasteryDomain extends MasteryEntry {
+  areas: Record<string, MasteryArea>;
 }
 
 export interface MasteryBlock {
   global: MasteryEntry;
-  families: Record<string, MasteryEntry>;
-  tags: Record<string, MasteryEntry>;
+  domains: Record<string, MasteryDomain>;
+  nodes: Record<string, MasteryEntry>;
 }
 
 export interface StartResponse {
@@ -275,8 +284,10 @@ async function v1<T>(path: string, body?: unknown, method?: string): Promise<T> 
 }
 
 export interface AdminTaxonomy {
-  families: string[];
-  tags: Record<string, string[]>;
+  tree: Record<string, Record<string, string[]>>;
+  domains: string[];
+  areas: Record<string, string[]>;
+  skills: string[];
   task_types: string[];
 }
 
@@ -310,13 +321,13 @@ export interface TaskCreateBody {
 export type TaskPatchBody = Partial<TaskCreateBody>;
 
 export const apiClient = {
-  start: (initial_question?: string, opts?: { randomFirst?: boolean; family?: string }) =>
+  start: (initial_question?: string, opts?: { randomFirst?: boolean; node?: string }) =>
     v1<StartResponse>(
       '/sessions',
       {
         initial_question,
         random_first: opts?.randomFirst ?? undefined,
-        family: opts?.family ?? undefined,
+        node: opts?.node ?? undefined,
       },
     ),
 

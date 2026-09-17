@@ -38,7 +38,7 @@ def _add_app_data():
 
     now = _now()
     dt = db.naive_utc(datetime.now(timezone.utc))
-    task = create_task(prompt="Custom user task?", owner="alice@example.com")
+    task = create_task(prompt="Custom user task?", owner="alice@example.com", tags={"primary": "testing"})
     with db.sqlite_conn() as conn:
         conn.execute(
             "INSERT INTO active_sessions (session_id, candidate, session_json, status, updated_at) "
@@ -130,3 +130,21 @@ def test_reset_is_idempotent(tmp_path, monkeypatch):
     assert again["total_deleted"] == 0
     with db.sqlite_conn() as conn:
         assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 1
+
+
+def test_reset_with_wipe_tasks_clears_task_bank(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "reset_tasks.db")
+    _add_user_and_auth()
+    _add_app_data()
+
+    preview = reset_database(preview=True, wipe_tasks=True)
+    assert preview["wipe_tasks"] is True
+    assert "tasks" in preview["wiped"]
+    assert "tasks" not in preview["preserved"]
+
+    result = reset_database(preview=False, wipe_tasks=True)
+    assert result["wiped"]["tasks"] == 1
+    with db.sqlite_conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
+        # Identity/auth is still preserved.
+        assert conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 1

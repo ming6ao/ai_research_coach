@@ -17,7 +17,13 @@ import random
 
 from coach.session import Session
 from coach.score import expected_variance_reduction, measurement_variance
-from coach.taxonomy import FAMILIES, family_of
+from coach.taxonomy import (
+    NODE_LEVEL,
+    ancestors,
+    area_of,
+    domain_of,
+    resolve_node,
+)
 
 
 # Static expected-time model (minutes) used as the cost of a question.
@@ -28,19 +34,21 @@ TIME_NO_SCAFFOLD_EXTRA = 0.5
 
 # Exploration weights (unit-consistent with EIG_global/time ~ 0.005-0.015).
 # They must stay well below the EIG term so exploration is a genuine
-# tiebreaker, never a replacement (§5).
-LAMBDA_FAMILY = 0.004
-LAMBDA_TAG = 0.001
+# tiebreaker, never a replacement. One small bonus per hierarchy level.
+LAMBDA_DOMAIN = 0.002
+LAMBDA_AREA = 0.003
+LAMBDA_SKILL = 0.001
 
-# Soft breadth penalty: applied to a candidate task whose primary family
-# equals the previously asked task's family. Soft, so it can never remove
-# the last viable bank task (no deadlock).
+# Soft breadth penalty: applied to a candidate task whose primary area equals
+# the previously asked task's area. Soft, so it can never remove the last
+# viable bank task (no deadlock).
 BREADTH_PENALTY = 0.010
 
 
 def next_task(
     session: Session,
     sample_top_n: Optional[int] = None,
+    node: Optional[str] = None,
     family: Optional[str] = None,
 ) -> Optional[dict]:
     """Select next task maximizing expected information gain per unit time.
@@ -52,8 +60,9 @@ def next_task(
     highest-utility tasks instead of always returning the single best. This
     keeps the "Random question" entry point varied while staying adaptive.
 
-    When ``family`` is set, only bank tasks whose primary tag maps to that
-    family are eligible (used to seed a session with a question in an area).
+    When ``node`` (or the legacy ``family`` alias) is set, only bank tasks
+    whose primary skill is that node or has it as an ancestor are eligible
+    (used to seed a session with a question from an area).
     """
     available = [
         t for t in session.tasks
@@ -61,9 +70,10 @@ def next_task(
         and not t.get("generated")
         and not t.get("depends_on_task_id")
     ]
-    if family:
+    target = resolve_node(node or family)
+    if target:
         available = [
-            t for t in available if family_of((t.get("tags") or {}).get("primary")) == family
+            t for t in available if _matches_node((t.get("tags") or {}).get("primary"), target)
         ]
     if not available:
         return None
@@ -79,13 +89,23 @@ def next_task(
     return scored[0][1]
 
 
+def _matches_node(primary: Optional[str], target: str) -> bool:
+    """True when ``primary`` is ``target`` or is descended from it."""
+    canon = resolve_node(primary)
+    if canon is None:
+        return False
+    if canon == target:
+        return True
+    return target in ancestors(canon)
+
+
 def _explore(attempts: int) -> float:
-    """Exploration bonus for a family/tag with `attempts` observations."""
+    """Exploration bonus for a node with `attempts` observations."""
     return 1.0 / (1.0 + max(0, int(attempts)))
 
 
 def _utility(task: dict, session: Session) -> float:
-    """Utility = EIG/time + exploration bonuses - soft breadth penalty."""
+    """Utility = EIG/time + per-level exploration bonuses - breadth penalty."""
     state = session.get_ability()
 
     obs_variance = measurement_variance(task.get("difficulty", 1), state.score)
@@ -97,24 +117,30 @@ def _utility(task: dict, session: Session) -> float:
 
     tags = task.get("tags") or {}
     primary = tags.get("primary")
-    fam = family_of(primary)
+    if not primary:
+        return eig
+
+    domain = domain_of(primary)
+    area = area_of(primary)
 
     explore = 0.0
-    if fam:
-        explore += LAMBDA_FAMILY * _explore(
-            session.get_family_state(fam).questions_answered
+    if domain:
+        explore += LAMBDA_DOMAIN * _explore(
+            session.get_node_state(domain).questions_answered
         )
-    # Only real fine tags feed the tag-level term; a family used as the
-    # primary (fallback "python") already counts via the family term.
-    if primary and primary not in FAMILIES:
-        explore += LAMBDA_TAG * _explore(
-            session.get_tag_state(primary).questions_answered
+    if area:
+        explore += LAMBDA_AREA * _explore(
+            session.get_node_state(area).questions_answered
+        )
+    if primary and NODE_LEVEL.get(primary, 0) == 3:
+        explore += LAMBDA_SKILL * _explore(
+            session.get_node_state(primary).questions_answered
         )
 
     utility = eig + explore
 
-    prev_fam = session.previous_family()
-    if fam and prev_fam and fam == prev_fam:
+    prev_area = session.previous_area()
+    if area and prev_area and area == prev_area:
         utility -= BREADTH_PENALTY
 
     return utility

@@ -74,6 +74,7 @@ def pick_next_task(
     session,
     last_submission: Optional[dict] = None,
     sample_top_n: Optional[int] = None,
+    node: Optional[str] = None,
     family: Optional[str] = None,
     session_id: Optional[str] = None,
 ) -> dict | None:
@@ -83,11 +84,12 @@ def pick_next_task(
     from a just-recorded submission (``answer`` is the candidate's code,
     carried into the next phase). ``sample_top_n`` (> 1) samples uniformly
     from the top-N EIG bank candidates instead of always taking the single
-    best; it applies to the bank-picker branch only. ``family`` restricts the
-    bank-picker branch to tasks in one family (used to seed a session with a
-    question in an area); it never affects pending/follow-up branches.
-    ``session_id`` lets the resume path fetch the candidate's prior code for
-    an in-progress phased task.
+    best; it applies to the bank-picker branch only. ``node`` (or the legacy
+    ``family`` alias) restricts the bank-picker branch to tasks in one
+    domain/area/skill (used to seed a session with a question from an area);
+    it never affects pending/follow-up branches. ``session_id`` lets the
+    resume path fetch the candidate's prior code for an in-progress phased
+    task.
     """
     from coach.picker import next_task as next_task_bank
 
@@ -123,20 +125,18 @@ def pick_next_task(
             return task_view(generated, session)
 
     # 4. EIG bank picker.
-    nxt = next_task_bank(session, sample_top_n=sample_top_n, family=family)
+    nxt = next_task_bank(session, sample_top_n=sample_top_n, node=node, family=family)
     if nxt is not None:
         return task_view(nxt, session)
 
     # 5. Bank exhausted -> mint a fresh adaptive challenge so the session
     # keeps going indefinitely (user exits explicitly via Finish). Steer it
-    # toward the least-covered family/tag so scope keeps widening.
+    # toward the least-covered skill so scope keeps widening.
     try:
         from coach.remediation import least_covered, plan_challenge
 
-        prefer_family, prefer_tag = least_covered(session)
-        challenge = plan_challenge(
-            session, prefer_family=prefer_family, prefer_tag=prefer_tag
-        )
+        prefer_node = least_covered(session)
+        challenge = plan_challenge(session, prefer_node=prefer_node)
         if challenge is not None:
             return task_view(challenge, session)
     except Exception:

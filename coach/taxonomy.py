@@ -1,284 +1,474 @@
-"""Closed ML-topic vocabulary for task tagging.
+"""Closed 3-level ML/AI topic vocabulary for task tagging.
 
-Single source of truth for the tag/family taxonomy (the design doc
-``docs/builtin-question-bank-and-mastery-design-v3.md``, §2). Every task
-carries a ``tags`` block of the shape::
+Single source of truth for the taxonomy. Every task carries a ``tags`` block::
 
-    {"primary": <fine tag>, "secondary": [<fine tag>, ...]}
+    {"primary": <skill>, "secondary": [<skill>, ...]}
 
-with exactly one primary and 0-2 secondary tags. Each fine tag maps to
-exactly one family (``TAG_TO_FAMILY``); no tag maps to more than one family.
+with exactly one primary **leaf skill** and 0-2 secondary leaf skills.
 
-``validate`` is the server-side gate: unknown tags are rejected (422 on
-create/PATCH). Only the primary tag feeds the belief estimator; secondary
-tags contribute to task diversity only.
+The hierarchy has three levels::
+
+    domain  ->  area  ->  skill (leaf)
+
+``global`` is the candidate's overall belief (not a taxonomy node). Beliefs
+are tracked at every level; only the primary leaf skill feeds the estimator
+(one answer updates the skill, its area, its domain, and the global belief).
+
+``validate`` is the server-side gate: an unknown or missing primary, or a
+non-leaf primary, is rejected (422 on create/PATCH). There is no permissive
+fallback — an uncategorized task must not be created.
 """
 
 from __future__ import annotations
 
-# Families (11) -> fine tags (46). The vocabulary is deliberately limited to
-# code-gradable ML/AI topics; tasks are authored so the bank covers every
-# family and every fine tag (the DB is the source of truth for tasks).
-FAMILIES: list[str] = [
-    "python",
-    "data_etl",
-    "feature_eng",
-    "ml_classical",
-    "stats_probability",
-    "training",
-    "optimization",
-    "dl_arch",
-    "llm_genai",
-    "eval",
-    "mlops_serving",
-]
-
-TAGS: dict[str, list[str]] = {
-    "python": ["data_structures", "functional", "generators_iterators"],
-    "data_etl": ["pandas_cleaning", "joins_merges", "missing_outliers"],
-    "feature_eng": ["scaling_encoding", "feature_construction", "imbalanced_classes"],
-    "ml_classical": [
-        "linear_regression",
-        "classification_logistic",
-        "trees_ensembles",
-        "clustering_kmeans",
-        "dimensionality_reduction",
-        "knn_svm_naivebayes",
-    ],
-    "stats_probability": [
-        "bias_variance",
-        "distributions",
-        "hypothesis_pvalue",
-        "bayes_mle",
-        "bootstrap_ci",
-    ],
-    "training": [
-        "loss_functions",
-        "regularization",
-        "backprop",
-        "lr_scheduling",
-        "overfitting_underfitting",
-    ],
-    "optimization": ["gradient_descent_sgd", "optimizers_adam", "hyperparameter_tuning"],
-    "dl_arch": ["mlp", "cnn", "rnn_lstm", "attention_transformer", "activation_normalization"],
-    "llm_genai": ["tokenization_bpe", "pretraining_finetuning", "rag_retrieval", "quantization", "kv_cache"],
-    "eval": ["metrics_classification", "regression_metrics", "cross_validation", "data_leakage_calibration"],
-    "mlops_serving": ["deployment_serving", "monitoring_drift", "explainability", "reproducibility_tracking"],
+# Domains (3) -> areas (18) -> skills (leaves). The vocabulary is deliberately
+# limited to code-gradable topics that are still current and load-bearing for
+# frontier AI research (modelling) and systems/infrastructure work.
+TAXONOMY: dict[str, dict[str, list[str]]] = {
+    "research": {
+        "pretraining": [
+            "data_mixture",
+            "tokenizer_design",
+            "pretraining_objectives",
+            "scaling_laws",
+            "context_length_extension",
+            "data_contamination",
+        ],
+        "post_training": [
+            "supervised_finetuning",
+            "instruction_tuning",
+            "preference_optimization",
+            "reward_modeling",
+            "rejection_sampling",
+            "knowledge_distillation",
+            "model_merging",
+        ],
+        "reinforcement_learning": [
+            "policy_gradients",
+            "value_based_methods",
+            "ppo",
+            "grpo",
+            "exploration_credit_assignment",
+            "offline_rl",
+            "environment_reward_design",
+            "rl_for_reasoning",
+        ],
+        "architectures": [
+            "attention_variants",
+            "mixture_of_experts",
+            "positional_encoding",
+            "normalization",
+            "state_space_models",
+            "long_context",
+            "parameter_efficient_finetuning",
+        ],
+        "generative_modeling": [
+            "diffusion_models",
+            "flow_matching",
+            "variational_autoencoders",
+            "sampling_decoding",
+        ],
+        "multimodal": [
+            "vision_encoders",
+            "vision_language_alignment",
+            "audio_speech",
+            "video_modeling",
+        ],
+        "agents": [
+            "tool_use",
+            "planning_decomposition",
+            "memory_context",
+            "retrieval_augmented_generation",
+            "multi_agent_systems",
+        ],
+        "evaluation": [
+            "benchmark_design",
+            "contamination_detection",
+            "capability_elicitation",
+            "red_teaming",
+            "statistical_evaluation",
+            "human_model_grading",
+        ],
+        "research_method": [
+            "experiment_design",
+            "ablations",
+            "reproducibility",
+            "error_analysis",
+            "literature_grounding",
+        ],
+    },
+    "systems": {
+        "kernels_and_gpu": [
+            "cuda_programming",
+            "triton",
+            "simd_warp_primitives",
+            "memory_coalescing",
+            "fused_kernels",
+            "flash_attention",
+            "gemm_reductions",
+            "kernel_profiling",
+            "custom_autograd",
+        ],
+        "distributed_training": [
+            "data_parallelism",
+            "tensor_parallelism",
+            "pipeline_parallelism",
+            "sharding_and_offload",
+            "collectives_and_overlap",
+            "fault_tolerance",
+            "distributed_checkpointing",
+            "expert_parallelism",
+        ],
+        "inference_and_serving": [
+            "continuous_batching",
+            "kv_cache_management",
+            "paged_attention",
+            "speculative_decoding",
+            "quantization",
+            "serving_engine_internals",
+            "autoscaling_routing",
+            "disaggregated_serving",
+        ],
+        "performance_engineering": [
+            "profiling_roofline",
+            "operator_fusion",
+            "compilation",
+            "mixed_precision",
+            "memory_optimization",
+            "autotuning",
+        ],
+        "hardware": [
+            "gpu_architecture",
+            "memory_hierarchy",
+            "interconnects_topology",
+            "accelerators",
+            "energy_thermal",
+        ],
+        "data_and_storage_infra": [
+            "streaming_datasets",
+            "sharding_formats",
+            "caching",
+            "data_loading_pipelines",
+            "distributed_io",
+            "storage_systems",
+        ],
+        "ml_platform": [
+            "orchestration_scheduling",
+            "experiment_tracking",
+            "ci_cd_for_models",
+            "monitoring_drift",
+            "reproducibility_artifacts",
+            "cost_capacity",
+        ],
+    },
+    "foundations": {
+        "math": [
+            "linear_algebra",
+            "calculus_autodiff",
+            "probability_statistics",
+            "optimization_theory",
+            "information_theory",
+            "numerical_stability",
+        ],
+        "software_engineering": [
+            "concurrency_async",
+            "memory_management",
+            "testing",
+            "packaging_tooling",
+        ],
+    },
 }
 
-TAG_TO_FAMILY: dict[str, str] = {
-    tag: family for family, tags in TAGS.items() for tag in tags
+DOMAINS: list[str] = list(TAXONOMY.keys())
+
+# area -> its domain
+AREA_TO_DOMAIN: dict[str, str] = {
+    area: domain for domain, areas in TAXONOMY.items() for area in areas
 }
+
+# area -> leaf skills
+AREAS: dict[str, list[str]] = {
+    area: list(skills) for areas in TAXONOMY.values() for area, skills in areas.items()
+}
+
+# leaf skill -> its area; leaf skill -> its domain
+SKILL_TO_AREA: dict[str, str] = {
+    skill: area for area, skills in AREAS.items() for skill in skills
+}
+SKILL_TO_DOMAIN: dict[str, str] = {
+    skill: AREA_TO_DOMAIN[area] for skill, area in SKILL_TO_AREA.items()
+}
+
+NODE_PARENT: dict[str, str | None] = {}
+NODE_LEVEL: dict[str, int] = {}
+NODE_CHILDREN: dict[str, list[str]] = {}
+
+for _domain, _areas in TAXONOMY.items():
+    NODE_PARENT[_domain] = None
+    NODE_LEVEL[_domain] = 1
+    NODE_CHILDREN[_domain] = list(_areas.keys())
+    for _area, _skills in _areas.items():
+        NODE_PARENT[_area] = _domain
+        NODE_LEVEL[_area] = 2
+        NODE_CHILDREN[_area] = list(_skills)
+        for _skill in _skills:
+            NODE_PARENT[_skill] = _area
+            NODE_LEVEL[_skill] = 3
+            NODE_CHILDREN[_skill] = []
+
+# Ordered lists (parents always precede children).
+AREA_NODES: list[str] = [area for domain in DOMAINS for area in TAXONOMY[domain]]
+LEAF_NODES: list[str] = [skill for area in AREA_NODES for skill in AREAS[area]]
+ALL_NODES: list[str] = DOMAINS + AREA_NODES + LEAF_NODES
 
 # Convenience canonical tag lists (validation/iteration).
-ALL_TAGS: list[str] = [tag for tags in TAGS.values() for tag in tags]
+ALL_TAGS: list[str] = list(LEAF_NODES)
 
-# Synonym/alternate-name map -> canonical fine tag. Keeps LLM categorization
-# and human entry robust to near-duplicate phrasing (one canonical tag per
-# concept, §2 of the design).
+# Synonym/alternate-name map -> canonical node id (usually a leaf). Keeps LLM
+# categorization and human entry robust to near-duplicate phrasing, and lets
+# retired family/tag names still resolve to a sensible node.
 ALIASES: dict[str, str] = {
-    "data_structure": "data_structures",
-    "collections": "data_structures",
-    "functional_programming": "functional",
-    "map_reduce": "functional",
-    "generators": "generators_iterators",
-    "iterators": "generators_iterators",
-    "pandas": "pandas_cleaning",
-    "data_cleaning": "pandas_cleaning",
-    "merge": "joins_merges",
-    "join": "joins_merges",
-    "outliers": "missing_outliers",
-    "imputation": "missing_outliers",
-    "missing_data": "missing_outliers",
-    "scaling": "scaling_encoding",
-    "normalization": "scaling_encoding",
-    "encoding": "scaling_encoding",
-    "feature_engineering": "feature_construction",
-    "feature_creation": "feature_construction",
-    "class_imbalance": "imbalanced_classes",
-    "resampling": "imbalanced_classes",
-    "oversampling": "imbalanced_classes",
-    "undersampling": "imbalanced_classes",
-    "linear_model": "linear_regression",
-    "regression": "linear_regression",
-    "logistic": "classification_logistic",
-    "logistic_regression": "classification_logistic",
-    "classification": "classification_logistic",
-    "decision_tree": "trees_ensembles",
-    "random_forest": "trees_ensembles",
-    "gradient_boosting": "trees_ensembles",
-    "xgboost": "trees_ensembles",
-    "ensemble": "trees_ensembles",
-    "kmeans": "clustering_kmeans",
-    "kmeans_clustering": "clustering_kmeans",
-    "pca": "dimensionality_reduction",
-    "svd": "dimensionality_reduction",
-    "tsne": "dimensionality_reduction",
-    "umap": "dimensionality_reduction",
-    "knn": "knn_svm_naivebayes",
-    "k_nearest": "knn_svm_naivebayes",
-    "svm": "knn_svm_naivebayes",
-    "naive_bayes": "knn_svm_naivebayes",
-    "bias_variance_tradeoff": "bias_variance",
-    "variance_bias": "bias_variance",
-    "probability_distributions": "distributions",
-    "distribution": "distributions",
-    "pvalue": "hypothesis_pvalue",
-    "p_value": "hypothesis_pvalue",
-    "hypothesis_testing": "hypothesis_pvalue",
-    "bayesian": "bayes_mle",
-    "mle": "bayes_mle",
-    "maximum_likelihood": "bayes_mle",
-    "bootstrap": "bootstrap_ci",
-    "confidence_interval": "bootstrap_ci",
-    "loss": "loss_functions",
-    "loss_function": "loss_functions",
-    "cross_entropy": "loss_functions",
-    "mse": "loss_functions",
-    "regularizer": "regularization",
-    "l2": "regularization",
-    "l1": "regularization",
-    "dropout": "regularization",
-    "weight_decay": "regularization",
-    "backpropagation": "backprop",
-    "backpropogation": "backprop",
-    "learning_rate_schedule": "lr_scheduling",
-    "lr_schedule": "lr_scheduling",
-    "learning_rate_decay": "lr_scheduling",
-    "overfitting": "overfitting_underfitting",
-    "underfitting": "overfitting_underfitting",
-    "gradient_descent": "gradient_descent_sgd",
-    "sgd": "gradient_descent_sgd",
-    "stochastic_gradient_descent": "gradient_descent_sgd",
-    "adam": "optimizers_adam",
-    "optimizer": "optimizers_adam",
-    "hyperparameters": "hyperparameter_tuning",
-    "grid_search": "hyperparameter_tuning",
-    "model_selection": "hyperparameter_tuning",
-    "multilayer_perceptron": "mlp",
-    "perceptron": "mlp",
-    "neural_network": "mlp",
-    "convolution": "cnn",
-    "conv_net": "cnn",
-    "rnn": "rnn_lstm",
-    "lstm": "rnn_lstm",
-    "attention": "attention_transformer",
-    "transformer": "attention_transformer",
-    "self_attention": "attention_transformer",
-    "softmax": "activation_normalization",
-    "activations": "activation_normalization",
-    "batch_norm": "activation_normalization",
-    "layer_norm": "activation_normalization",
-    "tokenization": "tokenization_bpe",
-    "bpe": "tokenization_bpe",
-    "wordpiece": "tokenization_bpe",
-    "tokenizer": "tokenization_bpe",
-    "pretraining": "pretraining_finetuning",
-    "fine_tuning": "pretraining_finetuning",
-    "finetuning": "pretraining_finetuning",
-    "rag": "rag_retrieval",
-    "retrieval": "rag_retrieval",
-    "vector_search": "rag_retrieval",
-    "embeddings": "rag_retrieval",
+    # retired family / area names
+    "dl_arch": "architectures",
+    "deep_learning_architectures": "architectures",
+    "llm_genai": "pretraining",
+    "mlops_serving": "ml_platform",
+    "mlops": "ml_platform",
+    "data_etl": "data_and_storage_infra",
+    "stats_probability": "probability_statistics",
+    "stats": "probability_statistics",
+    "optimization": "optimization_theory",
+    "eval": "evaluation",
+    "training": "pretraining_objectives",
+    "python": "testing",
+    # pretraining / post-training
+    "pretraining": "pretraining_objectives",
+    "pretraining_finetuning": "pretraining_objectives",
+    "finetuning": "supervised_finetuning",
+    "fine_tuning": "supervised_finetuning",
+    "sft": "supervised_finetuning",
+    "dpo": "preference_optimization",
+    "rlhf": "reward_modeling",
+    "distillation": "knowledge_distillation",
+    "tokenization": "tokenizer_design",
+    "tokenization_bpe": "tokenizer_design",
+    "bpe": "tokenizer_design",
+    "context_extension": "context_length_extension",
+    # rl
+    "rl": "policy_gradients",
+    "reinforcement_learning": "policy_gradients",
+    "policy_gradient": "policy_gradients",
+    "reward_shaping": "environment_reward_design",
+    "credit_assignment": "exploration_credit_assignment",
+    # architectures
+    "attention": "attention_variants",
+    "attention_transformer": "attention_variants",
+    "transformer": "attention_variants",
+    "self_attention": "attention_variants",
+    "moe": "mixture_of_experts",
+    "rope": "positional_encoding",
+    "layer_norm": "normalization",
+    "rmsnorm": "normalization",
+    "rnn_lstm": "state_space_models",
+    "ssm": "state_space_models",
+    "lora": "parameter_efficient_finetuning",
+    "peft": "parameter_efficient_finetuning",
+    # generative / multimodal
+    "diffusion": "diffusion_models",
+    "vae": "variational_autoencoders",
+    "decoding": "sampling_decoding",
+    "cnn": "vision_encoders",
+    "vit": "vision_encoders",
+    "clip": "vision_language_alignment",
+    "vlm": "vision_language_alignment",
+    # agents
+    "rag": "retrieval_augmented_generation",
+    "retrieval": "retrieval_augmented_generation",
+    "tool_calling": "tool_use",
+    "function_calling": "tool_use",
+    "planning": "planning_decomposition",
+    # evaluation / method
+    "metrics_classification": "benchmark_design",
+    "cross_validation": "statistical_evaluation",
+    "calibration": "statistical_evaluation",
+    "leakage": "contamination_detection",
+    "data_leakage": "contamination_detection",
+    "significance": "statistical_evaluation",
+    "ablation": "ablations",
+    "experiment_tracking": "experiment_tracking",
+    "hyperparameter_tuning": "experiment_design",
+    # kernels / systems
+    "cuda": "cuda_programming",
+    "gpu_kernel": "cuda_programming",
+    "flash_attn": "flash_attention",
+    "memory_banking": "memory_coalescing",
+    "roofline": "profiling_roofline",
+    "profiling": "profiling_roofline",
+    "torch_compile": "compilation",
     "quantize": "quantization",
-    "quantization": "quantization",
-    "kv_cache": "kv_cache",
-    "key_value_cache": "kv_cache",
-    "confusion_matrix": "metrics_classification",
-    "precision_recall": "metrics_classification",
-    "auc": "metrics_classification",
-    "f1": "metrics_classification",
-    "r2": "regression_metrics",
-    "r_squared": "regression_metrics",
-    "mae": "regression_metrics",
-    "rmse": "regression_metrics",
-    "cross_validation": "cross_validation",
-    "kfold": "cross_validation",
-    "k_fold": "cross_validation",
-    "cv": "cross_validation",
-    "leakage": "data_leakage_calibration",
-    "data_leakage": "data_leakage_calibration",
-    "calibration": "data_leakage_calibration",
-    "deployment": "deployment_serving",
-    "serving": "deployment_serving",
-    "inference": "deployment_serving",
+    "kv_cache": "kv_cache_management",
+    "batching": "continuous_batching",
+    "speculative": "speculative_decoding",
+    "data_parallel": "data_parallelism",
+    "tensor_parallel": "tensor_parallelism",
+    "pipeline_parallel": "pipeline_parallelism",
+    "fsdp": "sharding_and_offload",
+    "zero": "sharding_and_offload",
+    "all_reduce": "collectives_and_overlap",
+    "checkpointing": "distributed_checkpointing",
+    "deployment": "serving_engine_internals",
+    "serving": "serving_engine_internals",
+    "inference": "serving_engine_internals",
     "drift": "monitoring_drift",
     "monitoring": "monitoring_drift",
-    "psi": "monitoring_drift",
-    "ks": "monitoring_drift",
-    "explainability": "explainability",
-    "shap": "explainability",
-    "lime": "explainability",
-    "interpretability": "explainability",
-    "reproducibility": "reproducibility_tracking",
-    "experiment_tracking": "reproducibility_tracking",
-    "mlflow": "reproducibility_tracking",
+    "orchestration": "orchestration_scheduling",
+    "scheduling": "orchestration_scheduling",
+    "reproducibility_tracking": "reproducibility_artifacts",
+    "mlflow": "experiment_tracking",
+    # foundations
+    "backprop": "calculus_autodiff",
+    "backpropagation": "calculus_autodiff",
+    "autodiff": "calculus_autodiff",
+    "gradient_descent_sgd": "optimization_theory",
+    "sgd": "optimization_theory",
+    "adam": "optimization_theory",
+    "optimizers_adam": "optimization_theory",
+    "distributions": "probability_statistics",
+    "bayes_mle": "probability_statistics",
+    "loss_functions": "pretraining_objectives",
+    "regularization": "optimization_theory",
+    "numerical_precision": "numerical_stability",
+    "async": "concurrency_async",
+    "threading": "concurrency_async",
+    "unit_testing": "testing",
+    "packaging": "packaging_tooling",
 }
 
 # Task types (each is still implemented as a code task judged normally).
 TASK_TYPES = ("implement", "apply", "debug", "design", "analyze")
 
-DEFAULT_TAGS: dict = {"primary": "python", "secondary": []}
+
+def _canon(name: str | None) -> str:
+    return str(name or "").strip().lower().replace("-", "_").replace(" ", "_")
 
 
-def normalize_tag(tag: str) -> str | None:
-    """Resolve an alias/spelling to a canonical fine tag, or None.
-
-    A family name is accepted as its own "tag" so the design's default
-    ``{"primary": "python", "secondary": []}`` and the no-key categorization
-    fallback stay valid (a family primary feeds that family's belief).
-    """
-    if not tag:
+def resolve_node(name: str | None) -> str | None:
+    """Resolve a name/alias to a canonical node id (domain, area, or skill)."""
+    key = _canon(name)
+    if not key:
         return None
-    key = str(tag).strip().lower().replace("-", "_").replace(" ", "_")
-    if key in TAG_TO_FAMILY:
-        return key
-    if key in FAMILIES:
+    if key in NODE_LEVEL:
         return key
     return ALIASES.get(key)
 
 
-def is_valid_tag(tag: str) -> bool:
-    return normalize_tag(tag) is not None
+# Backwards-compatible name (used by task filters / LLM output sanitization).
+normalize_tag = resolve_node
 
 
-def is_valid_family(family: str) -> bool:
-    return str(family).strip() in FAMILIES
+def is_node(node: str | None) -> bool:
+    return resolve_node(node) is not None
 
 
-def family_of(tag: str) -> str | None:
-    """Return the family for a (possibly aliased) fine tag, or None.
+def is_leaf(node: str | None) -> bool:
+    canon = resolve_node(node)
+    return canon is not None and NODE_LEVEL.get(canon, 0) == 3
 
-    A family name maps to itself (``family_of("python") == "python"``).
-    """
-    canon = normalize_tag(tag)
+
+def is_domain(node: str | None) -> bool:
+    canon = resolve_node(node)
+    return canon is not None and NODE_LEVEL.get(canon, 0) == 1
+
+
+def is_area(node: str | None) -> bool:
+    canon = resolve_node(node)
+    return canon is not None and NODE_LEVEL.get(canon, 0) == 2
+
+
+# Back-compat aliases for the old two-level API.
+def is_valid_tag(tag: str | None) -> bool:
+    return is_leaf(tag)
+
+
+def is_valid_family(family: str | None) -> bool:
+    return is_area(family)
+
+
+def normalize_node(name: str | None) -> str | None:
+    return resolve_node(name)
+
+
+def level_of(node: str | None) -> int | None:
+    canon = resolve_node(node)
+    return NODE_LEVEL.get(canon) if canon else None
+
+
+def parent_of(node: str | None) -> str | None:
+    canon = resolve_node(node)
+    return NODE_PARENT.get(canon) if canon else None
+
+
+def path_of(node: str | None) -> list[str]:
+    """Root-to-node path (domain, area, skill) for a node, else ``[]``."""
+    canon = resolve_node(node)
     if canon is None:
-        return None
-    return TAG_TO_FAMILY.get(canon, canon if canon in FAMILIES else None)
+        return []
+    out: list[str] = []
+    cur: str | None = canon
+    while cur is not None:
+        out.append(cur)
+        cur = NODE_PARENT.get(cur)
+    out.reverse()
+    return out
+
+
+def ancestors(node: str | None) -> list[str]:
+    """Strict ancestors (root .. parent) for a node, else ``[]``."""
+    p = path_of(node)
+    return p[:-1] if p else []
+
+
+def domain_of(node: str | None) -> str | None:
+    path = path_of(node)
+    return path[0] if path else None
+
+
+def area_of(node: str | None) -> str | None:
+    path = path_of(node)
+    return path[1] if len(path) > 1 else None
+
+
+# Backwards-compatible alias: the old "family" is now the area level.
+def family_of(tag: str | None) -> str | None:
+    return area_of(tag)
 
 
 def validate(tags: dict | None) -> dict:
-    """Validate a tags block; returns the canonical normalized dict.
+    """Validate a tags block; returns the canonicalized dict.
 
-    Accepted shapes:
-      ``{"primary": "tag", "secondary": ["tag", ...]}``  (0-2 secondary)
-      ``None`` -> ``{"primary": "python", "secondary": []}``
-      a plain string -> treated as the primary tag.
+    Accepted shape::
 
-    Raises ``ValueError`` when a tag is unknown or the shape is invalid.
+        {"primary": <leaf skill>, "secondary": [<leaf skill>, ...]}  (0-2)
+
+    The primary is required and must be a leaf skill; secondary entries must be
+    leaves and must not repeat the primary. Raises ``ValueError`` otherwise —
+    there is no fallback tag.
     """
-    if tags is None:
-        return dict(DEFAULT_TAGS)
-    if isinstance(tags, str):
-        tags = {"primary": tags, "secondary": []}
     if not isinstance(tags, dict):
-        raise ValueError("tags must be an object {primary, secondary}.")
+        raise ValueError(
+            "tags must be an object {primary, secondary}; "
+            "a primary tag is required."
+        )
     primary_raw = tags.get("primary")
     if not primary_raw:
         raise ValueError("tags.primary is required.")
-    primary = normalize_tag(primary_raw)
+    primary = resolve_node(primary_raw)
     if primary is None:
         raise ValueError(f"Unknown tag: {primary_raw!r}.")
+    if NODE_LEVEL.get(primary, 0) != 3:
+        raise ValueError(
+            f"tags.primary must be a leaf skill, got {primary_raw!r}."
+        )
     secondary_raw = tags.get("secondary") or []
     if not isinstance(secondary_raw, (list, tuple)):
         raise ValueError("tags.secondary must be a list.")
@@ -286,11 +476,23 @@ def validate(tags: dict | None) -> dict:
         raise ValueError("tags.secondary may have at most 2 tags.")
     secondary: list[str] = []
     for raw in secondary_raw:
-        canon = normalize_tag(raw)
-        if canon is None or canon in FAMILIES:
-            raise ValueError(f"Unknown fine tag: {raw!r}.")
+        canon = resolve_node(raw)
+        if canon is None:
+            raise ValueError(f"Unknown tag: {raw!r}.")
+        if NODE_LEVEL.get(canon, 0) != 3:
+            raise ValueError(f"tags.secondary must be leaf skills, got {raw!r}.")
         if canon not in secondary:
             secondary.append(canon)
     if primary in secondary:
         secondary.remove(primary)
     return {"primary": primary, "secondary": secondary}
+
+
+def format_vocabulary() -> str:
+    """Human/LLM-readable rendering of the tree (``domain`` -> ``area`` -> skills)."""
+    lines: list[str] = []
+    for domain in DOMAINS:
+        lines.append(f"{domain}:")
+        for area in TAXONOMY[domain]:
+            lines.append(f"  {area}: {', '.join(AREAS[area])}")
+    return "\n".join(lines)

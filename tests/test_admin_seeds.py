@@ -32,7 +32,7 @@ def _seed_payload(**overrides):
         "prompt": "Implement a function that returns the median of a list.",
         "difficulty": 2,
         "max_score": 5,
-        "tags": {"primary": "data_structures", "secondary": ["functional"]},
+        "tags": {"primary": "linear_algebra", "secondary": ["probability_statistics"]},
         "task_type": "implement",
     }
     body.update(overrides)
@@ -55,8 +55,8 @@ def test_taxonomy_endpoint(client):
     res = client.get("/admin/taxonomy", headers=_h(admin))
     assert res.status_code == 200
     data = res.json()
-    assert "python" in data["families"]
-    assert "data_structures" in data["tags"]["python"]
+    assert "research" in data["domains"]
+    assert "flash_attention" in data["areas"]["kernels_and_gpu"]
     assert set(data["task_types"]) == {"implement", "apply", "debug", "design", "analyze"}
 
 
@@ -71,7 +71,7 @@ def test_admin_creates_seed(client):
     assert task["owner"] == "system"
     assert task["source"] == "seed_admin"
     assert task["is_public"] is True
-    assert task["tags"] == {"primary": "data_structures", "secondary": ["functional"]}
+    assert task["tags"] == {"primary": "linear_algebra", "secondary": ["probability_statistics"]}
     assert task["context_notes"], "context notes auto-generated (deterministic fallback)"
 
     stored = get_task(task["id"])

@@ -36,7 +36,7 @@ def _seed_candidate(candidate):
     sid = store.create(candidate)
     store.save(sid, {"session": {"candidate": candidate}})
 
-    task = create_task(prompt="Owned question?", owner=candidate)
+    task = create_task(prompt="Owned question?", owner=candidate, tags={"primary": "testing"})
     record_attempt(candidate, task["id"], 0.8, 4, 5, [])
     save_skill_belief(candidate, 0.6, 0.1, 1)
     return task["id"]
@@ -87,7 +87,7 @@ def test_admin_can_wipe_other_candidate_and_system_task(client):
     _seed_candidate("bob@x.com")
     system_task = create_task(
         prompt="Seed question?", owner="system",
-        source="seed", is_public=True,
+        source="seed", is_public=True, tags={"primary": "testing"},
     )
     record_attempt("alice@x.com", system_task["id"], 0.5, 2, 5, [])
 
@@ -111,7 +111,7 @@ def test_task_owner_delete_cascades_attempts(client):
     from coach.tasks import create_task, get_task
 
     token = _login("carol@x.com")
-    task = create_task(prompt="Carol's question?", owner="carol@x.com")
+    task = create_task(prompt="Carol's question?", owner="carol@x.com", tags={"primary": "testing"})
     from coach.tasks import record_attempt
 
     record_attempt("carol@x.com", task["id"], 1.0, 5, 5, [])
@@ -133,7 +133,7 @@ def test_task_owner_can_edit_context_notes(client):
 
     token = _login("dave@x.com")
     stranger = _login("mallory@x.com")
-    task = create_task(prompt="Dave's question?", owner="dave@x.com")
+    task = create_task(prompt="Dave's question?", owner="dave@x.com", tags={"primary": "testing"})
 
     res = client.patch(
         f"/api/v1/tasks/{task['id']}",

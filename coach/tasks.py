@@ -68,7 +68,7 @@ class TaskModel(Base):
     max_score: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     parts_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     context_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    tags_json: Mapped[str] = mapped_column(Text, nullable=False, default='{"primary": "python", "secondary": []}')
+    tags_json: Mapped[str] = mapped_column(Text, nullable=False, default='{"primary": null, "secondary": []}')
     task_type: Mapped[str] = mapped_column(String(32), nullable=False, default="implement")
     language: Mapped[str] = mapped_column(String(32), nullable=False, default="python")
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
@@ -85,10 +85,11 @@ class TaskModel(Base):
 class SkillBeliefModel(Base):
     """Persistent Gaussian belief over a candidate's ability at one level.
 
-    ``level`` is ``'global' | 'family' | 'tag'``; ``key`` is ``'overall'``,
-    a family name, or a fine tag name. One row per ``(candidate, level,
-    key)``, enforced by a unique index (SQLite cannot add a UNIQUE
-    constraint via ``ALTER TABLE``).
+    ``level`` is ``'global'`` or a taxonomy node level (``'domain'``,
+    ``'area'``, ``'skill'``); ``key`` is ``'overall'`` for the global row, or
+    the canonical node id otherwise. One row per ``(candidate, level, key)``,
+    enforced by a unique index (SQLite cannot add a UNIQUE constraint via
+    ``ALTER TABLE``).
     """
 
     __tablename__ = "user_skill_beliefs"
@@ -110,9 +111,10 @@ class SkillBeliefModel(Base):
 def parse_tags(tags_json: Optional[str]) -> dict:
     """Parse a stored ``tags_json`` value into ``{primary, secondary}``.
 
-    Tolerates empty strings and any JSON value; the object default
-    ``{"primary": "python", "secondary": []}`` is returned on malformed data
-    so a JSON-array default can never crash a scalar ``.get()``.
+    Tolerates empty strings and any JSON value; a ``{primary: None}`` shape is
+    returned on malformed data so a JSON-array default can never crash a
+    scalar ``.get()``. Newly-created tasks always carry a valid leaf primary;
+    ``None`` only appears on legacy/uncategorized rows.
     """
     try:
         parsed = json.loads(tags_json or "{}")
@@ -120,7 +122,8 @@ def parse_tags(tags_json: Optional[str]) -> dict:
         parsed = {}
     if not isinstance(parsed, dict):
         parsed = {}
-    primary = str(parsed.get("primary") or "python").strip() or "python"
+    primary = parsed.get("primary")
+    primary = str(primary).strip() if primary else None
     secondary = parsed.get("secondary") or []
     if not isinstance(secondary, list):
         secondary = []
@@ -129,7 +132,7 @@ def parse_tags(tags_json: Optional[str]) -> dict:
 
 def serialize_tags(tags: dict | None) -> str:
     """Serialize a validated tags dict for storage."""
-    return json.dumps(tags if isinstance(tags, dict) else {"primary": "python", "secondary": []})
+    return json.dumps(tags if isinstance(tags, dict) else {"primary": None, "secondary": []})
 
 
 # Monaco editor language ids accepted for a code task. Unknown values fall
@@ -265,15 +268,16 @@ def validate_parts(parts) -> list[dict]:
     return out
 
 
-def derive_block_tags(parts: list[dict]) -> dict:
+def derive_block_tags(parts: list[dict]) -> dict | None:
     """Block-level tags from its parts: first part's primary + up to 2 others.
 
     The belief system consumes each part's own tags; the block-level tags are
-    a display/picker summary derived here when the author omits them.
+    a display/picker summary derived here when the author omits them. Returns
+    ``None`` when the block has no parts (the caller then requires tags).
     """
-    primaries = [p["tags"]["primary"] for p in parts]
+    primaries = [p["tags"]["primary"] for p in parts if (p.get("tags") or {}).get("primary")]
     if not primaries:
-        return {"primary": "python", "secondary": []}
+        return None
     primary = primaries[0]
     secondary: list[str] = []
     for tag in primaries[1:]:
@@ -344,10 +348,11 @@ def create_task(
     """Persist a task row and return its dict form.
 
     ``tags`` and each part's ``tags`` are validated against the closed
-    vocabulary (``coach.taxonomy.validate``); invalid tags raise
-    ``ValueError``. A code block may carry ``parts``; when ``tags`` is
-    omitted for a block they are auto-derived from the parts. ``max_score``
-    and ``difficulty`` default to the parts' aggregates when omitted.
+    vocabulary (``coach.taxonomy.validate``); invalid or missing tags raise
+    ``ValueError`` — every task must be categorized. A code block may carry
+    ``parts``; when ``tags`` is omitted for a block they are auto-derived from
+    the parts. ``max_score`` and ``difficulty`` default to the parts'
+    aggregates when omitted.
 
     Version chains: when ``depends_on_task_id`` is set the row is a successor
     — the chain root is resolved from the predecessor (unless
@@ -379,8 +384,13 @@ def create_task(
         resolved_index = resolved_index or 1
         resolved_root = resolved_root or tid
 
+    if tags is None and parts:
+        tags = derive_block_tags(parts)
     if tags is None:
-        tags = derive_block_tags(parts) if parts else {"primary": "python", "secondary": []}
+        raise ValueError(
+            "Tags are required: provide tags.primary (a leaf skill) — "
+            "every task must be categorized into the taxonomy."
+        )
     tags = validate_tags(tags)
 
     if parts:
@@ -781,7 +791,7 @@ def merge_version_chain(
         part = {
             "key": t["id"],
             "prompt": t["prompt"],
-            "tags": t.get("tags") or {"primary": "python", "secondary": []},
+            "tags": t.get("tags") or {},
             "max_score": int(t.get("max_score") or 5),
             "difficulty": int(t.get("difficulty") or 2),
             "pass_score": default_pass_score(int(t.get("max_score") or 5)),

@@ -35,7 +35,7 @@ interface AssessmentState {
   error: string | null;
   initialQuestion: string | null;
 
-  startAssessment: (initialQuestion?: string, opts?: { randomFirst?: boolean; family?: string }) => Promise<void>;
+  startAssessment: (initialQuestion?: string, opts?: { randomFirst?: boolean; node?: string }) => Promise<void>;
   resumeSession: (response: ResumeResponse) => void;
   submitAnswer: (taskId: string, answer: string) => Promise<void>;
   advance: () => void;

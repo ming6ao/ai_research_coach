@@ -57,10 +57,10 @@ def ctx(tmp_path, monkeypatch):
         delivery="phased",
         parts=[
             {"key": "p1", "prompt": "Implement def p1(x): ...",
-             "tags": {"primary": "cnn"}, "max_score": 5, "difficulty": 2,
-             "scaffold": "def p1(x):\n    pass\n"},
+             "tags": {"primary": "vision_encoders"}, "max_score": 5, "difficulty": 2,
+              "scaffold": "def p1(x):\n    pass\n"},
             {"key": "p2", "prompt": "Implement def p2(y): ...",
-             "tags": {"primary": "rnn_lstm"}, "max_score": 5, "difficulty": 3,
+             "tags": {"primary": "state_space_models"}, "max_score": 5, "difficulty": 3,
              "scaffold": "def p2(y):\n    pass\n"},
         ],
     )
@@ -72,6 +72,7 @@ def ctx(tmp_path, monkeypatch):
         task_id="plain_01",
         max_score=5,
         difficulty=2,
+        tags={"primary": "testing"},
     )
     from backend.main import app
 
@@ -173,9 +174,9 @@ def test_block_delivery_scores_all_parts_in_one_submission(ctx, monkeypatch):
         is_public=True,
         task_id="block_01",
         parts=[
-            {"key": "a", "prompt": "def a(): ...", "tags": {"primary": "cnn"},
+            {"key": "a", "prompt": "def a(): ...", "tags": {"primary": "vision_encoders"},
              "max_score": 5, "difficulty": 2},
-            {"key": "b", "prompt": "def b(): ...", "tags": {"primary": "rnn_lstm"},
+            {"key": "b", "prompt": "def b(): ...", "tags": {"primary": "state_space_models"},
              "max_score": 5, "difficulty": 3},
         ],
     )

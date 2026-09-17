@@ -73,7 +73,7 @@ deleted on finish, so past sessions are just `active_sessions` rows for the same
 | `session_json` | TEXT | NOT NULL — compact live state (schema below), `{}` on create |
 | `resumed_from_share` | TEXT | nullable — share token while the prefix is still a CoW reference (cleared on first write) |
 | `fork_of` | TEXT | nullable — internal trajectory lineage (source session id, never surfaced) |
-| `meta_json` | TEXT | NOT NULL default `{}` — `{family, initial_question, eval_model}` |
+| `meta_json` | TEXT | NOT NULL default `{}` — `{node, initial_question, eval_model}` |
 | `updated_at` | TEXT | NOT NULL (ISO timestamp, bumped on every submit) |
 
 Index: `idx_active_sessions_candidate (candidate)`.
@@ -119,7 +119,7 @@ Cross-session ability/mastery aggregates are *not* stored here — they live in
 ### `tasks`
 The question bank, authored directly in the DB via `POST /api/v1/tasks`, the
 curator UI, or the admin "Add question" form (`POST /admin/seeds`). Each task
-carries tags (1 primary fine tag + 0–2 secondary) and a `task_type`.
+carries tags (1 primary leaf skill + 0–2 secondary) and a `task_type`.
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -131,7 +131,7 @@ carries tags (1 primary fine tag + 0–2 secondary) and a `task_type`.
 | `max_score` | INTEGER | NOT NULL, default 5 |
 | `parts_json` | TEXT | NOT NULL — code-block parts `[{key, prompt, tags, max_score, difficulty}]` |
 | `context_notes` | TEXT | 2–4 plain-English sentences, generated once at creation |
-| `tags_json` | TEXT | `{"primary": <fine tag>, "secondary": [<fine tag>…]}` (closed vocabulary from `coach/taxonomy.py`) |
+| `tags_json` | TEXT | `{"primary": <leaf skill>, "secondary": [<leaf skill>…]}` (closed vocabulary from `coach/taxonomy.py`) |
 | `task_type` | TEXT | `implement | apply | debug | design | analyze` |
 | `source` | VARCHAR(32) | NOT NULL — `user`/`seed_admin`/`generated` (legacy `seed`/`seed_llm` values remain on pre-existing rows) |
 | `parent_task_id` | VARCHAR(64) | nullable — root task for generated follow-ups |
@@ -162,7 +162,7 @@ export is a plain `SELECT ... ORDER BY session_id, step_index`.
 | `user_answer` | TEXT | NOT NULL — the action |
 | `score` / `max_score` / `fraction` | FLOAT | judge output |
 | `reward` | FLOAT | NOT NULL — effective fraction ∈ [0, 1] |
-| `state_before_json` | TEXT | NOT NULL — `s_t` (`{global, families, tags}` belief snapshot) |
+| `state_before_json` | TEXT | NOT NULL — `s_t` (`{global, nodes}` belief snapshot) |
 | `state_after_json` | TEXT | NOT NULL — `s_{t+1}` |
 | `result_json` | TEXT | NOT NULL — judge result (rationale) |
 | `coaching_json` | TEXT | NOT NULL — coach content (misconception, steps) |
@@ -197,8 +197,8 @@ Persistent Gaussian beliefs — the mastery model. One row per
 |--------|------|-------|
 | `id` | VARCHAR(36) | PK (uuid) |
 | `candidate` | VARCHAR(255) | NOT NULL |
-| `level` | TEXT | NOT NULL — `global | family | tag` |
-| `key` | TEXT | NOT NULL — `overall`, a family name, or a fine tag name |
+| `level` | TEXT | NOT NULL — `global | domain | area | skill` |
+| `key` | TEXT | NOT NULL — `overall`, or a canonical taxonomy node id |
 | `mean` | FLOAT | NOT NULL — Gaussian mean, default 0.5 |
 | `variance` | FLOAT | NOT NULL — Gaussian variance, default 0.1225 |
 | `questions_answered` | INTEGER | NOT NULL — evidence count at this level |
@@ -207,9 +207,10 @@ Persistent Gaussian beliefs — the mastery model. One row per
 Indexes: `ix_skill_beliefs_candidate (candidate)`,
 `uq_user_skill_beliefs (candidate, level, key)` UNIQUE.
 
-Only the task's **primary tag** feeds the estimator: one answer updates exactly
-one tag row + one family row + the global row. Reported mastery is folded at read
-time from own evidence toward the parent (empirical-Bayes shrinkage, `eta=2.0`).
+Only the task's **primary leaf skill** feeds the estimator: one answer updates
+exactly one skill row, plus its area and domain rows, plus the global row.
+Reported mastery is folded at read time from own evidence toward the parent
+(empirical-Bayes shrinkage, `eta=2.0`).
 
 ## Candidate identity
 
@@ -236,9 +237,9 @@ The learner key used by `candidate` columns is resolved by
    absent, and `status` / `resumed_from_share` / `fork_of` / `meta_json` to
    `active_sessions` if absent.
 4. `_migrate_skill_beliefs_to_ability` — adds `level`/`key` to
-   `user_skill_beliefs`, maps legacy per-skill rows to `('family', <name>)` when
-   the name is a known family, collapses the rest to `('global', 'overall')` (most
-   answered wins), drops the legacy `skill` column, dedupes
+   `user_skill_beliefs`, collapses all legacy per-skill rows to
+   `('global', 'overall')` (most answered wins; per-node rows are rebuilt under
+   the new hierarchy), drops the legacy `skill` column, dedupes
    `(candidate, level, key)`, and creates `uq_user_skill_beliefs`.
 5. `_migrate_active_sessions` — drops the legacy `feedback_json` column **only
    after** every session has been backfilled (or has no legacy results); the

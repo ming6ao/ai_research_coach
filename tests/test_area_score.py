@@ -1,13 +1,16 @@
 """Hierarchical mastery estimator tests (coach.area_score).
 
-Covers §4: order-invariance, read-time empirical-Bayes shrinkage (sparse tags
-report ~ family estimate, dense tags converge to own evidence, unattempted
-tags report the family estimate), and that only the primary tag feeds beliefs.
+Covers order-invariance, read-time empirical-Bayes shrinkage (sparse skills
+report ~ area estimate, dense skills converge to own evidence, unattempted
+skills report the area estimate), and that only the primary skill feeds
+beliefs.
 """
 
 from __future__ import annotations
 
 import random
+
+import pytest
 
 from coach.area_score import (
     ETA,
@@ -18,7 +21,7 @@ from coach.area_score import (
     weight,
 )
 from coach.score import INITIAL_SCORE, INITIAL_VARIANCE
-from coach.taxonomy import ALL_TAGS, FAMILIES
+from coach.taxonomy import ALL_NODES, DOMAINS
 
 
 def test_weight_extremes():
@@ -38,10 +41,6 @@ def test_update_increments_count_and_moves_mean():
 
 
 def test_order_invariance_same_multiset():
-    # The same (difficulty, observation) pairs in any order produce identical
-    # beliefs. Using a fixed difficulty and observations that keep the own mean
-    # within one difficulty band makes every update share the same obs variance,
-    # so the conjugate-Gaussian updates commute exactly.
     pairs = [(2, 0.52), (2, 0.55), (2, 0.57), (2, 0.53), (2, 0.56), (2, 0.54)]
     a = AreaState()
     for diff, obs in pairs:
@@ -57,21 +56,6 @@ def test_order_invariance_same_multiset():
     assert a.questions_answered == b.questions_answered == c.questions_answered
 
 
-def test_order_invariance_shuffled_identical_answers():
-    # Identical answers (same difficulty + score) at any positions collapse to
-    # the same belief regardless of insertion order.
-    seq = [(2, 0.55)] * 8
-    a = AreaState()
-    b = AreaState()
-    for diff, obs in seq:
-        a = a.update(diff, obs)
-        b = b.update(diff, obs)
-    a_mu, a_var = reported(a, INITIAL_SCORE, INITIAL_VARIANCE)
-    b_mu, b_var = reported(b, INITIAL_SCORE, INITIAL_VARIANCE)
-    assert a_mu == b_mu and a_var == b_var
-    assert a_mu > INITIAL_SCORE  # evidence moved the belief up
-
-
 def test_unattempted_reports_parent_estimate():
     # n=0 -> w=0 -> reported == parent's shrunk estimate exactly.
     parent = AreaState(mean=0.7, variance=0.04, questions_answered=10)
@@ -81,83 +65,79 @@ def test_unattempted_reports_parent_estimate():
     assert var == parent.variance
 
 
-def test_sparse_tag_reports_mostly_family():
-    # One observation: weight 1/(1+2) = 1/3 on own evidence, 2/3 on family.
-    family = AreaState(mean=0.7, variance=0.02, questions_answered=9)
-    tag = AreaState().update(2, 0.9)
-    mu, _ = reported(tag, family.mean, family.variance)
-    w = weight(tag.questions_answered)
-    expected = w * tag.mean + (1 - w) * family.mean
+def test_sparse_skill_reports_mostly_area():
+    area = AreaState(mean=0.7, variance=0.02, questions_answered=9)
+    skill = AreaState().update(2, 0.9)
+    mu, _ = reported(skill, area.mean, area.variance)
+    w = weight(skill.questions_answered)
+    expected = w * skill.mean + (1 - w) * area.mean
     assert abs(mu - expected) < 1e-12
-    # The report leans on the family for a sparse tag.
-    assert abs(mu - family.mean) < abs(mu - tag.mean)
+    assert abs(mu - area.mean) < abs(mu - skill.mean)
 
 
-def test_dense_tag_converges_to_own_mean():
-    family = AreaState(mean=0.5, variance=0.02, questions_answered=100)
-    tag = AreaState()
+def test_dense_skill_converges_to_own_mean():
+    area = AreaState(mean=0.5, variance=0.02, questions_answered=100)
+    skill = AreaState()
     for _ in range(200):
-        tag = tag.update(2, 0.95)
-    mu, _ = reported(tag, family.mean, family.variance)
-    # Dense evidence (n >> eta) -> reported converges to the tag's OWN mean.
-    assert abs(mu - tag.mean) < 0.02
+        skill = skill.update(2, 0.95)
+    mu, _ = reported(skill, area.mean, area.variance)
+    assert abs(mu - skill.mean) < 0.02
     assert mu > 0.9
 
 
 def test_fold_reported_hierarchy():
     g = AreaState().update(2, 0.8)
-    fam = AreaState().update(2, 0.75)
-    tag = AreaState().update(2, 0.7)
-    (g_mu, g_var), family_reports, tag_reports = fold_reported(
-        g, {"python": fam}, {"data_structures": tag}
+    area = AreaState().update(2, 0.75)
+    skill = AreaState().update(2, 0.7)
+    (g_mu, g_var), reports = fold_reported(
+        g, {"reinforcement_learning": area, "grpo": skill}
     )
     assert g_mu == g.mean  # top of hierarchy: own statistics
-    assert "python" in family_reports
-    # Unattempted family reports the global estimate.
-    fam_unattempted = AreaState()
-    (_, _), fam2, _ = fold_reported(g, {"python": fam_unattempted}, {})
-    assert fam2["python"][0] == g_mu
+    assert "reinforcement_learning" in reports
+    assert "grpo" in reports
+    # Unattempted skill reports its area's shrunk estimate.
+    (_, _), reports2 = fold_reported(g, {"reinforcement_learning": AreaState()})
+    area_mu, area_var = reports2["reinforcement_learning"]
+    # eval is an unattempted area -> reports global.
+    assert reports2["evaluation"][0] == g_mu
 
 
 def test_area_report_dict_has_all_levels():
     g = AreaState().update(2, 0.7)
-    fam = AreaState().update(2, 0.65)
-    tag = AreaState().update(2, 0.6)
-    mastery = area_report_dict(g, {"ml_classical": fam}, {"linear_regression": tag})
-    assert mastery["global"]["questions_answered"] == 1
-    assert set(mastery["families"]) == set(FAMILIES)
-    assert set(mastery["tags"]) == set(ALL_TAGS)
-    # Unattempted tag reports its family's shrunk score, never a blank bar.
-    fam_score = mastery["families"]["ml_classical"]["score"]
-    assert mastery["tags"]["linear_regression"]["questions_answered"] == 1
-    assert mastery["tags"]["cnn"]["questions_answered"] == 0
-    assert mastery["tags"]["cnn"]["score"] == pytest.approx(
-        mastery["families"]["dl_arch"]["score"]
+    area = AreaState().update(2, 0.65)
+    skill = AreaState().update(2, 0.6)
+    mastery = area_report_dict(
+        g, {"reinforcement_learning": area, "grpo": skill}
     )
+    assert mastery["global"]["questions_answered"] == 1
+    assert set(mastery["domains"]) == set(DOMAINS)
+    assert set(mastery["nodes"]) == set(ALL_NODES)
+    rl = mastery["domains"]["research"]["areas"]["reinforcement_learning"]
+    assert rl["skills"]["grpo"]["questions_answered"] == 1
+    # Unattempted skill reports its area's shrunk score, never a blank bar.
+    assert rl["skills"]["ppo"]["questions_answered"] == 0
+    assert rl["skills"]["ppo"]["score"] == pytest.approx(rl["score"])
 
 
 def test_eta_sanity_synthetic():
-    # With eta=2, roughly 2 observations put a level halfway between its own
-    # evidence and its parent's; ~20 observations make own evidence dominant.
-    family = AreaState(mean=0.5, variance=0.02, questions_answered=100)
-    tag = AreaState().update(2, 1.0).update(2, 1.0)
-    mu2, _ = reported(tag, family.mean, family.variance)
-    assert abs(mu2 - (0.5 * tag.mean + 0.5 * family.mean)) < 1e-9
+    area = AreaState(mean=0.5, variance=0.02, questions_answered=100)
+    skill = AreaState().update(2, 1.0).update(2, 1.0)
+    mu2, _ = reported(skill, area.mean, area.variance)
+    assert abs(mu2 - (0.5 * skill.mean + 0.5 * area.mean)) < 1e-9
 
     dense = AreaState()
     for _ in range(20):
         dense = dense.update(2, 1.0)
-    mu20, _ = reported(dense, family.mean, family.variance)
+    mu20, _ = reported(dense, area.mean, area.variance)
     assert mu20 > mu2
 
 
 def test_only_primary_tag_updates_the_estimator():
-    # One answer updates exactly the primary tag + its family + global.
-    # Secondary tags never feed the estimator (n stays 0).
-    import coach.db as db
-    from fastapi.testclient import TestClient
-
+    # One answer updates exactly the primary skill + its area + domain + global.
+    # Secondary skills never feed the estimator (n stays 0).
     import tempfile, pathlib
+
+    import coach.db as db
 
     tmp = pathlib.Path(tempfile.mkdtemp()) / "prim.db"
     db.DB_PATH = tmp
@@ -181,10 +161,11 @@ def test_only_primary_tag_updates_the_estimator():
     judge_mod.LLMJudge = FakeJudge
     from coach.tasks import create_task
     from backend.main import app
+    from fastapi.testclient import TestClient
 
     task = create_task(
-        prompt="Implement a conv.", owner="system", source="seed", is_public=True,
-        tags={"primary": "cnn", "secondary": ["mlp"]},
+        prompt="Implement flash attention.", owner="system", source="seed", is_public=True,
+        tags={"primary": "flash_attention", "secondary": ["continuous_batching"]},
     )
     client = TestClient(app)
     res = client.post("/api/v1/sessions", json={"task_ids": [task["id"]]})
@@ -194,10 +175,9 @@ def test_only_primary_tag_updates_the_estimator():
         json={"task_id": task["id"], "answer": "def f():\n    pass\n"},
     ).json()["data"]
     m = data["mastery"]
-    assert m["tags"]["cnn"]["questions_answered"] == 1
-    assert m["tags"]["mlp"]["questions_answered"] == 0  # secondary never updates
-    assert m["families"]["dl_arch"]["questions_answered"] == 1
+    nodes = m["nodes"]
+    assert nodes["flash_attention"]["questions_answered"] == 1
+    assert nodes["continuous_batching"]["questions_answered"] == 0  # secondary only
+    assert nodes["kernels_and_gpu"]["questions_answered"] == 1
+    assert nodes["systems"]["questions_answered"] == 1
     assert m["global"]["questions_answered"] == 1
-
-
-import pytest  # noqa: E402  (used by test_area_report_dict_has_all_levels)

@@ -201,7 +201,11 @@ def _migrate_skill_beliefs_to_ability(conn) -> None:
     if not cols:
         return
     try:
-        from coach.taxonomy import FAMILIES
+        # Legacy per-skill belief rows are retired with the old taxonomy: any
+        # legacy `skill` column is collapsed to the global row (the candidate's
+        # overall ability). Per-node rows are rebuilt by live sessions under
+        # the new (domain/area/skill) hierarchy.
+        families: set[str] = set()
 
         if "level" not in cols:
             conn.exec_driver_sql(
@@ -217,7 +221,6 @@ def _migrate_skill_beliefs_to_ability(conn) -> None:
             rows = conn.exec_driver_sql(
                 "SELECT id, candidate, skill, questions_answered FROM user_skill_beliefs"
             ).fetchall()
-            families = set(FAMILIES)
             keep_ids: set[str] = set()
             per_candidate: dict[str, tuple[str, int]] = {}
             for row_id, candidate, skill, qa in rows:
@@ -324,7 +327,7 @@ def create_schema():
             if "tags_json" not in cols:
                 conn.exec_driver_sql(
                     "ALTER TABLE tasks ADD COLUMN tags_json TEXT DEFAULT "
-                    "'{\"primary\": \"python\", \"secondary\": []}'"
+                    "'{\"primary\": null, \"secondary\": []}'"
                 )
             if "task_type" not in cols:
                 conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'implement'")
@@ -401,40 +404,45 @@ def learner_session() -> Session:
     return session_factory()
 
 
-def reset_database(preview: bool = False) -> dict:
-    """Wipe activity/progress data; preserve identity/auth and the task bank.
+def reset_database(preview: bool = False, wipe_tasks: bool = False) -> dict:
+    """Wipe activity/progress data; optionally wipe the task bank too.
 
     Deletes every row from the activity tables (``session_steps``,
-    ``user_skill_beliefs``, ``active_sessions``, ``trajectory_shares``). The
-    task bank (``tasks``) and identity/auth tables (``users``,
-    ``auth_tokens``, ``oauth_states``) are preserved: the DB is the source of
-    truth for tasks, so a reset never destroys questions.
+    ``user_skill_beliefs``, ``active_sessions``, ``trajectory_shares``).
+    Identity/auth tables (``users``, ``auth_tokens``, ``oauth_states``) are
+    always preserved. ``tasks`` is preserved by default (the DB is the source
+    of truth for questions); pass ``wipe_tasks=True`` to also delete the entire
+    task bank (used when re-authoring against a new taxonomy).
 
     ``preview=True`` returns per-table row counts without mutating anything;
     ``preview=False`` deletes the rows and returns what was removed.
     """
     create_schema()
+    tables = list(_WIPED_TABLES) + (["tasks"] if wipe_tasks else [])
+    preserved = [t for t in _PRESERVED_TABLES if not (wipe_tasks and t == "tasks")]
     with sqlite_conn() as conn:
         counts = {
             table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            for table in _WIPED_TABLES
+            for table in tables
         }
         if preview:
             return {
                 "preview": True,
+                "wipe_tasks": wipe_tasks,
                 "wiped": counts,
                 "total_deleted": sum(counts.values()),
-                "preserved": list(_PRESERVED_TABLES),
+                "preserved": preserved,
             }
         deleted: dict[str, int] = {}
-        for table in _WIPED_TABLES:
+        for table in tables:
             cur = conn.execute(f"DELETE FROM {table}")
             deleted[table] = cur.rowcount or 0
         conn.commit()
 
     return {
         "preview": False,
+        "wipe_tasks": wipe_tasks,
         "wiped": deleted,
         "total_deleted": sum(deleted.values()),
-        "preserved": list(_PRESERVED_TABLES),
+        "preserved": preserved,
     }

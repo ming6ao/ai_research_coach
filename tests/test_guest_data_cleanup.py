@@ -43,6 +43,7 @@ def test_guest_data_delete_keeps_signed_in_user(client):
         owner="guest-abc",
         source="user",
         is_public=False,
+        tags={"primary": "testing"},
         task_id="guest_task",
     )
     create_task(
@@ -50,6 +51,7 @@ def test_guest_data_delete_keeps_signed_in_user(client):
         owner=ADMIN,
         source="user",
         is_public=False,
+        tags={"primary": "testing"},
         task_id="owner_task",
     )
     from coach.tasks import save_skill_belief

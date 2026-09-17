@@ -1,28 +1,29 @@
-"""Per-area (family/tag) Bayesian belief updates + read-time shrinkage.
+"""Per-node Bayesian belief updates + read-time hierarchical shrinkage.
 
-Implements the hierarchical mastery estimator from the design doc §4:
+Implements the hierarchical mastery estimator:
 
-- Each candidate keeps **per-level sufficient statistics** for the global
-  estimate, each family, and each fine tag: ``mean`` (own observations),
-  ``variance`` (posterior variance from a neutral prior updated only by
-  observations *at that level*), and ``questions_answered``.
-- At **read time** (progress view, picker) the reported
-  estimate is computed with an order-invariant empirical-Bayes fold:
+- Each candidate keeps **per-node sufficient statistics** for the global
+  estimate plus every taxonomy node (domain, area, skill): ``mean`` (own
+  observations), ``variance`` (posterior variance from a neutral prior
+  updated only by observations *at that level*), and ``questions_answered``.
+- At **read time** (progress view, picker) the reported estimate is computed
+  with an order-invariant empirical-Bayes fold over the taxonomy tree:
 
       eta  = 2.0
       w(x) = n_x / (n_x + eta)
 
-      reported_mu(level)  = w * mu_own + (1 - w) * parent_mu_shrunk
-      reported_var(level) = (w^2 * var_own + (1-w)^2 * parent_var_shrunk)
+      reported_mu(node)  = w * mu_own + (1 - w) * parent_mu_shrunk
+      reported_var(node) = w^2 * var_own + (1-w)^2 * parent_var_shrunk
 
-  where the parent of a tag is its family's reported estimate and the
-  parent of a family is the global reported estimate.
+  where the parent of a domain is the global estimate, the parent of an area
+  is its domain's reported estimate, and the parent of a skill is its area's
+  reported estimate. The fold is depth-generic: it walks the taxonomy in
+  parent-before-child order, so adding a level is a taxonomy-only change.
 
-Consequences (all covered by tests):
-
-- Unattempted tag (n=0 -> w=0) reports exactly its family's shrunk estimate.
-- Sparse tag (1-2 attempts) reports mostly its family's estimate.
-- Dense tag (n >> eta) converges to the candidate's own mean.
+Consequences:
+- Unattempted skill (n=0 -> w=0) reports exactly its area's shrunk estimate.
+- Sparse skill (1-2 attempts) reports mostly its area's estimate.
+- Dense skill (n >> eta) converges to the candidate's own mean.
 - The same answers in any order produce identical beliefs (no
   path-dependency): only the sufficient statistics matter.
 """
@@ -38,7 +39,7 @@ from coach.score import (
     bayesian_update,
     measurement_variance,
 )
-from coach.taxonomy import family_of
+from coach.taxonomy import ALL_NODES, NODE_LEVEL, NODE_PARENT, path_of
 
 # Shrinkage strength: single knob for how quickly a level's own evidence
 # outvotes its parent's estimate. Tuned against synthetic sequences in tests.
@@ -47,7 +48,7 @@ ETA = 2.0
 
 @dataclass
 class AreaState:
-    """Own sufficient statistics for one level (global/family/tag).
+    """Own sufficient statistics for one level (global/domain/area/skill).
 
     ``mean``/``variance`` hold only the observations *at this level* (a
     neutral prior updated by them); the reported (shrunk) estimate is
@@ -58,10 +59,10 @@ class AreaState:
     questions_answered: int = 0
 
     def update(self, difficulty: int, observation: float) -> "AreaState":
-        """Update own statistics with one (hint-adjusted) observation.
+        """Update own statistics with one observation.
 
         Measurement noise is difficulty-matched to this level's *own* mean
-        (not the shrunk estimate), per §4.2.
+        (not the shrunk estimate).
         """
         obs_variance = measurement_variance(difficulty, self.mean)
         new_mean, new_variance = bayesian_update(
@@ -106,45 +107,42 @@ def reported(state: AreaState, parent_mean: float, parent_var: float) -> tuple[f
 
 def fold_reported(
     global_state: AreaState,
-    family_states: Dict[str, AreaState],
-    tag_states: Dict[str, AreaState],
+    node_states: Dict[str, AreaState],
 ):
-    """Read-time fold producing shrunk estimates for every level.
+    """Read-time fold producing shrunk estimates for every taxonomy node.
 
-    Returns a tuple ``(global_report, family_reports, tag_reports)`` where
-    each report is ``(mu, variance)``. ``global_report`` is the candidate's
-    own global statistics (top of the hierarchy, no parent). Family reports
-    use the global report as parent; tag reports use their family's report
-    as parent (unknown family -> global).
+    ``node_states`` is keyed by canonical node id (domain/area/skill). Nodes
+    absent from the mapping are treated as unattempted. Returns
+    ``(global_report, node_reports)`` where each report is ``(mu, variance)``.
     """
     g_mu, g_var = global_state.mean, global_state.variance
-    family_reports: Dict[str, tuple[float, float]] = {}
-    for fam, st in family_states.items():
-        family_reports[fam] = reported(st, g_mu, g_var)
-    tag_reports: Dict[str, tuple[float, float]] = {}
-    for tag, st in tag_states.items():
-        fam = family_of(tag)
-        f_mu, f_var = family_reports.get(fam, (g_mu, g_var))
-        tag_reports[tag] = reported(st, f_mu, f_var)
-    return (g_mu, g_var), family_reports, tag_reports
+    node_reports: Dict[str, tuple[float, float]] = {}
+    # ALL_NODES is ordered domains -> areas -> skills, so a node's parent is
+    # always resolved before the node itself.
+    for node in ALL_NODES:
+        parent = NODE_PARENT[node]
+        if parent is None:
+            pm, pv = g_mu, g_var
+        else:
+            pm, pv = node_reports.get(parent, (g_mu, g_var))
+        st = node_states.get(node, AreaState())
+        node_reports[node] = reported(st, pm, pv)
+    return (g_mu, g_var), node_reports
 
 
 def area_report_dict(
     global_state: AreaState,
-    family_states: Dict[str, AreaState],
-    tag_states: Dict[str, AreaState],
+    node_states: Dict[str, AreaState],
 ) -> dict:
-    """Full mastery block: shrunk score + confidence + counts at every level.
+    """Full mastery block: nested domain/area/skill tree + flat node map.
 
-    Includes all families and all fine tags; unattempted entries report
-    their parent's shrunk estimate (never a blank bar / raw neutral prior).
+    Includes every taxonomy node; unattempted entries report their parent's
+    shrunk estimate (never a blank bar / raw neutral prior).
     """
     from coach.score import confidence_from_variance
-    from coach.taxonomy import ALL_TAGS, FAMILIES
+    from coach.taxonomy import DOMAINS, TAXONOMY
 
-    (g_mu, g_var), family_reports, tag_reports = fold_reported(
-        global_state, family_states, tag_states
-    )
+    (g_mu, g_var), node_reports = fold_reported(global_state, node_states)
 
     def _entry(mu: float, var: float, n: int) -> dict:
         return {
@@ -153,20 +151,36 @@ def area_report_dict(
             "questions_answered": n,
         }
 
-    mastery = {
+    def _node_entry(node: str) -> dict:
+        st = node_states.get(node, AreaState())
+        mu, var = node_reports.get(node, reported(st, g_mu, g_var))
+        return _entry(mu, var, st.questions_answered)
+
+    nodes_flat: dict[str, dict] = {}
+    for node in ALL_NODES:
+        entry = _node_entry(node)
+        entry["level"] = NODE_LEVEL.get(node, 0)
+        entry["parent"] = NODE_PARENT.get(node)
+        nodes_flat[node] = entry
+
+    domains: dict[str, dict] = {}
+    for domain in DOMAINS:
+        domain_entry = dict(_node_entry(domain))
+        areas: dict[str, dict] = {}
+        for area, skills in TAXONOMY[domain].items():
+            area_entry = dict(_node_entry(area))
+            area_entry["skills"] = {skill: _node_entry(skill) for skill in skills}
+            areas[area] = area_entry
+        domain_entry["areas"] = areas
+        domains[domain] = domain_entry
+
+    return {
         "global": _entry(g_mu, g_var, global_state.questions_answered),
-        "families": {},
-        "tags": {},
+        "domains": domains,
+        "nodes": nodes_flat,
     }
-    for fam in FAMILIES:
-        st = family_states.get(fam, AreaState())
-        mu, var = family_reports.get(fam, reported(st, g_mu, g_var))
-        mastery["families"][fam] = _entry(mu, var, st.questions_answered)
-    for tag in ALL_TAGS:
-        st = tag_states.get(tag, AreaState())
-        fam = family_of(tag)
-        f_mu, f_var = family_reports.get(fam, (g_mu, g_var))
-        mu, var = tag_reports.get(tag, reported(st, f_mu, f_var))
-        mastery["tags"][tag] = _entry(mu, var, st.questions_answered)
-        mastery["tags"][tag]["family"] = fam
-    return mastery
+
+
+def path_levels(node: str) -> list[str]:
+    """Backwards-compatible helper: root-to-node path for a node."""
+    return path_of(node)

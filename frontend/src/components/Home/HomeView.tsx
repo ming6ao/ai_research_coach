@@ -1,21 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAssessmentStore } from '../../stores/assessmentStore';
 import { useAuthStore } from '../../stores/authStore';
-import { apiClient, type MasteryEntry, type UnifiedSession } from '../../api/client';
+import { apiClient, type AdminTaxonomy, type MasteryArea, type MasteryEntry, type UnifiedSession } from '../../api/client';
 
-const FAMILY_LABELS: Record<string, string> = {
-  python: 'Python',
-  data_etl: 'Data / ETL',
-  feature_eng: 'Feature engineering',
-  ml_classical: 'Classical ML',
-  stats_probability: 'Stats & probability',
-  training: 'Training',
-  optimization: 'Optimization',
-  dl_arch: 'Deep learning architectures',
-  llm_genai: 'LLMs & generative AI',
-  eval: 'Evaluation',
-  mlops_serving: 'MLOps & serving',
-};
+function label(id: string | null | undefined): string {
+  if (!id) return '';
+  return id
+    .split('_')
+    .map((w) => (w.length <= 3 && w === w.toLowerCase() ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(' ');
+}
 
 function masteryTone(mastery: number): string {
   if (mastery >= 0.7) return 'bg-[var(--color-success)]';
@@ -34,41 +28,58 @@ function MasteryBar({ value, tone }: { value: number; tone: string }) {
   );
 }
 
-function TagChip({ tag, entry, seen }: { tag: string; entry: MasteryEntry; seen: boolean }) {
+function SkillChip({ id, entry, onStart }: { id: string; entry: MasteryEntry; onStart: (id: string) => void }) {
   const pct = Math.round(entry.score * 100);
+  const seen = entry.questions_answered > 0;
   return (
-    <span
-      title={`${entry.questions_answered} answered`}
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] ${
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onStart(id);
+      }}
+      title={`Practice ${label(id)} · ${entry.questions_answered} answered`}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
         seen
-          ? 'border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 text-[var(--color-accent)]'
-          : 'border-[var(--color-border-default)] bg-[var(--color-bg-tertiary)]/60 text-[var(--color-text-muted)]'
+          ? 'border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/20'
+          : 'border-[var(--color-border-default)] bg-[var(--color-bg-tertiary)]/60 text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
       }`}
     >
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: `var(--color-${seen ? 'accent' : 'text-muted'})` }} />
-      {tag} · {pct}%
-    </span>
+      {label(id)} · {pct}%
+    </button>
   );
 }
+
+const EMPTY_ENTRY: MasteryEntry = { score: 0, confidence: 0, questions_answered: 0 };
+const EMPTY_AREA: MasteryArea = { ...EMPTY_ENTRY, skills: {} };
 
 export function HomeView() {
   const { user } = useAuthStore();
   const { startAssessment, loading, overview, overviewLoading, loadOverview } = useAssessmentStore();
   const [showSessions, setShowSessions] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [taxonomy, setTaxonomy] = useState<AdminTaxonomy | null>(null);
 
   useEffect(() => {
     loadOverview();
   }, [loadOverview]);
+
+  useEffect(() => {
+    apiClient
+      .taxonomy()
+      .then(setTaxonomy)
+      .catch(() => undefined);
+  }, []);
 
   const handleStartSession = () => {
     if (loading) return;
     startAssessment(undefined, { randomFirst: true });
   };
 
-  const handleStartFamily = (family: string) => {
+  const handleStartNode = (node: string) => {
     if (loading) return;
-    startAssessment(undefined, { family });
+    startAssessment(undefined, { node });
   };
 
   const handleOpen = (s: UnifiedSession) => {
@@ -96,14 +107,20 @@ export function HomeView() {
   const sessions = overview?.sessions ?? [];
   const answered = ability?.questions_answered ?? 0;
   const overallMastery = mastery?.global.score ?? ability?.score ?? null;
-  const areaFamilies = useMemo(() => {
-    const entries = Object.keys(FAMILY_LABELS).map((fam) => {
-      const entry: MasteryEntry =
-        mastery?.families?.[fam] ?? { score: 0, confidence: 0, questions_answered: 0, family: fam };
-      return [fam, entry] as [string, MasteryEntry];
-    });
-    return entries.sort((a, b) => b[1].questions_answered - a[1].questions_answered);
-  }, [mastery]);
+
+  const domains = useMemo(() => {
+    if (taxonomy) {
+      return taxonomy.domains.map((domain) => ({
+        domain,
+        areas: Object.keys(taxonomy.areas).filter((a) => taxonomy.tree[domain]?.[a]),
+      }));
+    }
+    // Fallback before the taxonomy loads: whatever the mastery block reports.
+    return Object.entries(mastery?.domains ?? {}).map(([domain, d]) => ({
+      domain,
+      areas: Object.keys(d.areas ?? {}),
+    }));
+  }, [taxonomy, mastery]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-4 pb-24">
@@ -113,8 +130,8 @@ export function HomeView() {
         </h1>
         <p className="mb-6 text-sm text-[var(--color-text-secondary)]">
           {user
-            ? 'Pick an area or start a mixed session — progress is saved to your account.'
-            : 'Pick an area or start a mixed session — progress is saved in this browser.'}
+            ? 'Pick a domain, area, or skill — progress is saved to your account.'
+            : 'Pick a domain, area, or skill — progress is saved in this browser.'}
         </p>
 
         <button
@@ -156,79 +173,112 @@ export function HomeView() {
               )}
             </div>
 
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-                Mastery by area
-              </h3>
-              <p className="text-xs text-[var(--color-text-muted)]">
-                Click an area to practice a question from it.
-              </p>
-              <div className="grid gap-3 md:grid-cols-2">
-                {areaFamilies.map(([fam, entry]) => {
-                  const label = FAMILY_LABELS[fam] ?? fam;
-                  const started = entry.questions_answered > 0;
-                  const pct = Math.round(entry.score * 100);
-                  const famTags = Object.entries(mastery?.tags ?? {})
-                    .filter(([, te]) => te.family === fam)
-                    .sort((a, b) => b[1].questions_answered - a[1].questions_answered);
-                  return (
-                    <div
-                      key={fam}
-                      className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4"
-                    >
-                      <div className="flex w-full items-center justify-between gap-2">
-                        <button
-                          onClick={() => handleStartFamily(fam)}
-                          disabled={loading}
-                          title={`Practice ${label}`}
-                          className="min-w-0 flex-1 rounded-md text-left transition-colors hover:text-[var(--color-accent)] disabled:opacity-40"
-                        >
-                          <span className="block truncate text-sm font-semibold text-[var(--color-text-primary)]">
-                            {label}
-                          </span>
-                        </button>
-                        <span className="shrink-0 text-sm font-bold text-[var(--color-text-primary)]">
-                          {started ? `${pct}%` : 'New'}
-                        </span>
-                      </div>
-                      <div className="mt-2">
-                        <MasteryBar value={started ? entry.score : 0} tone={masteryTone(entry.score)} />
-                      </div>
-                      <div className="mt-1 flex items-center justify-between">
-                        <span className="text-[10px] text-[var(--color-text-muted)]">
-                          {started ? `${entry.questions_answered} asked` : 'Not started'}
-                        </span>
-                        {famTags.length > 0 && (
-                          <button
-                            onClick={() => setExpanded((e) => ({ ...e, [fam]: !e[fam] }))}
-                            className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
-                          >
-                            {expanded[fam] ? 'Hide' : 'Details'}
-                            <svg
-                              viewBox="0 0 20 20"
-                              fill="currentColor"
-                              className={`h-3 w-3 transition-transform ${expanded[fam] ? 'rotate-180' : ''}`}
-                            >
-                              <path
-                                fillRule="evenodd"
-                                d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
-                                clipRule="evenodd"
-                              />
-                            </svg>
-                          </button>
-                        )}
-                      </div>
-                      {expanded[fam] && famTags.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {famTags.map(([tag, te]) => (
-                            <TagChip key={tag} tag={tag} entry={te} seen={te.questions_answered > 0} />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+            <div className="space-y-6">
+              <div className="space-y-1">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+                  Mastery by domain
+                </h3>
+                <p className="text-xs text-[var(--color-text-muted)]">
+                  Click a domain, area, or skill to practice a question from it.
+                </p>
               </div>
+              {domains.map(({ domain, areas }) => {
+                const domainEntry: MasteryEntry = mastery?.domains?.[domain] ?? EMPTY_ENTRY;
+                const domainStarted = domainEntry.questions_answered > 0;
+                return (
+                  <div key={domain} className="space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => handleStartNode(domain)}
+                      disabled={loading}
+                      title={`Practice ${label(domain)}`}
+                      className="flex w-full items-center justify-between gap-3 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-4 py-3 text-left transition-colors hover:border-[var(--color-accent)]/40 disabled:opacity-40"
+                    >
+                      <span className="text-base font-bold text-[var(--color-text-primary)]">
+                        {label(domain)}
+                      </span>
+                      <span className="flex items-center gap-3">
+                        <span className="text-sm font-bold text-[var(--color-text-primary)]">
+                          {domainStarted ? `${Math.round(domainEntry.score * 100)}%` : 'New'}
+                        </span>
+                        <span className="text-[10px] text-[var(--color-text-muted)]">
+                          {domainStarted ? `${domainEntry.questions_answered} asked` : ''}
+                        </span>
+                      </span>
+                    </button>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {areas.map((area) => {
+                        const entry: MasteryArea = mastery?.domains?.[domain]?.areas?.[area] ?? EMPTY_AREA;
+                        const started = entry.questions_answered > 0;
+                        const skills = taxonomy?.tree?.[domain]?.[area] ?? [];
+                        return (
+                          <div
+                            key={area}
+                            className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4"
+                          >
+                            <div className="flex w-full items-center justify-between gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleStartNode(area)}
+                                disabled={loading}
+                                title={`Practice ${label(area)}`}
+                                className="min-w-0 flex-1 rounded-md text-left transition-colors hover:text-[var(--color-accent)] disabled:opacity-40"
+                              >
+                                <span className="block truncate text-sm font-semibold text-[var(--color-text-primary)]">
+                                  {label(area)}
+                                </span>
+                              </button>
+                              <span className="shrink-0 text-sm font-bold text-[var(--color-text-primary)]">
+                                {started ? `${Math.round(entry.score * 100)}%` : 'New'}
+                              </span>
+                            </div>
+                            <div className="mt-2">
+                              <MasteryBar value={started ? entry.score : 0} tone={masteryTone(entry.score)} />
+                            </div>
+                            <div className="mt-1 flex items-center justify-between">
+                              <span className="text-[10px] text-[var(--color-text-muted)]">
+                                {started ? `${entry.questions_answered} asked` : 'Not started'}
+                              </span>
+                              {skills.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setExpanded((e) => ({ ...e, [area]: !e[area] }))}
+                                  className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
+                                >
+                                  {expanded[area] ? 'Hide' : 'Skills'}
+                                  <svg
+                                    viewBox="0 0 20 20"
+                                    fill="currentColor"
+                                    className={`h-3 w-3 transition-transform ${expanded[area] ? 'rotate-180' : ''}`}
+                                  >
+                                    <path
+                                      fillRule="evenodd"
+                                      d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+                                      clipRule="evenodd"
+                                    />
+                                  </svg>
+                                </button>
+                              )}
+                            </div>
+                            {expanded[area] && skills.length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {skills.map((skill) => (
+                                  <SkillChip
+                                    key={skill}
+                                    id={skill}
+                                    entry={entry.skills?.[skill] ?? EMPTY_ENTRY}
+                                    onStart={handleStartNode}
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             {sessions.length > 0 && (

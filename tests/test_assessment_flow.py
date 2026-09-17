@@ -52,6 +52,7 @@ def client(tmp_path, monkeypatch):
         max_score=5,
         source="seed",
         is_public=True,
+        tags={"primary": "experiment_design"},
         task_id="seed_ml_01",
     )
     _seed_task(
@@ -61,6 +62,7 @@ def client(tmp_path, monkeypatch):
         max_score=5,
         source="seed",
         is_public=True,
+        tags={"primary": "collectives_and_overlap"},
         task_id="seed_sys_01",
     )
     from backend.main import app
@@ -101,9 +103,9 @@ def test_block_tasks_carry_no_hints_and_per_part_scoring_updates_beliefs(client)
         source="seed",
         is_public=True,
         parts=[
-            {"key": "mean", "prompt": "def mean(xs): ...", "tags": {"primary": "linear_regression"},
+            {"key": "mean", "prompt": "def mean(xs): ...", "tags": {"primary": "linear_algebra"},
              "max_score": 5, "difficulty": 2},
-            {"key": "variance", "prompt": "def variance(xs): ...", "tags": {"primary": "distributions"},
+            {"key": "variance", "prompt": "def variance(xs): ...", "tags": {"primary": "probability_statistics"},
              "max_score": 5, "difficulty": 2},
         ],
         task_id="seed_block_01",
@@ -123,10 +125,10 @@ def test_block_tasks_carry_no_hints_and_per_part_scoring_updates_beliefs(client)
 
     candidate = started["candidate"]
     beliefs = get_area_beliefs(candidate)
-    assert ("tag", "linear_regression") in beliefs
-    assert ("tag", "distributions") in beliefs
-    assert beliefs[("tag", "linear_regression")]["questions_answered"] == 1
-    assert beliefs[("tag", "distributions")]["questions_answered"] == 1
+    assert ("skill", "linear_algebra") in beliefs
+    assert ("skill", "probability_statistics") in beliefs
+    assert beliefs[("skill", "linear_algebra")]["questions_answered"] == 1
+    assert beliefs[("skill", "probability_statistics")]["questions_answered"] == 1
 
 
 def test_submit_returns_coaching_and_next_task(client):
@@ -187,19 +189,19 @@ def test_get_and_delete_session(client):
 
 
 def test_start_session_with_family_seed(client):
-    """POST /sessions {family} seeds with a random question in that family."""
-    from coach.taxonomy import family_of
+    """POST /sessions {node} seeds with a random question in that area."""
+    from coach.taxonomy import area_of
 
-    res = client.post("/api/v1/sessions", json={"family": "dl_arch"})
+    res = client.post("/api/v1/sessions", json={"node": "research_method"})
     assert res.status_code == 201
     task = res.json()["data"]["current_task"]
     assert task is not None
     primary = (task["tags"] or {}).get("primary")
-    assert family_of(primary) == "dl_arch"
+    assert area_of(primary) == "research_method"
 
 
 def test_start_session_with_unknown_family_rejected(client):
-    res = client.post("/api/v1/sessions", json={"family": "not_a_family"})
+    res = client.post("/api/v1/sessions", json={"node": "not_a_family"})
     assert res.status_code == 422
 
 
@@ -216,7 +218,7 @@ def test_overview_returns_persisted_progress(client):
     assert data["ability"] is not None
     assert data["ability"]["questions_answered"] == 1
     assert data["mastery"] is not None
-    assert "families" in data["mastery"]
+    assert "domains" in data["mastery"]
     assert len(data["sessions"]) >= 1
     assert data["sessions"][0]["id"] == started["id"]
 
