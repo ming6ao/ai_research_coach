@@ -217,7 +217,6 @@ def _materialize_prefix(session, session_id: str, state: dict) -> bool:
             st.get("max_score") or 5.0,
             st.get("fraction") or 0.0,
             st.get("reward") or 0.0,
-            st.get("hints_used") or [],
             st.get("state_before") or {},
             st.get("state_after") or {},
             st.get("result") or {},
@@ -331,7 +330,7 @@ def create_session(
     is_guest = candidate.startswith("guest-")
 
     node: Optional[str] = None
-    raw_node = (req.node or req.family or "").strip()
+    raw_node = (req.node or "").strip()
     if raw_node:
         from coach.taxonomy import resolve_node
 
@@ -519,7 +518,6 @@ def submit_answer(
         result.max_score,
         result.fraction,
         observation,
-        [],
         before,
         after,
         result.to_dict(),
@@ -664,7 +662,6 @@ def redo_step(
             st.get("max_score") or 5.0,
             st.get("fraction") or 0.0,
             st.get("reward") or 0.0,
-            st.get("hints_used") or [],
             st.get("state_before") or {},
             st.get("state_after") or {},
             st.get("result") or {},
@@ -713,7 +710,6 @@ def redo_step(
         result.max_score,
         result.fraction,
         observation,
-        [],
         before,
         after,
         result.to_dict(),

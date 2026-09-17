@@ -3,8 +3,8 @@
 Selects the next question to maximize expected information gain (posterior
 variance reduction of the overall ability belief) per unit of expected
 assessment time, plus small, well-calibrated exploration bonuses layered on
-top so the picker widens coverage into under-explored families/tags without
-ever replacing the EIG signal (design doc §5).
+top so the picker widens coverage into under-explored domains/areas/skills
+without ever replacing the EIG signal.
 
 The session is open-ended: when the bank is exhausted, ``coach.selection``
 mints a fresh adaptive challenge task instead of ending (the user exits
@@ -49,7 +49,6 @@ def next_task(
     session: Session,
     sample_top_n: Optional[int] = None,
     node: Optional[str] = None,
-    family: Optional[str] = None,
 ) -> Optional[dict]:
     """Select next task maximizing expected information gain per unit time.
 
@@ -60,16 +59,16 @@ def next_task(
     highest-utility tasks instead of always returning the single best. This
     keeps the "Random question" entry point varied while staying adaptive.
 
-    When ``node`` (or the legacy ``family`` alias) is set, only bank tasks
-    whose primary skill is that node or has it as an ancestor are eligible
-    (used to seed a session with a question from an area).
+    When ``node`` is set, only bank tasks whose primary skill is that node or
+    has it as an ancestor are eligible (used to seed a session with a question
+    from an area).
     """
     available = [
         t for t in session.tasks
         if t["id"] not in session.asked_task_ids
         and not t.get("generated")
     ]
-    target = resolve_node(node or family)
+    target = resolve_node(node)
     if target:
         available = [
             t for t in available if _matches_node((t.get("tags") or {}).get("primary"), target)
@@ -148,8 +147,8 @@ def _utility(task: dict, session: Session) -> float:
 def expected_time(task: dict) -> float:
     """Expected minutes to complete a task (static prior).
 
-    Code blocks scale linearly with their number of parts: an N-part block
-    costs about N single-question tasks.
+    Step tasks scale linearly with their number of steps: an N-step task
+    costs about N single-step questions.
     """
     prompt_words = len(task.get("prompt", "").split())
     minutes = (

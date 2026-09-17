@@ -1,13 +1,14 @@
 """Single database module for the whole app.
 
 One SQLite file (``data/coach.db``) holds the raw-sqlite tables (``users``,
-``auth_tokens``, ``active_sessions``, ``oauth_states``) and the SQLAlchemy tables (``tasks``,
-``task_attempts``, ``user_skill_beliefs``). ``sqlite_conn()`` owns the
-raw-sqlite DDL and is used by ``backend/auth.py`` and
-``backend/dependencies.py``; ``Base`` / ``create_session_factory()`` own the
-SQLAlchemy side. ``create_schema()`` drops removed columns/tables (skill tags,
-knowledge-graph / learner tables) and collapses legacy per-skill beliefs to a
-single overall-ability row per candidate so old databases converge.
+``auth_tokens``, ``active_sessions``, ``oauth_states``, ``trajectory_shares``)
+and the SQLAlchemy tables (``tasks``, ``session_steps``,
+``user_skill_beliefs``). ``sqlite_conn()`` owns the raw-sqlite DDL and is used
+by ``backend/auth.py`` and ``backend/dependencies.py``; ``Base`` /
+``create_session_factory()`` own the SQLAlchemy side. ``create_schema()`` drops
+removed columns/tables (knowledge-graph / learner tables, retired task
+columns) and turns legacy per-skill beliefs into one row per
+``(candidate, level, key)`` so old databases converge.
 """
 
 from __future__ import annotations

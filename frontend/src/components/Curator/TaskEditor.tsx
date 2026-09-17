@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   apiClient,
-  type AdminTaxonomy,
+  type Taxonomy,
   type CuratorTask,
   type TaskCreateBody,
   type TaskPart,
@@ -29,7 +29,6 @@ interface PartDraft {
 
 interface Props {
   task: CuratorTask | null;
-  adminMode?: boolean;
   onSaved: (task: CuratorTask) => void;
   onDeleted: (taskId: string) => void;
   onClose: () => void;
@@ -79,8 +78,8 @@ function autoPassScore(maxScore: number): number {
  * step, tag chips, starter code) with the editable fields inline, plus
  * curator-only settings/step-detail panels marked "hidden from learners".
  */
-export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClose, onError }: Props) {
-  const [taxonomy, setTaxonomy] = useState<AdminTaxonomy | null>(null);
+export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props) {
+  const [taxonomy, setTaxonomy] = useState<Taxonomy | null>(null);
   const [prompt, setPrompt] = useState(task?.prompt ?? '');
   const [language, setLanguage] = useState(task?.language ?? 'python');
   const [primary, setPrimary] = useState(task?.tags?.primary ?? '');
@@ -92,7 +91,6 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
     return drafts.length > 0 ? drafts : [blankPart()];
   });
   const [activeStep, setActiveStep] = useState(0);
-  const [owner, setOwner] = useState(task?.owner ?? '');
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -205,7 +203,6 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
       task_type: taskType,
       language,
       is_public: isPublic,
-      owner: adminMode && task ? owner.trim() || undefined : undefined,
     };
     return body;
   };
@@ -308,17 +305,6 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
               Question settings — hidden from learners
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {adminMode && task && (
-                <label className="block">
-                  <span className={labelCls}>owner (admin only)</span>
-                  <input
-                    value={owner}
-                    onChange={(e) => setOwner(e.target.value)}
-                    placeholder="owner email"
-                    className={fieldCls}
-                  />
-                </label>
-              )}
               <label className="block">
                 <span className={labelCls}>language</span>
                 <select

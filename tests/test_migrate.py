@@ -156,7 +156,7 @@ def test_sessions_drop_empty_and_remap_stepful(tmp_path, monkeypatch):
 
     from coach.steps import insert_step
 
-    insert_step("stepful", "candidate@x.com", 0, {"id": "t1"}, "bank", "code", 5, 5, 1.0, 1.0, [],
+    insert_step("stepful", "candidate@x.com", 0, {"id": "t1"}, "bank", "code", 5, 5, 1.0, 1.0,
                 None, None, {}, None)
 
     report = run_migration(apply=True, mode="delete", fallback=None, drop_empty=True)
@@ -211,7 +211,7 @@ def test_delivery_migration_normalizes_bank_sessions_and_steps(tmp_path, monkeyp
         "sess", "candidate@x.com", 0,
         {"id": "plain", "prompt": "Prompt for plain", "delivery": "block",
          "tags": {"primary": "attention_transformer", "secondary": []}},
-        "bank", "code", 5, 5, 1.0, 1.0, [], None, None, {}, None,
+        "bank", "code", 5, 5, 1.0, 1.0, None, None, {}, None,
     )
 
     # Dry run mutates nothing.

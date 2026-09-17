@@ -76,25 +76,14 @@ def test_scaffold_auto_composition():
     assert "def g(*args):" in stub  # fallback for parts without a signature
 
 
-def test_score_targets_blocks_and_legacy():
-    block = {
+def test_score_targets():
+    task = {
         "id": "x", "prompt": "p",
         "parts": [{"key": "a", "prompt": "pa", "tags": {"primary": "vision_encoders"},
                    "max_score": 5, "difficulty": 2}],
     }
-    assert score_targets(block)[0]["key"] == "a"
-    assert score_targets(block)[0]["tags"]["primary"] == "vision_encoders"
-
-    # A legacy single-question task becomes one implicit part named after the
-    # function in the prompt.
-    legacy = {
-        "id": "y", "prompt": "Implement foo. Signature: def foo(x): ...",
-        "max_score": 5, "difficulty": 2, "tags": {"primary": "testing", "secondary": []},
-    }
-    targets = score_targets(legacy)
-    assert len(targets) == 1
-    assert targets[0]["key"] == "foo"
-    assert targets[0]["max_score"] == 5
+    assert score_targets(task)[0]["key"] == "a"
+    assert score_targets(task)[0]["tags"]["primary"] == "vision_encoders"
 
 
 def test_answer_for_task(tmp_path, monkeypatch):
@@ -102,7 +91,7 @@ def test_answer_for_task(tmp_path, monkeypatch):
     from coach.steps import answer_for_task, insert_step
 
     insert_step(
-        "s", "c", 0, {"id": "t"}, "bank", "code-here", 5, 5, 1.0, 1.0, [],
+        "s", "c", 0, {"id": "t"}, "bank", "code-here", 5, 5, 1.0, 1.0,
         None, None, {}, None,
     )
     assert answer_for_task("s", "t") == "code-here"

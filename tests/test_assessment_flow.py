@@ -206,7 +206,7 @@ def test_get_and_delete_session(client):
     assert client.get(f"/api/v1/sessions/{started['id']}").status_code == 404
 
 
-def test_start_session_with_family_seed(client):
+def test_start_session_with_node_seed(client):
     """POST /sessions {node} seeds with a random question in that area."""
     from coach.taxonomy import area_of
 
@@ -218,8 +218,8 @@ def test_start_session_with_family_seed(client):
     assert area_of(primary) == "research_method"
 
 
-def test_start_session_with_unknown_family_rejected(client):
-    res = client.post("/api/v1/sessions", json={"node": "not_a_family"})
+def test_start_session_with_unknown_node_rejected(client):
+    res = client.post("/api/v1/sessions", json={"node": "not_a_node"})
     assert res.status_code == 422
 
 

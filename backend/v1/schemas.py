@@ -20,8 +20,6 @@ class SessionCreateRequest(BaseModel):
     task_ids: Optional[list[str]] = Field(default=None, max_length=100)
     random_first: bool = Field(default=False)
     node: Optional[str] = Field(default=None, max_length=64)
-    # Deprecated alias for ``node`` (old area-level seeding).
-    family: Optional[str] = Field(default=None, max_length=64)
 
 
 class AnswerSubmitRequest(BaseModel):

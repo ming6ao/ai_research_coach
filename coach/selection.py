@@ -36,7 +36,7 @@ def _last_code_for(session_id: Optional[str], task_id: str) -> Optional[str]:
 
 
 def _task_started(session, task: dict) -> bool:
-    """True once a phased task has at least one attempt or passed phase."""
+    """True once a step task has at least one attempt or passed step."""
     task_id = task.get("id")
     return bool(
         session.task_progress.get(task_id, 0)
@@ -44,8 +44,8 @@ def _task_started(session, task: dict) -> bool:
     )
 
 
-def _active_phased_task(session, task: Optional[dict] = None) -> Optional[dict]:
-    """A started-but-unfinished phased task, or None.
+def _active_step_task(session, task: Optional[dict] = None) -> Optional[dict]:
+    """A started-but-unfinished step task, or None.
 
     Called with the just-submitted task (post-submit path) or without one
     (resume path, where it scans the session's tasks).
@@ -73,21 +73,19 @@ def pick_next_task(
     last_submission: Optional[dict] = None,
     sample_top_n: Optional[int] = None,
     node: Optional[str] = None,
-    family: Optional[str] = None,
     session_id: Optional[str] = None,
 ) -> dict | None:
     """Choose the next task to present.
 
     ``last_submission`` carries ``{"task", "answer", "result", "coach"}``
     from a just-recorded submission (``answer`` is the candidate's code,
-    carried into the next phase). ``sample_top_n`` (> 1) samples uniformly
+    carried into the next step). ``sample_top_n`` (> 1) samples uniformly
     from the top-N EIG bank candidates instead of always taking the single
-    best; it applies to the bank-picker branch only. ``node`` (or the legacy
-    ``family`` alias) restricts the bank-picker branch to tasks in one
-    domain/area/skill (used to seed a session with a question from an area);
-    it never affects pending/follow-up branches. ``session_id`` lets the
-    resume path fetch the candidate's prior code for an in-progress phased
-    task.
+    best; it applies to the bank-picker branch only. ``node`` restricts the
+    bank-picker branch to tasks in one domain/area/skill (used to seed a
+    session with a question from an area); it never affects
+    pending/follow-up branches. ``session_id`` lets the resume path fetch the
+    candidate's prior code for an in-progress step task.
     """
     from coach.picker import next_task as next_task_bank
 
@@ -99,8 +97,8 @@ def pick_next_task(
     if pending is not None:
         return task_view(pending, session)
 
-    # 2. Continue / retry an active phased task.
-    active = _active_phased_task(session, (last_submission or {}).get("task"))
+    # 2. Continue / retry an active step task.
+    active = _active_step_task(session, (last_submission or {}).get("task"))
     if active is not None:
         previous_code = None
         if last_submission and last_submission.get("answer"):
@@ -123,7 +121,7 @@ def pick_next_task(
             return task_view(generated, session)
 
     # 4. EIG bank picker.
-    nxt = next_task_bank(session, sample_top_n=sample_top_n, node=node, family=family)
+    nxt = next_task_bank(session, sample_top_n=sample_top_n, node=node)
     if nxt is not None:
         return task_view(nxt, session)
 

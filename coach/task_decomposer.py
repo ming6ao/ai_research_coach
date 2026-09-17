@@ -198,25 +198,6 @@ class TaskDecomposer:
 
     # -- plain-English context -------------------------------------------
 
-    def describe_task(self, prompt: str) -> str:
-        """Return 2-4 plain sentences of task context, or "" on any failure."""
-        try:
-            return self.describe_and_categorize(prompt).get("context_notes", "")
-        except Exception:
-            return ""
-
-    def categorize_task(self, prompt: str) -> Optional[dict]:
-        """Return ``{primary, secondary}`` tags for a prompt, or ``None``.
-
-        Returns ``None`` when there is no API key, the call fails, or the
-        model cannot produce a valid leaf primary — the caller must then
-        reject creation (an uncategorized task is not allowed).
-        """
-        try:
-            return self.describe_and_categorize(prompt).get("tags")
-        except Exception:
-            return None
-
     def describe_and_categorize(self, prompt: str) -> dict:
         """Combined context-notes + tag categorization (ONE LLM call).
 

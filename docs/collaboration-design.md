@@ -50,7 +50,7 @@ Two scopes must be kept distinct (see "Per-user beliefs vs. trajectory data"):
    B:
    - `candidate` = B
    - `state_json` = the snapshot's task list + bookkeeping, with `index = N`,
-     but `ability` / family / tag = **B's own persistent beliefs**
+     but `ability` / node beliefs = **B's own persistent beliefs**
      (`user_skill_beliefs`), **NOT** A's `s_N`.
    - `resumed_from_share` = the share token (prefix is still just a reference)
    - `fork_of` = the source session id (internal lineage, never surfaced)
@@ -107,9 +107,9 @@ only.
 | episode | `active_sessions` row + its `session_steps` rows |
 | timestep `t` | `session_steps.step_index` (0-based; `index` = number done) |
 | observation `o_t` | `session_steps.task_snapshot_json` (immutable, as-asked) |
-| state `s_t` | global + family + tag Gaussian beliefs (`state_before_json`) |
+| state `s_t` | global + domain/area/skill Gaussian beliefs (`state_before_json`) |
 | action `a_t` | `session_steps.user_answer` |
-| reward `r_t` | `session_steps.reward` = hint-adjusted fraction ∈ [0,1] |
+| reward `r_t` | `session_steps.reward` = effective fraction ∈ [0,1] |
 | next state `s_{t+1}` | `session_steps.state_after_json` |
 | done | `active_sessions.status = 'done'` (or `next_task is None`) |
 | trajectory lineage | `active_sessions.fork_of` + share provenance |
@@ -118,7 +118,7 @@ only.
 
 The schema captures the **core MDP tuple** faithfully and deterministically
 (observation = task snapshot, state = beliefs, action = code, reward =
-hint-adjusted fraction, next-state, done, lineage). That is sufficient for
+effective fraction, next-state, done, lineage). That is sufficient for
 **offline data collection, behavior cloning, reward prediction, and a
 closed-loop learner-side MDP**. It is *not* yet sufficient for rich RL training,
 especially over the **teaching policy** (which question to ask next — the
@@ -128,12 +128,12 @@ natural RL target in this app):
 
 - **Selection decision (biggest gap).** The step stores only the chosen task
   snapshot, not *why* it was chosen — the picker's EIG values, exploration
-  bonuses, family penalty, remediation mode (`remediate/escalate/pivot/...`),
+  bonuses, same-area penalty, remediation mode (`remediate/escalate/pivot/...`),
   and follow-up root. Teaching-policy RL needs these per-step features.
 - **Discrete success signal.** `fraction` is continuous; add a binary
   `solved = fraction >= 0.8` flag for sparse-reward / threshold use.
 - **Reward shaping.** Today the reward is task-local only. For teaching-policy
-  RL, shape it with episode-level signals: Δmastery (global/family/tag),
+  RL, shape it with episode-level signals: Δmastery (global/domain/area/skill),
   coaching effectiveness (did the candidate solve the follow-up), time
   efficiency.
 - **Temporal / engagement / answer-content features.** Time per step, streak,
@@ -159,10 +159,10 @@ to `session_steps`.
 | `session_id` | TEXT | PK |
 | `candidate` | TEXT | NOT NULL — owner |
 | `status` | TEXT | NOT NULL — `active \| done` |
-| `session_json` | TEXT | compact live state: `{tasks:[TaskSnapshot], index, asked_task_ids, viewed_hints, generated_task_ids, ability}` |
+| `session_json` | TEXT | compact live state: `{tasks:[TaskSnapshot], index, asked_task_ids, generated_task_ids, ability, task_progress, phase_attempts, submission_index}` |
 | `resumed_from_share` | TEXT | nullable — share token while the prefix is still a CoW reference (cleared on first write) |
 | `fork_of` | TEXT | nullable — internal lineage (source session id) |
-| `meta_json` | TEXT | nullable — `{family, initial_question, eval_model}` |
+| `meta_json` | TEXT | nullable — `{node, initial_question, eval_model}` |
 | `updated_at` | TEXT | NOT NULL |
 | ~~`session_json` (old)~~ | | now compact only |
 | ~~`feedback_json`~~ | | dropped — its records become `session_steps` rows |
@@ -184,8 +184,7 @@ Supersedes `task_attempts` **and** `feedback_json`.
 | `role` | TEXT | `bank \| remediate \| escalate \| pivot \| challenge \| redo` |
 | `user_answer` | TEXT | NOT NULL — the action |
 | `score` / `max_score` / `fraction` | REAL | judge output |
-| `reward` | REAL | NOT NULL — hint-adjusted fraction ∈ [0,1] |
-| `hints_used_json` | TEXT | NOT NULL |
+| `reward` | REAL | NOT NULL — effective fraction ∈ [0,1] |
 | `state_before_json` | TEXT | NOT NULL — `s_t` |
 | `state_after_json` | TEXT | NOT NULL — `s_{t+1}` |
 | `result_json` | TEXT | NOT NULL — judge result (rationale) |
@@ -232,8 +231,7 @@ Lineage is just `fork_of`; sharing is just a `trajectory_shares` row.
 - `task_attempts` is dropped. The legacy `feedback_json` column is dropped
   **only once** every session has been backfilled (or has no legacy results), so
   no per-step data is lost.
-- Coverage/admin consumers (and a `record_attempt` compat shim) read
-  `session_steps` instead of `task_attempts`.
+- Coverage/admin consumers read `session_steps` instead of `task_attempts`.
 - Shares are created fresh; no legacy migration needed.
 
 ## API (MVP, implemented)
@@ -243,7 +241,7 @@ Lineage is just `fork_of`; sharing is just a `trajectory_shares` row.
 | `POST /api/v1/sessions/{id}/share` `{step_index?}` | owner | freeze + store snapshot; returns `{token, url}` |
 | `GET /api/v1/shared/{token}` | token only | open share: trajectory info + prefix steps (tasks, scores, coaching — no identity, no answers) |
 | `POST /api/v1/shared/{token}/resume` | resolves B | create B's CoW session (B's own beliefs); returns normal session view + first task |
-| `POST /api/v1/sessions/{id}/redo` `{step_index, answer, hints_used?}` | owner | edit-triggered CoW fork: re-judge step, recompute beliefs from B's live state, truncate tail |
+| `POST /api/v1/sessions/{id}/redo` `{step_index, answer}` | owner | edit-triggered CoW fork: re-judge step, recompute beliefs from B's live state, truncate tail |
 | `DELETE /api/v1/shared/{token}` | sharer | revoke a share |
 
 Resuming a share that belongs to the sharer themselves simply opens the

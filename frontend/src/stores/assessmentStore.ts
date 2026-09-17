@@ -62,19 +62,6 @@ function toResultWithFeedback(entry: FeedbackEntry): ResultWithFeedback {
   };
 }
 
-/** Tolerate legacy resume payloads that carried per-skill states. */
-function toAbility(res: ResumeResponse): AbilityState | null {
-  if (res.ability) return res.ability;
-  const legacy = (res as unknown as { skill_states?: Record<string, AbilityState> }).skill_states;
-  if (legacy) {
-    const entries = Object.values(legacy);
-    if (entries.length > 0) {
-      return entries.sort((a, b) => b.questions_answered - a.questions_answered)[0];
-    }
-  }
-  return null;
-}
-
 const SESSION_KEY = 'ai_coach_session_id';
 
 export const useAssessmentStore = create<AssessmentState>((set, get) => ({
@@ -103,7 +90,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       taskIndex: res.task_index,
       totalTasks: res.total_tasks,
       results,
-      ability: toAbility(res),
+      ability: res.ability ?? null,
       mastery: res.mastery ?? null,
     });
     storage.set(SESSION_KEY, res.id);
@@ -158,9 +145,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         phase_total: currentTask?.phase_total,
       };
 
-      // Tolerate legacy payloads that still send skill_update.
-      const update = res.ability_update
-        ?? (res as unknown as { skill_update?: { new_score: number; new_confidence: number } }).skill_update;
+      const update = res.ability_update;
       const newAbility: AbilityState | null = update
         ? {
             score: update.new_score,
@@ -195,11 +180,8 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const res = await apiClient.complete(sessionId);
-      const legacy = (res as unknown as { skill_states?: Record<string, AbilityState> }).skill_states;
-      const ability = res.ability
-        ?? (legacy ? Object.values(legacy).sort((a, b) => b.questions_answered - a.questions_answered)[0] ?? null : null);
       set({
-        ability,
+        ability: res.ability ?? null,
         mastery: res.mastery ?? get().mastery,
       });
     } catch (e: unknown) {

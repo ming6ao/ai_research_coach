@@ -1,5 +1,7 @@
 """Curator UI: my-tasks listing, public taxonomy, owner-or-admin writes."""
 
+import uuid
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -7,6 +9,28 @@ import backend.auth as auth
 import coach.db as db
 
 ADMIN = "gaomingduke@gmail.com"
+
+
+def _record_step(candidate, task_id, fraction, score, max_score):
+    """Seed one scored ``session_steps`` row for attempt-count tests."""
+    from coach.steps import insert_step
+
+    return insert_step(
+        session_id=f"seed-{uuid.uuid4().hex[:8]}",
+        candidate=candidate,
+        step_index=0,
+        task={"id": task_id, "max_score": max_score},
+        role="bank",
+        user_answer="",
+        score=score,
+        max_score=max_score,
+        fraction=fraction,
+        reward=fraction,
+        state_before=None,
+        state_after=None,
+        result={"score": score, "max_score": max_score},
+        coaching=None,
+    )
 
 
 @pytest.fixture
@@ -63,9 +87,7 @@ def test_my_tasks_only_returns_own_rows_with_attempt_counts(client):
     alice_task = _create_owned(client, alice, "Alice's curated question", "alice@x.com")
     _create_owned(client, bob, "Bob's curated question", "bob@x.com", is_public=False)
 
-    from coach.tasks import record_attempt
-
-    record_attempt("alice@x.com", alice_task["id"], 0.8, 4, 5, [])
+    _record_step("alice@x.com", alice_task["id"], 0.8, 4, 5)
 
     res = client.get("/api/v1/me/tasks?page_size=100", headers=_h(alice))
     assert res.status_code == 200

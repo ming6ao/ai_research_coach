@@ -1,5 +1,7 @@
 """Task ownership (v1 owner-or-admin guard) + candidate wipes."""
 
+import uuid
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -7,6 +9,28 @@ import backend.auth as auth
 import coach.db as db
 
 ADMIN = "gaomingduke@gmail.com"
+
+
+def _record_step(candidate, task_id, fraction, score, max_score):
+    """Seed one scored ``session_steps`` row for aggregation tests."""
+    from coach.steps import insert_step
+
+    return insert_step(
+        session_id=f"seed-{uuid.uuid4().hex[:8]}",
+        candidate=candidate,
+        step_index=0,
+        task={"id": task_id, "max_score": max_score},
+        role="bank",
+        user_answer="",
+        score=score,
+        max_score=max_score,
+        fraction=fraction,
+        reward=fraction,
+        state_before=None,
+        state_after=None,
+        result={"score": score, "max_score": max_score},
+        coaching=None,
+    )
 
 
 @pytest.fixture
@@ -30,14 +54,14 @@ def _h(token):
 def _seed_candidate(candidate):
     """Seed one row per candidate-scoped table; return owned task id."""
     from backend.dependencies import get_store
-    from coach.tasks import create_task, record_attempt, save_skill_belief
+    from coach.tasks import create_task, save_skill_belief
 
     store = get_store()
     sid = store.create(candidate)
     store.save(sid, {"session": {"candidate": candidate}})
 
     task = create_task(prompt="Owned question?", owner=candidate, tags={"primary": "testing"})
-    record_attempt(candidate, task["id"], 0.8, 4, 5, [])
+    _record_step(candidate, task["id"], 0.8, 4, 5)
     save_skill_belief(candidate, 0.6, 0.1, 1)
     return task["id"]
 
@@ -82,14 +106,14 @@ def test_owner_can_wipe_self(client):
 
 
 def test_admin_can_wipe_other_candidate_and_shared_task(client):
-    from coach.tasks import create_task, get_task, record_attempt
+    from coach.tasks import create_task, get_task
 
     _seed_candidate("bob@x.com")
     shared_task = create_task(
         prompt="Shared bank question?", owner="bank@example.com",
         source="user", is_public=True, tags={"primary": "testing"},
     )
-    record_attempt("alice@x.com", shared_task["id"], 0.5, 2, 5, [])
+    _record_step("alice@x.com", shared_task["id"], 0.5, 2, 5)
 
     admin = _login(ADMIN)
     res = client.delete("/admin/candidate/bob@x.com", headers=_h(admin))
@@ -112,9 +136,8 @@ def test_task_owner_delete_cascades_attempts(client):
 
     token = _login("carol@x.com")
     task = create_task(prompt="Carol's question?", owner="carol@x.com", tags={"primary": "testing"})
-    from coach.tasks import record_attempt
 
-    record_attempt("carol@x.com", task["id"], 1.0, 5, 5, [])
+    _record_step("carol@x.com", task["id"], 1.0, 5, 5)
 
     listed = client.get("/api/v1/tasks?page_size=100", headers=_h(token)).json()["data"]
     assert any(t["id"] == task["id"] for t in listed)

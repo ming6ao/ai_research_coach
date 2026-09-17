@@ -1,15 +1,12 @@
 """LLM judge + coach: scores candidate code and teaches back the gap.
 
-A code-block task carries ``parts``; a single submission fills the whole
-block and the judge returns a per-part score for every listed function. The
-aggregate ``EvaluationResult.score`` is the sum of the per-part scores (so
-``fraction`` stays the overall block fraction). Tasks without parts are
-treated as one implicit part.
+A submission scores the active step (or steps) of a task and returns a
+per-part score for every listed part. The aggregate
+``EvaluationResult.score`` is the sum of the per-part scores.
 """
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from typing import Optional
 import json
@@ -171,37 +168,15 @@ each code block (the opening fence must start on its own line)."""
 
 
 def score_targets(task: dict) -> list[dict]:
-    """The parts to score: the task's parts, or one implicit part.
-
-    A legacy single-question task (no parts) is treated as one implicit part
-    whose key is the function named in the prompt (or "solution").
-    """
-    parts = task.get("parts") or []
-    if parts:
-        return [dict(p) for p in parts]
-    m = re.search(r"def\s+([A-Za-z_]\w*)\s*\(", task.get("prompt", ""))
-    key = m.group(1) if m else "solution"
-    return [
-        {
-            "key": key,
-            "prompt": task.get("prompt", ""),
-            "tags": task.get("tags") or {"primary": None, "secondary": []},
-            "max_score": int(task.get("max_score") or 5),
-            "difficulty": int(task.get("difficulty") or 1),
-        }
-    ]
+    """The parts to score: the task's own steps (never empty in practice)."""
+    return [dict(p) for p in (task.get("parts") or [])]
 
 
 class LLMJudge:
-    @staticmethod
-    def _score_targets(task: dict) -> list[dict]:
-        """Alias kept for the belief loop in the submit path."""
-        return score_targets(task)
-
     def evaluate(
         self, task: dict, answer: str, previous_code: Optional[str] = None
     ) -> tuple[EvaluationResult, CoachContent]:
-        targets = self._score_targets(task)
+        targets = score_targets(task)
         max_score = sum(int(p.get("max_score") or 5) for p in targets)
         language = str(task.get("language") or "python").strip().lower() or "python"
         client = _client()

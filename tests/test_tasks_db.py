@@ -89,7 +89,7 @@ def test_followup_skipped_on_clean_solve():
 
 def test_context_notes_round_trip(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "ctx.db")
-    from coach.tasks import create_task, get_task, update_task_context
+    from coach.tasks import create_task, get_task, update_task
 
     task = create_task(
         prompt="Explain caching.",
@@ -100,5 +100,5 @@ def test_context_notes_round_trip(tmp_path, monkeypatch):
     assert task["context_notes"].startswith("Eviction")
     assert get_task(task["id"])["context_notes"] == task["context_notes"]
 
-    updated = update_task_context(task["id"], "New notes.")
+    updated = update_task(task["id"], context_notes="New notes.")
     assert updated["context_notes"] == "New notes."

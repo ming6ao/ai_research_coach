@@ -45,7 +45,6 @@ class SessionStepModel(Base):
     max_score: Mapped[float] = mapped_column(Float, nullable=False, default=5.0)
     fraction: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     reward: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    hints_used_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     state_before_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     state_after_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     result_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
@@ -76,7 +75,6 @@ def step_to_dict(m: SessionStepModel) -> dict:
         "max_score": m.max_score,
         "fraction": m.fraction,
         "reward": m.reward,
-        "hints_used": _safe_json(m.hints_used_json, []),
         "state_before": _safe_json(m.state_before_json, {}),
         "state_after": _safe_json(m.state_after_json, {}),
         "result": _safe_json(m.result_json, {}),
@@ -97,7 +95,6 @@ def insert_step(
     max_score: float,
     fraction: float,
     reward: float,
-    hints_used: Optional[list],
     state_before: dict | None,
     state_after: dict | None,
     result: dict | None,
@@ -125,7 +122,6 @@ def insert_step(
                 max_score=float(max_score or 5.0),
                 fraction=max(0.0, min(1.0, float(fraction or 0.0))),
                 reward=float(reward or 0.0),
-                hints_used_json=json.dumps(hints_used or []),
                 state_before_json=json.dumps(state_before or {}),
                 state_after_json=json.dumps(state_after or {}),
                 result_json=json.dumps(result or {}),
@@ -336,7 +332,6 @@ def _backfill_one(sid: str, candidate: str, s: dict, results: list, feedback: li
             tasks[i] if i < len(tasks) else {}
         )
         fb = feedback[i] if i < len(feedback) else {}
-        hints_used = fb.get("hints_used") or []
         max_score = max(1.0, float((res or {}).get("max_score") or 5.0))
         raw_fraction = max(0.0, min(1.0, float((res or {}).get("score") or 0.0) / max_score))
         observation = effective_score(raw_fraction)
@@ -383,7 +378,6 @@ def _backfill_one(sid: str, candidate: str, s: dict, results: list, feedback: li
             max_score,
             raw_fraction,
             observation,
-            hints_used,
             before,
             after,
             res or {},

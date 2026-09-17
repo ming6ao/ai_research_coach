@@ -17,13 +17,10 @@ from coach.taxonomy import (
     ancestors,
     area_of,
     domain_of,
-    family_of,
     format_vocabulary,
     is_area,
     is_domain,
     is_leaf,
-    is_valid_family,
-    is_valid_tag,
     normalize_tag,
     path_of,
     resolve_node,
@@ -58,19 +55,12 @@ def test_node_level_predicates():
     assert not is_leaf("kernels_and_gpu")
     assert not is_area("flash_attention")
     assert not is_domain("pretraining")
-    assert is_valid_tag("grpo")
-    assert not is_valid_tag("systems")
-    assert is_valid_family("post_training")
-    assert not is_valid_family("grpo")
 
 
 def test_aliases_resolve_to_canonical():
     assert normalize_tag("attention") == "attention_variants"
     assert normalize_tag("Flash-Attention") == "flash_attention"
     assert normalize_tag("rope") == "positional_encoding"
-    assert normalize_tag("dl_arch") == "architectures"
-    assert normalize_tag("llm_genai") == "pretraining"
-    assert family_of("flash_attention") == "kernels_and_gpu"
     assert area_of("grpo") == "reinforcement_learning"
     assert domain_of("grpo") == "research"
 
