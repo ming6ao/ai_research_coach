@@ -155,15 +155,11 @@ export function HomeView() {
 
         {!overviewLoading && (
           <div className="mt-8 w-full space-y-8">
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-                Overall mastery
-              </h3>
-              {overallMastery === null ? (
-                <p className="text-sm text-[var(--color-text-muted)]">
-                  No questions answered yet. Pick an area below to start practising.
-                </p>
-              ) : (
+            {overallMastery !== null && (
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+                  Overall mastery
+                </h3>
                 <div className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
                   <div className="mb-2 flex items-end justify-between gap-2">
                     <span className="text-3xl font-bold leading-none text-[var(--color-text-primary)]">
@@ -175,19 +171,10 @@ export function HomeView() {
                   </div>
                   <MasteryBar value={overallMastery} tone={masteryTone(overallMastery)} />
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
             <div className="space-y-4">
-              <div className="space-y-1">
-                <h3 className="text-sm font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-                  Explore by domain
-                </h3>
-                <p className="text-xs text-[var(--color-text-muted)]">
-                  Switch tabs to browse areas, then click an area or skill to practice a random question from it.
-                </p>
-              </div>
-
               {currentDomain && (
                 <>
                   <div
@@ -399,9 +386,6 @@ export function HomeView() {
             )}
           </div>
         )}
-        <p className="mt-8 text-[11px] text-[var(--color-text-muted)]">
-          AI Research Coach can make mistakes.
-        </p>
       </div>
     </div>
   );
