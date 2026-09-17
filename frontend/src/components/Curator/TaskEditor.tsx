@@ -7,7 +7,14 @@ import {
   type TaskPart,
 } from '../../api/client';
 import { CodeEditor } from '../TaskPanel/CodeEditor';
-import { TaskPreview } from '../Task/TaskPreview';
+import { QuestionBubble } from '../Task/QuestionBubble';
+import {
+  EditableMarkdown,
+  EditableNumber,
+  EditableText,
+  EditableTextarea,
+  TagEditor,
+} from './Editable';
 
 interface PartDraft {
   key: string;
@@ -15,7 +22,9 @@ interface PartDraft {
   scaffold: string;
   max_score: string;
   difficulty: string;
+  pass_score: string;
   primary: string;
+  secondary: string[];
 }
 
 interface Props {
@@ -29,18 +38,20 @@ interface Props {
 
 const LANGUAGES = ['python', 'cpp', 'c', 'javascript', 'typescript', 'java', 'go', 'rust'];
 
-const inputCls =
-  'w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)]';
 const labelCls = 'mb-0.5 block text-xs text-[var(--color-text-muted)]';
+const fieldCls =
+  'w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)]';
 
-function blankPart(): PartDraft {
+function blankPart(primary = ''): PartDraft {
   return {
     key: '',
     prompt: '',
     scaffold: '',
     max_score: '5',
     difficulty: '2',
-    primary: '',
+    pass_score: '',
+    primary,
+    secondary: [],
   };
 }
 
@@ -49,29 +60,41 @@ function partsToDrafts(parts?: TaskPart[]): PartDraft[] {
     key: p.key,
     prompt: p.prompt,
     scaffold: p.scaffold ?? '',
-    max_score: String(p.max_score),
-    difficulty: String(p.difficulty),
+    max_score: String(p.max_score ?? 5),
+    difficulty: String(p.difficulty ?? 2),
+    pass_score: p.pass_score != null ? String(p.pass_score) : '',
     primary: p.tags?.primary ?? '',
+    secondary: p.tags?.secondary ?? [],
   }));
 }
 
+/** Mirrors the backend's `default_pass_score` (round(0.7 * max), min 1). */
+function autoPassScore(maxScore: number): number {
+  return Math.max(1, Math.round(0.7 * Math.max(1, maxScore)));
+}
+
 /**
- * Simple, step-by-step-only question editor. Every task is a sequence of one
- * or more steps delivered one at a time; there is no advanced mode and no
- * single-submission delivery. Task-level difficulty/max_score/context notes
- * are derived or generated server-side.
+ * Merged curator editor: a single learner-style column. The question bubble
+ * renders exactly as a candidate sees it (markdown prompt, numbered active
+ * step, tag chips, starter code) with the editable fields inline, plus
+ * curator-only settings/step-detail panels marked "hidden from learners".
  */
 export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClose, onError }: Props) {
   const [taxonomy, setTaxonomy] = useState<AdminTaxonomy | null>(null);
   const [prompt, setPrompt] = useState(task?.prompt ?? '');
   const [language, setLanguage] = useState(task?.language ?? 'python');
   const [primary, setPrimary] = useState(task?.tags?.primary ?? '');
+  const [secondary, setSecondary] = useState<string[]>(task?.tags?.secondary ?? []);
+  const [taskType, setTaskType] = useState(task?.task_type ?? 'implement');
   const [isPublic, setIsPublic] = useState(task ? task.is_public : true);
-  const [parts, setParts] = useState<PartDraft[]>(partsToDrafts(task?.parts));
+  const [parts, setParts] = useState<PartDraft[]>(() => {
+    const drafts = partsToDrafts(task?.parts);
+    return drafts.length > 0 ? drafts : [blankPart()];
+  });
+  const [activeStep, setActiveStep] = useState(0);
   const [owner, setOwner] = useState(task?.owner ?? '');
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [showPreview, setShowPreview] = useState(false);
 
   useEffect(() => {
     apiClient
@@ -88,6 +111,32 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
 
   const updatePart = (idx: number, patch: Partial<PartDraft>) => {
     setParts((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)));
+  };
+
+  const addStep = () => {
+    setParts((prev) => [...prev, blankPart(primary)]);
+    setActiveStep(parts.length);
+  };
+
+  const removeStep = (idx: number) => {
+    if (parts.length <= 1) return;
+    const newLen = parts.length - 1;
+    setParts((prev) => prev.filter((_, i) => i !== idx));
+    setActiveStep((cur) => {
+      const shifted = cur > idx ? cur - 1 : cur;
+      return Math.max(0, Math.min(shifted, newLen - 1));
+    });
+  };
+
+  const moveStep = (idx: number, dir: -1 | 1) => {
+    const to = idx + dir;
+    if (to < 0 || to >= parts.length) return;
+    setParts((prev) => {
+      const next = [...prev];
+      [next[idx], next[to]] = [next[to], next[idx]];
+      return next;
+    });
+    setActiveStep(to);
   };
 
   /** Validate + build the create/update body; returns null on invalid input. */
@@ -135,13 +184,16 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
         prompt: p.prompt.trim(),
         max_score: clamp1to100(Number(p.max_score)) || 5,
         difficulty: clamp1to5(Number(p.difficulty)) || 2,
-        tags: { primary: p.primary, secondary: [] },
+        tags: { primary: p.primary, secondary: p.secondary.slice(0, 2) },
       };
       if (p.scaffold.trim()) part.scaffold = p.scaffold;
+      if (p.pass_score.trim() !== '') {
+        part.pass_score = Math.max(0, Math.min(part.max_score, Number(p.pass_score) || 0));
+      }
       cleaned.push(part);
     }
     if (cleaned.length === 0) {
-      const msg = 'Add at least one step.';
+      const msg = 'Every step needs both a key and a prompt.';
       setFormError(msg);
       onError(msg);
       return null;
@@ -149,7 +201,8 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
     const body: TaskCreateBody = {
       prompt: prompt.trim(),
       parts: cleaned,
-      tags: { primary, secondary: [] },
+      tags: { primary, secondary: secondary.slice(0, 2) },
+      task_type: taskType,
       language,
       is_public: isPublic,
       owner: adminMode && task ? owner.trim() || undefined : undefined,
@@ -208,179 +261,262 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
 
   if (!taxonomy) {
     return (
-      <div className="flex h-full items-center justify-center p-4">
+      <div className="flex h-full flex-1 items-center justify-center p-4">
         <p className="text-xs text-[var(--color-text-muted)]">Loading question form…</p>
       </div>
     );
   }
 
-  const renderTagPicker = (value: string, onChange: (t: string) => void) => (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className={inputCls}>
-      {value === '' && <option value="">Select a skill…</option>}
-      {taxonomy.domains.map((domain) =>
-        Object.entries(taxonomy.tree[domain] ?? {}).map(([area, skills]) => (
-          <optgroup key={`${domain}/${area}`} label={`${domain} / ${area}`}>
-            {skills.map((tag) => (
-              <option key={tag} value={tag}>
-                {tag}
-              </option>
-            ))}
-          </optgroup>
-        )),
-      )}
-    </select>
+  const active = parts[activeStep] ?? parts[0];
+  const activeMax = clamp1to100(Number(active.max_score)) || 5;
+  const passScoreValue =
+    active.pass_score.trim() !== ''
+      ? Math.max(0, Math.min(activeMax, Number(active.pass_score) || 0))
+      : autoPassScore(activeMax);
+  const derivedDifficulty = parts.reduce(
+    (m, p) => Math.max(m, clamp1to5(Number(p.difficulty)) || 2),
+    1,
   );
+  const derivedMaxScore = parts.reduce((s, p) => s + (clamp1to100(Number(p.max_score)) || 5), 0);
 
-  const previewParts = parts
-    .filter((p) => p.key.trim() && p.prompt.trim())
-    .map((p) => {
-      const part: TaskPart = {
-        key: p.key.trim(),
-        prompt: p.prompt.trim(),
-        max_score: clamp1to100(Number(p.max_score)) || 5,
-        difficulty: clamp1to5(Number(p.difficulty)) || 2,
-        tags: { primary: p.primary, secondary: [] },
-      };
-      if (p.scaffold.trim()) part.scaffold = p.scaffold;
-      return part;
-    });
+  const activeTaskPart: TaskPart = {
+    key: active.key.trim() || `step_${activeStep + 1}`,
+    prompt: active.prompt,
+    max_score: activeMax,
+    difficulty: clamp1to5(Number(active.difficulty)) || 2,
+    tags: { primary: active.primary, secondary: active.secondary },
+  };
 
   return (
-    <div className="flex h-full min-h-0 flex-1">
-      <div className="min-w-0 flex-1 overflow-y-auto p-4">
-        <div className="mx-auto max-w-xl space-y-3">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+    <div className="flex h-full min-h-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-2xl space-y-5 px-4 py-6 lg:max-w-4xl">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="truncate text-sm font-semibold text-[var(--color-text-primary)]">
               {task ? `Edit ${task.id}` : 'New question'}
             </h3>
-            <button
-              type="button"
-              onClick={() => setShowPreview((s) => !s)}
-              className="rounded-lg border border-[var(--color-border-default)] px-2 py-1 text-[11px] text-[var(--color-text-muted)] lg:hidden"
-            >
-              {showPreview ? 'Hide preview' : 'Preview'}
-            </button>
+            {task && (
+              <span className="text-[11px] text-[var(--color-text-muted)]">
+                {task.attempt_count ?? 0} attempts
+              </span>
+            )}
           </div>
 
-          {adminMode && task && (
-            <label className="block">
-              <span className={labelCls}>owner (admin only)</span>
+          {/* Curator-only settings. */}
+          <section className="space-y-3 rounded-xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+              Question settings — hidden from learners
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {adminMode && task && (
+                <label className="block">
+                  <span className={labelCls}>owner (admin only)</span>
+                  <input
+                    value={owner}
+                    onChange={(e) => setOwner(e.target.value)}
+                    placeholder="owner email"
+                    className={fieldCls}
+                  />
+                </label>
+              )}
+              <label className="block">
+                <span className={labelCls}>language</span>
+                <select
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value)}
+                  className={fieldCls}
+                >
+                  {LANGUAGES.map((l) => (
+                    <option key={l} value={l}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className={labelCls}>task type</span>
+                <select
+                  value={taskType}
+                  onChange={(e) => setTaskType(e.target.value)}
+                  className={fieldCls}
+                >
+                  {taxonomy.task_types.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <TagEditor
+              taxonomy={taxonomy}
+              primary={primary}
+              secondary={secondary}
+              onPrimary={setPrimary}
+              onSecondary={setSecondary}
+            />
+            <label className="flex items-center gap-2">
               <input
-                value={owner}
-                onChange={(e) => setOwner(e.target.value)}
-                placeholder="owner email"
-                className={inputCls}
+                type="checkbox"
+                checked={isPublic}
+                onChange={(e) => setIsPublic(e.target.checked)}
+                className="h-3.5 w-3.5"
               />
-              <span className="mt-1 block text-[10px] text-[var(--color-text-muted)]">
-                Reassign this question to another user. Only admins can change ownership.
+              <span className="text-xs text-[var(--color-text-secondary)]">
+                Public in the question bank (visible to all learners)
               </span>
             </label>
-          )}
+            <p className="text-[10px] text-[var(--color-text-muted)]">
+              Derived from steps: difficulty {derivedDifficulty} · max_score {derivedMaxScore}
+            </p>
+          </section>
 
-          <label className="block">
-            <span className={labelCls}>prompt *</span>
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              rows={4}
-              placeholder="Describe the task in plain English…"
-              className={inputCls}
-            />
-          </label>
-
-          <div className="grid grid-cols-1 gap-2">
-            <label className="block">
-              <span className={labelCls}>language</span>
-              <select value={language} onChange={(e) => setLanguage(e.target.value)} className={inputCls}>
-                {LANGUAGES.map((l) => (
-                  <option key={l} value={l}>
-                    {l}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <label className="block">
-            <span className={labelCls}>primary tag *</span>
-            {renderTagPicker(primary, setPrimary)}
-          </label>
-
-          <div>
-            <span className={labelCls}>steps (delivered in order)</span>
+          {/* Step tabs mirror the learner advancing one step at a time. */}
+          <div className="flex flex-wrap items-center gap-1.5">
             {parts.map((p, i) => (
-              <div key={i} className="mb-2 rounded-lg border border-[var(--color-border-default)] p-2">
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-                  Step {i + 1}
-                </div>
-                <div className="grid grid-cols-3 gap-1.5">
-                  <input
-                    value={p.key}
-                    onChange={(e) => updatePart(i, { key: e.target.value })}
-                    placeholder="key, e.g. softmax"
-                    className={inputCls}
-                  />
-                  <input
-                    value={p.max_score}
-                    onChange={(e) => updatePart(i, { max_score: e.target.value })}
-                    placeholder="max_score"
-                    className={inputCls}
-                  />
-                  <input
-                    value={p.difficulty}
-                    onChange={(e) => updatePart(i, { difficulty: e.target.value })}
-                    placeholder="difficulty 1..5"
-                    className={inputCls}
-                  />
-                </div>
-                <textarea
-                  value={p.prompt}
-                  onChange={(e) => updatePart(i, { prompt: e.target.value })}
-                  rows={2}
-                  placeholder="Step prompt (self-contained)"
-                  className={`${inputCls} mt-1.5`}
-                />
-                <div className="mt-1.5">
-                  <span className={labelCls}>step starter code (optional)</span>
-                  <CodeEditor
-                    code={p.scaffold}
-                    language={language}
-                    onChange={(v) => updatePart(i, { scaffold: v })}
-                    height="h-28"
-                  />
-                </div>
-                <div className="mt-1.5">
-                  {renderTagPicker(p.primary, (t) => updatePart(i, { primary: t }))}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setParts((prev) => prev.filter((_, j) => j !== i))}
-                  className="mt-1.5 rounded-lg border border-[var(--color-error)]/40 px-2 py-1 text-xs text-[var(--color-error)]"
-                >
-                  Remove step
-                </button>
-              </div>
+              <button
+                key={i}
+                type="button"
+                onClick={() => setActiveStep(i)}
+                className={`rounded-lg border px-2.5 py-1 text-[11px] transition-colors ${
+                  i === activeStep
+                    ? 'border-[var(--color-accent)]/50 bg-[var(--color-accent)]/10 text-[var(--color-accent)]'
+                    : 'border-[var(--color-border-default)] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
+                }`}
+              >
+                {p.key.trim() || `Step ${i + 1}`}
+              </button>
             ))}
             <button
               type="button"
-              onClick={() => setParts((prev) => [...prev, { ...blankPart(), primary }])}
-              className="rounded-lg border border-[var(--color-border-default)] px-2 py-1.5 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+              onClick={addStep}
+              className="rounded-lg border border-[var(--color-border-default)] px-2.5 py-1 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
             >
               + Add step
             </button>
           </div>
 
-          <label className="flex items-center gap-2 rounded-lg border border-[var(--color-border-default)] px-3 py-2">
-            <input
-              type="checkbox"
-              checked={isPublic}
-              onChange={(e) => setIsPublic(e.target.checked)}
-              className="h-3.5 w-3.5"
+          {/* Learner-style question bubble, editable in place. */}
+          <QuestionBubble
+            prompt={prompt}
+            parts={[activeTaskPart]}
+            tags={primary ? { primary, secondary } : undefined}
+            phaseIndex={activeStep + 1}
+            phaseTotal={parts.length}
+            renderPrompt={(p) => (
+              <EditableMarkdown
+                value={p}
+                onCommit={setPrompt}
+                placeholder="Describe the task in plain English…"
+              />
+            )}
+            renderPart={() => (
+              <li className="flex flex-wrap items-baseline gap-1">
+                <span className="font-semibold text-[var(--color-text-primary)]">1.</span>
+                <EditableText
+                  value={active.key}
+                  onCommit={(v) => updatePart(activeStep, { key: v })}
+                  placeholder="step_key"
+                  ariaLabel="Step key"
+                  mono
+                  className="w-32 rounded border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-1.5 py-0.5 text-xs text-[var(--color-text-primary)]"
+                />
+                <span className="text-[var(--color-text-muted)]">—</span>
+                <div className="min-w-[12rem] flex-1">
+                  <EditableTextarea
+                    value={active.prompt}
+                    onCommit={(v) => updatePart(activeStep, { prompt: v })}
+                    placeholder="What should the learner do in this step?"
+                  />
+                </div>
+              </li>
+            )}
+          />
+
+          {/* Curator-only step details. */}
+          <section className="space-y-3 rounded-xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+              Step {activeStep + 1} details — hidden from learners
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              <label className="block">
+                <span className={labelCls}>max_score</span>
+                <EditableNumber
+                  value={activeMax}
+                  min={1}
+                  max={100}
+                  onCommit={(v) => updatePart(activeStep, { max_score: String(v) })}
+                  ariaLabel="Max score"
+                />
+              </label>
+              <label className="block">
+                <span className={labelCls}>difficulty (1–5)</span>
+                <EditableNumber
+                  value={clamp1to5(Number(active.difficulty)) || 2}
+                  min={1}
+                  max={5}
+                  onCommit={(v) => updatePart(activeStep, { difficulty: String(v) })}
+                  ariaLabel="Difficulty"
+                />
+              </label>
+              <label className="block">
+                <span className={labelCls}>pass_score</span>
+                <EditableNumber
+                  value={passScoreValue}
+                  min={0}
+                  max={activeMax}
+                  onCommit={(v) => updatePart(activeStep, { pass_score: String(v) })}
+                  ariaLabel="Pass score"
+                />
+              </label>
+            </div>
+            <TagEditor
+              taxonomy={taxonomy}
+              primary={active.primary}
+              secondary={active.secondary}
+              onPrimary={(t) => updatePart(activeStep, { primary: t })}
+              onSecondary={(tags) => updatePart(activeStep, { secondary: tags })}
+              primaryLabel="step primary tag *"
             />
-            <span className="text-xs text-[var(--color-text-secondary)]">
-              Public in the question bank (visible to all learners)
-            </span>
-          </label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => moveStep(activeStep, -1)}
+                disabled={activeStep === 0}
+                className="rounded-lg border border-[var(--color-border-default)] px-2 py-1 text-xs disabled:opacity-30"
+              >
+                ↑ Move up
+              </button>
+              <button
+                type="button"
+                onClick={() => moveStep(activeStep, 1)}
+                disabled={activeStep === parts.length - 1}
+                className="rounded-lg border border-[var(--color-border-default)] px-2 py-1 text-xs disabled:opacity-30"
+              >
+                ↓ Move down
+              </button>
+              <button
+                type="button"
+                onClick={() => removeStep(activeStep)}
+                disabled={parts.length <= 1}
+                className="rounded-lg border border-[var(--color-error)]/40 px-2 py-1 text-xs text-[var(--color-error)] disabled:opacity-30"
+              >
+                Remove step
+              </button>
+            </div>
+          </section>
+
+          {/* Starter code for the active step. */}
+          <div>
+            <p className={labelCls}>Starter code for this step (optional)</p>
+            <CodeEditor
+              key={`${task?.id ?? 'new'}:${activeStep}`}
+              code={active.scaffold}
+              language={language}
+              onChange={(v) => updatePart(activeStep, { scaffold: v })}
+              height="h-56"
+            />
+          </div>
 
           {formError && (
             <p className="rounded-lg border border-[var(--color-error)]/30 bg-[var(--color-bg-secondary)] px-3 py-1.5 text-xs text-[var(--color-error)]">
@@ -388,7 +524,7 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
             </p>
           )}
 
-          <div className="flex flex-wrap gap-2 pt-1">
+          <div className="sticky bottom-0 -mx-4 flex flex-wrap gap-2 border-t border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-4 py-3">
             <button
               onClick={() => void submit()}
               disabled={saving}
@@ -422,39 +558,6 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
             )}
           </div>
         </div>
-      </div>
-
-      <div
-        className={`${showPreview ? 'block' : 'hidden'} w-96 shrink-0 overflow-y-auto border-l border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4 lg:block`}
-      >
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-          Learner preview
-        </h3>
-        <div className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] p-3">
-          <TaskPreview
-            prompt={prompt || '…'}
-            parts={previewParts}
-            tags={primary ? { primary, secondary: [] } : undefined}
-            scaffold={previewParts[0]?.scaffold}
-            language={language}
-            phaseIndex={1}
-            phaseTotal={Math.max(1, previewParts.length)}
-          />
-        </div>
-        <p className="mt-3 text-[11px] leading-5 text-[var(--color-text-muted)]">
-          Step-by-step: the learner sees step 1, then passes each step to advance. Their code
-          carries forward between steps.
-        </p>
-        {isPublic ? (
-          <p className="mt-3 text-[11px] leading-5 text-[var(--color-text-muted)]">
-            This question is <span className="text-[var(--color-success)]">public</span> and appears in
-            learners' sessions.
-          </p>
-        ) : (
-          <p className="mt-3 text-[11px] leading-5 text-[var(--color-text-muted)]">
-            This question is <span className="text-[var(--color-error)]">private</span> — only you see it.
-          </p>
-        )}
       </div>
     </div>
   );
