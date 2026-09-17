@@ -45,11 +45,6 @@ def _add_app_data():
             "VALUES (?, ?, ?, 'active', ?)",
             ("s_1", "guest-abc", "{}", now),
         )
-        conn.execute(
-            "INSERT INTO trajectory_shares (id, source_session_id, step_index, snapshot_json, "
-            "created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            ("share_1", "s_1", 0, "{}", "guest-abc", now),
-        )
         conn.commit()
     session = db.learner_session()
     try:
@@ -81,7 +76,6 @@ def test_reset_preview_reports_counts(tmp_path, monkeypatch):
     assert result["wiped"]["active_sessions"] == 1
     assert result["wiped"]["session_steps"] == 1
     assert result["wiped"]["user_skill_beliefs"] == 1
-    assert result["wiped"]["trajectory_shares"] == 1
     assert "tasks" not in result["wiped"]  # the task bank is preserved
     assert "users" in result["preserved"] and "auth_tokens" in result["preserved"]
     assert "tasks" in result["preserved"]
@@ -106,7 +100,6 @@ def test_reset_wipes_activity_keeps_auth_and_tasks(tmp_path, monkeypatch):
         assert conn.execute("SELECT COUNT(*) FROM oauth_states").fetchone()[0] == 1
         # Activity data is gone.
         assert conn.execute("SELECT COUNT(*) FROM active_sessions").fetchone()[0] == 0
-        assert conn.execute("SELECT COUNT(*) FROM trajectory_shares").fetchone()[0] == 0
         # The task bank survives the reset (DB is the source of truth).
         assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 1
 

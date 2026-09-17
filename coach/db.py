@@ -1,14 +1,14 @@
 """Single database module for the whole app.
 
 One SQLite file (``data/coach.db``) holds the raw-sqlite tables (``users``,
-``auth_tokens``, ``active_sessions``, ``oauth_states``, ``trajectory_shares``)
-and the SQLAlchemy tables (``tasks``, ``session_steps``,
-``user_skill_beliefs``). ``sqlite_conn()`` owns the raw-sqlite DDL and is used
-by ``backend/auth.py`` and ``backend/dependencies.py``; ``Base`` /
-``create_session_factory()`` own the SQLAlchemy side. ``create_schema()`` drops
-removed columns/tables (knowledge-graph / learner tables, retired task
-columns) and turns legacy per-skill beliefs into one row per
-``(candidate, level, key)`` so old databases converge.
+``auth_tokens``, ``active_sessions``, ``oauth_states``) and the SQLAlchemy
+tables (``tasks``, ``session_steps``, ``user_skill_beliefs``). ``sqlite_conn()``
+owns the raw-sqlite DDL and is used by ``backend/auth.py`` and
+``backend/dependencies.py``; ``Base`` / ``create_session_factory()`` own the
+SQLAlchemy side. ``create_schema()`` drops removed columns/tables
+(knowledge-graph / learner tables, retired task columns) and turns legacy
+per-skill beliefs into one row per ``(candidate, level, key)`` so old
+databases converge.
 """
 
 from __future__ import annotations
@@ -47,22 +47,10 @@ CREATE TABLE IF NOT EXISTS active_sessions (
     candidate TEXT NOT NULL,
     session_json TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',
-    resumed_from_share TEXT,
-    fork_of TEXT,
     meta_json TEXT DEFAULT '{}',
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_active_sessions_candidate ON active_sessions (candidate);
-CREATE TABLE IF NOT EXISTS trajectory_shares (
-    id TEXT PRIMARY KEY,
-    source_session_id TEXT NOT NULL,
-    step_index INTEGER NOT NULL,
-    snapshot_json TEXT NOT NULL,
-    created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    expires_at TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_trajectory_shares_source ON trajectory_shares (source_session_id);
 CREATE TABLE IF NOT EXISTS oauth_states (
     state TEXT PRIMARY KEY,
     expires_at TEXT NOT NULL
@@ -85,6 +73,7 @@ _DROPPED_TABLES = (
     "assessment_targets",
     "assessment_tasks",
     "task_attempts",
+    "trajectory_shares",
 )
 
 # Columns from the removed per-task frozen graph, skill tags, hints, curated
@@ -99,7 +88,7 @@ _DROPPED_TASK_COLUMNS = (
 
 # Tables reset_database() wipes (activity/progress) vs. preserves (identity/auth
 # and the task bank — the DB is the source of truth for tasks).
-_WIPED_TABLES = ("session_steps", "user_skill_beliefs", "active_sessions", "trajectory_shares")
+_WIPED_TABLES = ("session_steps", "user_skill_beliefs", "active_sessions")
 _PRESERVED_TABLES = ("users", "auth_tokens", "oauth_states", "tasks")
 
 
@@ -319,6 +308,14 @@ def create_schema():
             conn.exec_driver_sql("DROP INDEX IF EXISTS ix_tasks_skill")
         except Exception:
             pass
+        # ``session_steps.inherited`` belonged to the removed trajectory-sharing
+        # feature; drop it from legacy databases.
+        try:
+            step_cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(session_steps)").fetchall()]
+            if "inherited" in step_cols:
+                conn.exec_driver_sql("ALTER TABLE session_steps DROP COLUMN inherited")
+        except Exception:
+            pass
         _migrate_skill_beliefs_to_ability(conn)
         _migrate_active_sessions(conn)
         try:
@@ -356,11 +353,12 @@ def create_schema():
 
 
 def _migrate_active_sessions(conn) -> None:
-    """Add episode-header columns to ``active_sessions`` and drop ``feedback_json``.
+    """Add episode-header columns to ``active_sessions`` and drop retired ones.
 
     ``session_json`` keeps its name but its content becomes a compact live
-    state; per-step data moves to ``session_steps``. Best-effort so startup
-    never breaks.
+    state; per-step data moves to ``session_steps``. Retired columns
+    (``resumed_from_share``/``fork_of`` from trajectory sharing) are dropped.
+    Best-effort so startup never breaks.
     """
     try:
         cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(active_sessions)").fetchall()]
@@ -368,13 +366,17 @@ def _migrate_active_sessions(conn) -> None:
         return
     for col, ddl in (
         ("status", "ALTER TABLE active_sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"),
-        ("resumed_from_share", "ALTER TABLE active_sessions ADD COLUMN resumed_from_share TEXT"),
-        ("fork_of", "ALTER TABLE active_sessions ADD COLUMN fork_of TEXT"),
         ("meta_json", "ALTER TABLE active_sessions ADD COLUMN meta_json TEXT DEFAULT '{}'"),
     ):
         if col not in cols:
             try:
                 conn.exec_driver_sql(ddl)
+            except Exception:
+                pass
+    for col in ("resumed_from_share", "fork_of"):
+        if col in cols:
+            try:
+                conn.exec_driver_sql(f"ALTER TABLE active_sessions DROP COLUMN {col}")
             except Exception:
                 pass
     if "feedback_json" in cols:
@@ -405,7 +407,7 @@ def reset_database(preview: bool = False, wipe_tasks: bool = False) -> dict:
     """Wipe activity/progress data; optionally wipe the task bank too.
 
     Deletes every row from the activity tables (``session_steps``,
-    ``user_skill_beliefs``, ``active_sessions``, ``trajectory_shares``).
+    ``user_skill_beliefs``, ``active_sessions``).
     Identity/auth tables (``users``, ``auth_tokens``, ``oauth_states``) are
     always preserved. ``tasks`` is preserved by default (the DB is the source
     of truth for questions); pass ``wipe_tasks=True`` to also delete the entire

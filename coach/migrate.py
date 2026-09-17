@@ -10,8 +10,8 @@ taken first unless ``--no-backup``).
     python -m coach.migrate delivery [--apply]   # normalize to step-by-step
 
 In-place migration rewrites, in order: task tags (block + parts), per-node
-belief rows, active-session snapshots, session-step snapshots/states, and
-trajectory-share snapshots. Task ids, owners, and attempt links are preserved.
+belief rows, active-session snapshots, and session-step snapshots/states.
+Task ids, owners, and attempt links are preserved.
 
 The separate ``delivery`` command normalizes every task (and stored snapshot)
 to step-by-step delivery: block tasks become phased and partless tasks are
@@ -451,51 +451,6 @@ def _remap_json_state(raw: Optional[str]) -> Optional[str]:
     return json.dumps(new)
 
 
-def migrate_shares(apply: bool, mode: str, fallback: Optional[str]) -> dict:
-    from coach.db import create_schema, sqlite_conn
-
-    create_schema()
-    counts = {"seen": 0, "updated": 0}
-    with sqlite_conn() as conn:
-        rows = conn.execute("SELECT id, snapshot_json FROM trajectory_shares").fetchall()
-        for rid, raw in rows:
-            counts["seen"] += 1
-            try:
-                snap = json.loads(raw or "{}")
-            except Exception:
-                continue
-            if not isinstance(snap, dict):
-                continue
-            changed = False
-            container = snap.get("session")
-            if isinstance(container, dict) and isinstance(container.get("tasks"), list):
-                for t in container["tasks"]:
-                    if isinstance(t, dict):
-                        _remap_task(t, "keep", fallback)
-                changed = True
-            steps = snap.get("steps")
-            if isinstance(steps, list):
-                for st in steps:
-                    if isinstance(st, dict):
-                        t = st.get("task_snapshot")
-                        if isinstance(t, dict):
-                            _remap_task(t, "keep", fallback)
-                        for key in ("state_before", "state_after"):
-                            if isinstance(st.get(key), dict):
-                                st[key] = map_state(st[key])
-                changed = True
-            if changed:
-                counts["updated"] += 1
-                if apply:
-                    conn.execute(
-                        "UPDATE trajectory_shares SET snapshot_json = ? WHERE id = ?",
-                        (json.dumps(snap), rid),
-                    )
-        if apply:
-            conn.commit()
-    return counts
-
-
 def run_migration(
     apply: bool, mode: str, fallback: Optional[str], drop_empty: bool, backup: bool = True
 ) -> dict:
@@ -506,7 +461,6 @@ def run_migration(
     report["beliefs"] = migrate_beliefs(apply)
     report["sessions"] = migrate_sessions(apply, mode, fallback, drop_empty)
     report["steps"] = migrate_steps(apply, mode, fallback)
-    report["shares"] = migrate_shares(apply, mode, fallback)
     return report
 
 
@@ -549,9 +503,8 @@ def migrate_delivery(apply: bool) -> dict:
     """Normalize the bank and stored snapshots to step-by-step delivery.
 
     Rewrites, in order: the ``tasks`` rows (block → phased; partless → one
-    implicit step), ``active_sessions`` task snapshots, ``session_steps`` task
-    snapshots, and ``trajectory_shares`` snapshots. Task ids, owners, and
-    attempt links are preserved.
+    implicit step), ``active_sessions`` task snapshots, and ``session_steps``
+    task snapshots. Task ids, owners, and attempt links are preserved.
     """
     from coach.db import create_schema, learner_session, sqlite_conn
     from coach.tasks import TaskModel, parse_parts, parse_tags, serialize_parts
@@ -565,8 +518,6 @@ def migrate_delivery(apply: bool) -> dict:
         "sessions_updated": 0,
         "steps_seen": 0,
         "steps_updated": 0,
-        "shares_seen": 0,
-        "shares_updated": 0,
     }
 
     # 1. The task bank.
@@ -649,36 +600,6 @@ def migrate_delivery(apply: bool) -> dict:
                     conn.execute(
                         "UPDATE session_steps SET task_snapshot_json = ? WHERE id = ?",
                         (json.dumps(task), rid),
-                    )
-
-        # 4. Share snapshots (session tasks + prefix step snapshots).
-        for rid, raw in conn.execute(
-            "SELECT id, snapshot_json FROM trajectory_shares"
-        ).fetchall():
-            counts["shares_seen"] += 1
-            try:
-                snap = json.loads(raw or "{}")
-            except Exception:
-                continue
-            if not isinstance(snap, dict):
-                continue
-            changed = False
-            container = snap.get("session")
-            if isinstance(container, dict):
-                for t in container.get("tasks") or []:
-                    if isinstance(t, dict) and _normalize_task_delivery(t):
-                        changed = True
-            for st in snap.get("steps") or []:
-                if isinstance(st, dict):
-                    t = st.get("task_snapshot")
-                    if isinstance(t, dict) and _normalize_task_delivery(t):
-                        changed = True
-            if changed:
-                counts["shares_updated"] += 1
-                if apply:
-                    conn.execute(
-                        "UPDATE trajectory_shares SET snapshot_json = ? WHERE id = ?",
-                        (json.dumps(snap), rid),
                     )
         if apply:
             conn.commit()

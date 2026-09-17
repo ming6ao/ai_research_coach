@@ -1,6 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useAssessmentStore, type ResultWithFeedback } from '../../stores/assessmentStore';
-import { apiClient } from '../../api/client';
 import { CodeEditor } from '../TaskPanel/CodeEditor';
 import { Markdown } from '../Markdown/Markdown';
 import { Composer } from '../Composer/Composer';
@@ -149,7 +148,6 @@ function DoneBubble() {
 
 export function ChatView() {
   const {
-    sessionId,
     results,
     currentTask,
     pendingTask,
@@ -161,19 +159,6 @@ export function ChatView() {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const [code, setCode] = useState('');
-  const [shareState, setShareState] = useState<'idle' | 'copying' | 'copied' | 'error'>('idle');
-
-  const handleShare = async () => {
-    if (!sessionId) return;
-    setShareState('copying');
-    try {
-      const share = await apiClient.shareSession(sessionId);
-      await navigator.clipboard.writeText(new URL(share.url, window.location.origin).toString());
-      setShareState('copied');
-    } catch {
-      setShareState('error');
-    }
-  };
 
   const taskId = currentTask?.id ?? null;
   const phaseIndex = currentTask?.phase_index ?? null;
@@ -210,25 +195,6 @@ export function ChatView() {
       {/* Single scrollable page: question → parts → editor → composer in one flow */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-2xl space-y-5 px-4 py-6 lg:max-w-4xl xl:max-w-6xl">
-          {results.length > 0 && (
-            <div className="flex justify-end">
-              <button
-                onClick={handleShare}
-                disabled={loading || shareState === 'copying'}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-accent)]/40 hover:text-[var(--color-accent)] disabled:opacity-40"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
-                  <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8M16 6l-4-4-4 4M12 2v13" />
-                </svg>
-                {shareState === 'copied'
-                  ? 'Share link copied'
-                  : shareState === 'error'
-                    ? 'Share failed'
-                    : 'Share trajectory'}
-              </button>
-            </div>
-          )}
-
           {initialQuestion && !hasHistory && <UserTextBubble text={initialQuestion} />}
 
           {results.map((r, i) => (

@@ -59,8 +59,6 @@ class SessionState:
         self,
         candidate: str,
         *,
-        resumed_from_share: str | None = None,
-        fork_of: str | None = None,
         meta_json: dict | None = None,
     ) -> str:
         sid = uuid.uuid4().hex[:12]
@@ -68,15 +66,13 @@ class SessionState:
         with _connect() as conn:
             conn.execute(
                 "INSERT INTO active_sessions "
-                "(session_id, candidate, session_json, status, resumed_from_share, fork_of, meta_json, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "(session_id, candidate, session_json, status, meta_json, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     sid,
                     candidate,
                     "{}",
                     "active",
-                    resumed_from_share,
-                    fork_of,
                     json.dumps(meta_json or {}),
                     now,
                 ),
@@ -86,13 +82,12 @@ class SessionState:
     def get(self, session_id: str) -> Optional[Dict[str, Any]]:
         with _connect() as conn:
             row = conn.execute(
-                "SELECT session_json, status, resumed_from_share, fork_of "
-                "FROM active_sessions WHERE session_id = ?",
+                "SELECT session_json, status FROM active_sessions WHERE session_id = ?",
                 (session_id,),
             ).fetchone()
         if row is None:
             return None
-        session_json, status, resumed_from_share, fork_of = row
+        session_json, status = row
         try:
             state = json.loads(session_json or "{}")
         except Exception:
@@ -100,8 +95,6 @@ class SessionState:
         if not isinstance(state, dict):
             state = {}
         state["_status"] = status
-        state["_resumed_from_share"] = resumed_from_share
-        state["_fork_of"] = fork_of
         return state
 
     def save(self, session_id: str, state: Dict[str, Any], feedback_list: List[Dict] = None):
@@ -115,13 +108,6 @@ class SessionState:
             conn.execute(
                 "UPDATE active_sessions SET session_json = ?, updated_at = ? WHERE session_id = ?",
                 (json.dumps(state), now, session_id),
-            )
-
-    def set_resumed_from_share(self, session_id: str, token: str | None) -> None:
-        with _connect() as conn:
-            conn.execute(
-                "UPDATE active_sessions SET resumed_from_share = ?, updated_at = ? WHERE session_id = ?",
-                (token, _utcnow(), session_id),
             )
 
     def set_status(self, session_id: str, status: str) -> None:

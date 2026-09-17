@@ -4,16 +4,13 @@ Status: **Current** (matches `coach/db.py`, `coach/steps.py`, `coach/tasks.py`,
 `backend/dependencies.py`)
 Persistence: single SQLite file `data/coach.db` (gitignored, created on first run, WAL mode)
 
-> The anonymous Copy-on-Write trajectory sharing/resume design and RL-shaped
-> episode storage live in [`docs/collaboration-design.md`](./collaboration-design.md).
-
 ## Overview
 
-Eight tables split between two access layers that share one file:
+Seven tables split between two access layers that share one file:
 
 | Layer | Module | Tables |
 |-------|--------|--------|
-| Raw `sqlite3` (hand-written SQL) | `coach/db.py` (`sqlite_conn`), `coach/shares.py`, `backend/auth.py`, `backend/dependencies.py`, `backend/google_auth.py` | `users`, `auth_tokens`, `active_sessions`, `oauth_states`, `trajectory_shares` |
+| Raw `sqlite3` (hand-written SQL) | `coach/db.py` (`sqlite_conn`), `backend/auth.py`, `backend/dependencies.py`, `backend/google_auth.py` | `users`, `auth_tokens`, `active_sessions`, `oauth_states` |
 | SQLAlchemy ORM (`coach.db.Base`) | `coach/tasks.py`, `coach/steps.py` | `tasks`, `session_steps`, `user_skill_beliefs` |
 
 `create_schema()` (called at startup and lazily from the task/step CRUD paths) is
@@ -69,11 +66,9 @@ deleted on finish, so past sessions are just `active_sessions` rows for the same
 |--------|------|-------|
 | `session_id` | TEXT | PK (12 hex chars) |
 | `candidate` | TEXT | NOT NULL — learner identity (see Candidate identity) |
-| `status` | TEXT | NOT NULL — `active \| done` |
+| `status` | TEXT | NOT NULL — always `active` in practice; "done" is derived at read time (`pick_next_task` returns `None`) |
 | `session_json` | TEXT | NOT NULL — compact live state (schema below), `{}` on create |
-| `resumed_from_share` | TEXT | nullable — share token while the prefix is still a CoW reference (cleared on first write) |
-| `fork_of` | TEXT | nullable — internal trajectory lineage (source session id, never surfaced) |
-| `meta_json` | TEXT | NOT NULL default `{}` — `{node, initial_question, eval_model}` |
+| `meta_json` | TEXT | NOT NULL default `{}` — reserved; currently always empty |
 | `updated_at` | TEXT | NOT NULL (ISO timestamp, bumped on every submit) |
 
 Index: `idx_active_sessions_candidate (candidate)`.
@@ -159,7 +154,7 @@ Visibility (`list_visible_tasks`): a candidate sees their own rows and every
 ### `session_steps`
 RL-shaped per-step log — one row per scored answer (an episode transition
 `s_t → a_t → r_t → s_{t+1}`). Supersedes the legacy `task_attempts` table and
-the `feedback_json` blob; resume/review reads from here and a future episode
+the `feedback_json` blob; review reads from here and a future episode
 export is a plain `SELECT ... ORDER BY session_id, step_index`.
 
 | Column | Type | Notes |
@@ -170,7 +165,7 @@ export is a plain `SELECT ... ORDER BY session_id, step_index`.
 | `step_index` | INTEGER | NOT NULL — 0-based position in the episode |
 | `task_id` | VARCHAR(64) | nullable → `tasks.id` (deleted on task delete) |
 | `task_snapshot_json` | TEXT | NOT NULL — immutable observation (task as-asked) |
-| `role` | VARCHAR(32) | NOT NULL — `bank \| remediate \| escalate \| pivot \| challenge \| redo` |
+| `role` | VARCHAR(32) | NOT NULL — `bank \| remediate \| escalate \| pivot \| challenge` (legacy rows may carry `redo`) |
 | `user_answer` | TEXT | NOT NULL — the action |
 | `score` / `max_score` / `fraction` | FLOAT | judge output |
 | `reward` | FLOAT | NOT NULL — effective fraction ∈ [0, 1] |
@@ -178,28 +173,16 @@ export is a plain `SELECT ... ORDER BY session_id, step_index`.
 | `state_after_json` | TEXT | NOT NULL — `s_{t+1}` |
 | `result_json` | TEXT | NOT NULL — judge result (rationale) |
 | `coaching_json` | TEXT | NOT NULL — coach content (misconception, steps) |
-| `inherited` | INTEGER | NOT NULL default 0 — 1 = copied from a shared prefix on CoW fork |
 | `created_at` | DATETIME | NOT NULL |
 
 Indexes: `uq_session_steps (session_id, step_index)` UNIQUE,
 `ix_session_steps_task (task_id)`, `ix_session_steps_candidate (candidate)`.
 
-### `trajectory_shares`
-Frozen, identity-stripped episode prefixes (see `docs/collaboration-design.md`).
-One row per share; resumes reference the snapshot and only materialize it into
-the resumer's `session_steps` on the first write (Copy-on-Write).
-
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | TEXT | PK (opaque share token, 32 hex chars) |
-| `source_session_id` | TEXT | NOT NULL — internal only, never exposed |
-| `step_index` | INTEGER | NOT NULL — resume boundary (N steps already done) |
-| `snapshot_json` | TEXT | NOT NULL — frozen compact session state + prefix step rows (answers stripped) |
-| `created_by` | TEXT | NOT NULL — internal only (candidate of the sharer) |
-| `created_at` | TEXT | NOT NULL |
-| `expires_at` | TEXT | nullable |
-
-Index: `idx_trajectory_shares_source (source_session_id)`.
+RL mapping: episode = the `active_sessions` row + its steps; timestep =
+`step_index` (0-based); observation = `task_snapshot_json`; state `s_t` =
+`state_before_json` / `s_{t+1}` = `state_after_json` (global + per-node Gaussian
+beliefs); action = `user_answer`; reward = `reward` (effective fraction ∈ [0,1]);
+done = derived at read time (`pick_next_task` returns `None`).
 
 ### `user_skill_beliefs`
 Persistent Gaussian beliefs — the mastery model. One row per
@@ -242,14 +225,15 @@ The learner key used by `candidate` columns is resolved by
 2. Drops removed knowledge-graph/learner tables (`knowledge_nodes`,
    `knowledge_edges`, `learners`, `learner_knowledge_states`, `evidence`,
    `learner_misconceptions`, `learner_frontier`, `assessment_targets`,
-   `assessment_tasks`), the superseded `task_attempts` table, and dropped task
+   `assessment_tasks`), the superseded `task_attempts` table, the removed
+   `trajectory_shares` table, and dropped task
    columns (`graph_json`, `target_node_id`, `target_node_slug`,
    `expected_time_min`, `skill`, `hints_json`, `cluster_id`, `followups_json`,
    `version_index`, `depends_on_task_id`, `version_root_id`).
 3. Adds `context_notes`, `target_text`, `tags_json`, `task_type`, `language`,
-   `parts_json`, `delivery` to `tasks` if absent, and `status` /
-   `resumed_from_share` / `fork_of` / `meta_json` to `active_sessions` if
-   absent.
+   `parts_json`, `delivery` to `tasks` if absent, and `status` / `meta_json` to
+   `active_sessions` if absent; drops retired `active_sessions` columns
+   (`resumed_from_share`, `fork_of`) and `session_steps.inherited`.
 4. `_migrate_skill_beliefs_to_ability` — adds `level`/`key` to
    `user_skill_beliefs`, collapses legacy per-skill rows to
    `('global', 'overall')` (most answered wins; per-node rows are rebuilt under

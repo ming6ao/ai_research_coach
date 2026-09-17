@@ -5,7 +5,6 @@ import { setAuthToken } from './api/client';
 import { Header } from './components/Header/Header';
 import { ChatView } from './components/Chat/ChatView';
 import { HomeView } from './components/Home/HomeView';
-import { SharedView } from './components/Shared/SharedView';
 import { AuthModal } from './components/Auth/AuthModal';
 import { CuratorView } from './components/Curator/CuratorView';
 
@@ -48,10 +47,6 @@ export default function App() {
   const [authModal, setAuthModal] = useState<null | 'login' | 'signup'>(null);
   const [restored, setRestored] = useState(false);
   const [curatorOpen, setCuratorOpen] = useState(false);
-  const [sharedToken, setSharedToken] = useState<string | null>(() => {
-    const m = window.location.pathname.match(/^\/shared\/([A-Za-z0-9]+)\/?$/);
-    return m ? m[1] : null;
-  });
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -83,8 +78,6 @@ export default function App() {
 
       {curatorOpen ? (
         <CuratorView onClose={() => setCuratorOpen(false)} />
-      ) : sharedToken ? (
-        <SharedView token={sharedToken} onResumed={() => setSharedToken(null)} />
       ) : sessionId ? (
         <ChatView />
       ) : (

@@ -145,9 +145,9 @@ All v1 resources return a `{data}` envelope; list endpoints add
 
 ## Persistence
 
-Single SQLite file `data/coach.db` (gitignored, created on first run) with 8
+Single SQLite file `data/coach.db` (gitignored, created on first run) with 7
 tables: `users`, `auth_tokens`, `active_sessions`, `oauth_states`, `tasks`,
-`session_steps`, `user_skill_beliefs`, `trajectory_shares`. `coach/db.py` is the
+`session_steps`, `user_skill_beliefs`. `coach/db.py` is the
 single connection module (it drops removed columns/tables and collapses legacy
 per-skill beliefs so old databases converge). Per-step data lives in
 `session_steps`; overall + per-area mastery persists across sessions in
@@ -210,7 +210,7 @@ python -m coach.migrate coverage        # per-leaf-skill bank coverage
 ```
 
 `--apply` rewrites task and step tags, per-node belief rows,
-active-session snapshots, and step/share snapshots, preserving task ids,
+active-session snapshots, and step snapshots, preserving task ids,
 owners, and attempt links. Tasks whose primary skill was retired can be
 deleted (`--on-unmapped delete`, default), retagged (`--on-unmapped fallback
 --fallback <leaf>`), or left as-is (`--on-unmapped keep`). The one-time

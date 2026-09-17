@@ -4,8 +4,7 @@ One row per scored answer in a session — the episode's transition
 ``(s_t, a_t, r_t, s_{t+1})`` plus immutable observation (task snapshot) and
 coaching. Supersedes the legacy ``task_attempts`` table and the
 ``feedback_json`` blob. This is the single source of truth for step data:
-resume/review read from here, shares snapshot from here, and a future episode
-export is a plain SELECT.
+review reads from here, and a future episode export is a plain SELECT.
 """
 
 from __future__ import annotations
@@ -49,7 +48,6 @@ class SessionStepModel(Base):
     state_after_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     result_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     coaching_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
-    inherited: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
@@ -79,7 +77,6 @@ def step_to_dict(m: SessionStepModel) -> dict:
         "state_after": _safe_json(m.state_after_json, {}),
         "result": _safe_json(m.result_json, {}),
         "coaching": _safe_json(m.coaching_json, {}),
-        "inherited": bool(m.inherited),
         "created_at": m.created_at.isoformat() if m.created_at else None,
     }
 
@@ -99,7 +96,6 @@ def insert_step(
     state_after: dict | None,
     result: dict | None,
     coaching: dict | None,
-    inherited: bool = False,
 ) -> str:
     """Append one RL-transition row to a session."""
     from coach.db import create_schema
@@ -126,7 +122,6 @@ def insert_step(
                 state_after_json=json.dumps(state_after or {}),
                 result_json=json.dumps(result or {}),
                 coaching_json=json.dumps(coaching or {}),
-                inherited=1 if inherited else 0,
                 created_at=_utcnow_naive(),
             )
         )
@@ -212,16 +207,10 @@ def delete_steps_for_task(task_id: str) -> int:
 
 
 def delete_session_data(session_id: str) -> None:
-    """Delete a session's steps and any shares pointing at it."""
-    from coach.db import create_schema, sqlite_conn
+    """Delete a session's step rows."""
+    from coach.db import create_schema
 
     create_schema()
-    try:
-        from coach.shares import delete_shares_for_source
-
-        delete_shares_for_source(session_id)
-    except Exception:
-        pass
     session = learner_session()
     try:
         session.query(SessionStepModel).filter(
@@ -237,9 +226,9 @@ def delete_session_data(session_id: str) -> None:
 def belief_state(session) -> dict:
     """Serialized belief snapshot: global + per-node sufficient stats.
 
-    This is the RL ``s_t`` — what gets stored per step and carried through
-    shares. ``session.ensure_area_beliefs()`` must be called first so the
-    per-node stats reflect the candidate's persisted beliefs.
+    This is the RL ``s_t`` stored with every step. ``session.ensure_area_beliefs()``
+    must be called first so the per-node stats reflect the candidate's
+    persisted beliefs.
     """
     ability = session.get_ability()
     return {
@@ -382,5 +371,49 @@ def _backfill_one(sid: str, candidate: str, s: dict, results: list, feedback: li
             after,
             res or {},
             (res or {}).get("coach") or fb.get("coach") or {},
-            inherited=False,
         )
+
+
+def feedback_from_steps(steps: list[dict]) -> list[dict]:
+    """Render step rows as the review ``results`` records the frontend expects.
+
+    Every task is step-by-step, so the active step's index/total are derived
+    from the scored part key; a legacy step that scored several parts shows
+    all of them with no step chip.
+    """
+    from coach.session import effective_parts
+
+    out = []
+    for st in steps:
+        task = st.get("task_snapshot") or {}
+        coaching = st.get("coaching") or {}
+        all_parts = effective_parts(task)
+        parts = all_parts
+        result_parts = (st.get("result") or {}).get("parts") or []
+        phase_index = None
+        phase_total = len(all_parts)
+        if len(result_parts) == 1:
+            key = result_parts[0].get("key")
+            keys = [p.get("key") for p in all_parts]
+            if key in keys:
+                phase_index = keys.index(key) + 1
+                parts = [all_parts[phase_index - 1]]
+        out.append(
+            {
+                "task_id": st.get("task_id") or task.get("id"),
+                "prompt": task.get("prompt", ""),
+                "type": "code",
+                "user_answer": st.get("user_answer") or "",
+                "result": st.get("result") or {},
+                "feedback": coaching.get("feedback", ""),
+                "coach": coaching,
+                "tags": task.get("tags"),
+                "parts": parts,
+                "language": task.get("language") or "python",
+                "scored": True,
+                "delivery": "phased",
+                "phase_index": phase_index,
+                "phase_total": phase_total,
+            }
+        )
+    return out

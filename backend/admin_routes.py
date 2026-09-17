@@ -66,7 +66,7 @@ def reset_preview(wipe_tasks: bool = False, user: dict = Depends(_require_admin)
 def reset_database_endpoint(wipe_tasks: bool = False, user: dict = Depends(_require_admin)):
     """Wipe activity/progress data; preserve identity/auth.
 
-    Deletes sessions, steps, beliefs, and shares. The task bank (``tasks``) is
+    Deletes sessions, steps, and beliefs. The task bank (``tasks``) is
     preserved by default — pass ``?wipe_tasks=true`` to also delete every task
     (used when re-authoring questions against a new taxonomy). Admin-only.
     """

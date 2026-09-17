@@ -7,23 +7,18 @@ Shapes (all wrapped in ``{"data": ...}``):
 - DELETE /api/v1/sessions/{id}       -> 204
 - POST   /api/v1/sessions/{id}/answers     {task_id, answer}
 - POST   /api/v1/sessions/{id}/completion  {}
-- POST   /api/v1/sessions/{id}/share       {step_index?}  -> {token, url}
-- POST   /api/v1/sessions/{id}/redo        {step_index, answer}
 
 Trajectory data lives in ``session_steps`` (RL-shaped per-step rows); the
-``active_sessions`` row holds only the compact live state. Shares / resume
-follow the Copy-on-Write design (docs/collaboration-design.md).
+``active_sessions`` row holds only the compact live state.
 """
 
-import os
-import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from backend.auth import get_current_user
 from backend.dependencies import get_store, resolve_candidate
-from backend.v1.schemas import AnswerSubmitRequest, RedoRequest, SessionCreateRequest, ShareRequest
+from backend.v1.schemas import AnswerSubmitRequest, SessionCreateRequest
 
 router = APIRouter(prefix="/sessions", tags=["v1:sessions"])
 
@@ -172,13 +167,13 @@ def _replay_response(session, session_id: str, step: dict) -> dict:
 def _load_session(store, session_id: str):
     """Load a session, hydrate its results from steps, and return (session, state)."""
     from coach.session import Session
-    from coach.shares import effective_steps
+    from coach.steps import list_steps
 
     state = store.get(session_id)
     if state is None:
         raise HTTPException(status_code=404, detail="Session not found.")
     session = Session.from_dict(state["session"])
-    for st in effective_steps(session_id, state):
+    for st in list_steps(session_id):
         try:
             from coach.judge import EvaluationResult
 
@@ -186,51 +181,6 @@ def _load_session(store, session_id: str):
         except Exception:
             pass
     return session, state
-
-
-def _materialize_prefix(session, session_id: str, state: dict) -> bool:
-    """CoW fork: materialize a resumed session's share prefix as inherited steps.
-
-    Returns True when a prefix was materialized (the session is now
-    self-contained); False when the session was not resumed / already forked.
-    """
-    from coach.judge import EvaluationResult
-    from coach.shares import get_share
-    from coach.steps import insert_step
-
-    token = state.get("_resumed_from_share")
-    if not token:
-        return False
-    share = get_share(token)
-    if share is None:
-        return False
-    steps = share["snapshot"].get("steps", [])
-    for i, st in enumerate(steps):
-        insert_step(
-            session_id,
-            session.candidate,
-            i,
-            st.get("task_snapshot") or {},
-            st.get("role") or "bank",
-            st.get("user_answer") or "",
-            st.get("score") or 0.0,
-            st.get("max_score") or 5.0,
-            st.get("fraction") or 0.0,
-            st.get("reward") or 0.0,
-            st.get("state_before") or {},
-            st.get("state_after") or {},
-            st.get("result") or {},
-            st.get("coaching") or {},
-            inherited=True,
-        )
-    for st in steps:
-        try:
-            session.results.append(EvaluationResult.from_dict(st.get("result") or {}))
-        except Exception:
-            pass
-    session.submission_index = max(session.submission_index, len(steps))
-    get_store().set_resumed_from_share(session_id, None)
-    return True
 
 
 _COMBINED_CACHE: dict[str, tuple[str, Optional[dict]]] = {}
@@ -389,10 +339,10 @@ def create_session(
 @router.get("/{session_id}", summary="Get session with current task")
 def get_session(session_id: str, user: Optional[dict] = Depends(get_current_user)):
     from coach.selection import pick_next_task
-    from coach.shares import effective_steps, feedback_from_steps
+    from coach.steps import feedback_from_steps, list_steps
 
     store = get_store()
-    session, state = _load_session(store, session_id)
+    session, _state = _load_session(store, session_id)
     _check_owner(session, user, guest_ok=True)
     if user is None and not session.candidate.startswith("guest-"):
         raise HTTPException(
@@ -400,7 +350,7 @@ def get_session(session_id: str, user: Optional[dict] = Depends(get_current_user
             detail="Guests can only open their own sessions. Log in to open this one.",
         )
     task = pick_next_task(session.candidate, session, session_id=session_id)
-    steps = effective_steps(session_id, state)
+    steps = list_steps(session_id)
     return {
         "data": _session_view(
             session_id, session, task, feedback_from_steps(steps)
@@ -436,10 +386,8 @@ def submit_answer(
     from coach.steps import insert_step
 
     store = get_store()
-    session, state = _load_session(store, session_id)
+    session, _state = _load_session(store, session_id)
     _check_owner(session, user)
-
-    _materialize_prefix(session, session_id, state)
 
     task = next((t for t in session.tasks if t["id"] == req.task_id), None)
     if task is None:
@@ -522,7 +470,6 @@ def submit_answer(
         after,
         result.to_dict(),
         coach.to_dict(),
-        inherited=False,
     )
     session.submission_index += 1
 
@@ -579,173 +526,5 @@ def complete_session(session_id: str, user: Optional[dict] = Depends(get_current
             "done": True,
             "ability": _ability_dict(session),
             "mastery": _mastery_dict(session),
-        }
-    }
-
-
-@router.post("/{session_id}/share", summary="Share a trajectory prefix")
-def share_session(
-    session_id: str,
-    req: ShareRequest,
-    request: Request,
-    user: Optional[dict] = Depends(get_current_user),
-):
-    from coach.session import Session
-    from coach.shares import build_share_snapshot, create_share, effective_steps
-
-    store = get_store()
-    session, state = _load_session(store, session_id)
-    _check_owner(session, user)
-    session.ensure_area_beliefs()
-
-    steps = effective_steps(session_id, state)
-    boundary = len(steps)
-    if req.step_index is not None:
-        boundary = max(0, min(int(req.step_index), len(steps)))
-    prefix = steps[:boundary]
-
-    snapshot = build_share_snapshot(session, prefix)
-    token = create_share(session_id, boundary, snapshot, session.candidate)
-
-    frontend_url = os.getenv("FRONTEND_URL", "").rstrip("/")
-    if not frontend_url:
-        origin = request.headers.get("origin", "").strip().rstrip("/")
-        if origin and origin.lower() != "null":
-            frontend_url = origin
-    url = f"{frontend_url}/shared/{token}" if frontend_url else f"/shared/{token}"
-    return {"data": {"token": token, "url": url, "step_index": boundary}}
-
-
-@router.post("/{session_id}/redo", summary="Redo a shared prefix step (CoW fork)")
-def redo_step(
-    session_id: str,
-    req: RedoRequest,
-    user: Optional[dict] = Depends(get_current_user),
-):
-    from coach.judge import LLMJudge
-    from coach.score import effective_score
-    from coach.selection import pick_next_task
-    from coach.session import Session, effective_parts
-    from coach.shares import get_share
-    from coach.steps import insert_step
-
-    store = get_store()
-    session, state = _load_session(store, session_id)
-    _check_owner(session, user)
-
-    token = state.get("_resumed_from_share")
-    if not token:
-        raise HTTPException(
-            status_code=400,
-            detail="Only an unreforged shared prefix can be redone (continue or fork first).",
-        )
-    share = get_share(token)
-    if share is None:
-        raise HTTPException(status_code=404, detail="Share not found.")
-    steps = share["snapshot"].get("steps", [])
-    k = req.step_index
-    if k < 0 or k >= len(steps):
-        raise HTTPException(status_code=400, detail="step_index out of range.")
-
-    # Materialize the prefix before the edited step as inherited history.
-    for i, st in enumerate(steps):
-        if i >= k:
-            break
-        insert_step(
-            session_id,
-            session.candidate,
-            i,
-            st.get("task_snapshot") or {},
-            st.get("role") or "bank",
-            st.get("user_answer") or "",
-            st.get("score") or 0.0,
-            st.get("max_score") or 5.0,
-            st.get("fraction") or 0.0,
-            st.get("reward") or 0.0,
-            st.get("state_before") or {},
-            st.get("state_after") or {},
-            st.get("result") or {},
-            st.get("coaching") or {},
-            inherited=True,
-        )
-
-    task = steps[k].get("task_snapshot") or {}
-    task_parts = effective_parts(task)
-    stored_parts = (steps[k].get("result") or {}).get("parts") or []
-    stored_key = stored_parts[0].get("key") if stored_parts else None
-    active = next(
-        (p for p in task_parts if p.get("key") == stored_key),
-        task_parts[0],
-    )
-    judge_task = {
-        **task,
-        "parts": [active],
-        "max_score": int(active.get("max_score") or 5),
-        "difficulty": int(active.get("difficulty") or task.get("difficulty") or 2),
-    }
-    targets = [active]
-    global_difficulty = int(active.get("difficulty") or task.get("difficulty") or 2)
-    try:
-        from coach.steps import answer_for_task
-
-        previous_code = answer_for_task(session_id, task.get("id"))
-    except Exception:
-        previous_code = None
-
-    result, coach = LLMJudge().evaluate(judge_task, req.answer, previous_code=previous_code)
-
-    observation = effective_score(result.fraction)
-    before, after, new_score, new_variance, new_questions = _update_beliefs(
-        session, task, targets, result, observation, global_difficulty
-    )
-
-    insert_step(
-        session_id,
-        session.candidate,
-        k,
-        task,
-        "redo",
-        req.answer,
-        result.score,
-        result.max_score,
-        result.fraction,
-        observation,
-        before,
-        after,
-        result.to_dict(),
-        coach.to_dict(),
-        inherited=False,
-    )
-    session.submission_index = max(session.submission_index, k + 1)
-
-    _persist_beliefs(session, new_score, new_variance, new_questions)
-
-    session.asked_task_ids.add(task.get("id"))
-    session.task_progress[task.get("id")] = len(task_parts)
-    session.phase_attempts[task.get("id")] = 0
-    session.index = max(session.index, k + 1)
-    session.results = [r for r in session.results if r.task_id != task.get("id")]
-    session.results.append(result)
-    store.set_resumed_from_share(session_id, None)
-
-    try:
-        next_task = pick_next_task(session.candidate, session, session_id=session_id)
-    except Exception:
-        next_task = None
-
-    store.save(session_id, {"session": session.to_dict()})
-
-    return {
-        "data": {
-            "result": result.to_dict(),
-            "coach": coach.to_dict(),
-            "next_task": next_task,
-            "remaining": len(session.tasks) - session.index,
-            "ability_update": {
-                "new_score": new_score,
-                "new_confidence": session.get_ability().confidence,
-            },
-            "mastery": _mastery_dict(session),
-            "already_answered": False,
         }
     }
