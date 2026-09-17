@@ -74,11 +74,6 @@ export function HomeView() {
       .catch(() => undefined);
   }, []);
 
-  const handleStartSession = () => {
-    if (loading) return;
-    startAssessment(undefined, { randomFirst: true });
-  };
-
   const handleStartNode = (node: string) => {
     if (loading) return;
     startAssessment(undefined, { node });
@@ -158,20 +153,6 @@ export function HomeView() {
             : 'Pick a domain, area, or skill — progress is saved in this browser.'}
         </p>
 
-        <button
-          onClick={handleStartSession}
-          disabled={loading}
-          className="flex items-center gap-2 rounded-xl bg-[var(--color-accent)] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-            <path d="M5 3l14 9-14 9V3z" />
-          </svg>
-          {loading ? 'Starting…' : 'Start practice'}
-        </button>
-        <p className="mt-2 text-[11px] text-[var(--color-text-muted)]">
-          AI Research Coach can make mistakes.
-        </p>
-
         {!overviewLoading && (
           <div className="mt-8 w-full space-y-8">
             <div className="space-y-3">
@@ -180,7 +161,7 @@ export function HomeView() {
               </h3>
               {overallMastery === null ? (
                 <p className="text-sm text-[var(--color-text-muted)]">
-                  No questions answered yet. Pick an area below or start a mixed session.
+                  No questions answered yet. Pick an area below to start practising.
                 </p>
               ) : (
                 <div className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
@@ -203,7 +184,7 @@ export function HomeView() {
                   Explore by domain
                 </h3>
                 <p className="text-xs text-[var(--color-text-muted)]">
-                  Switch tabs to browse areas, then click an area or skill to practice a question from it.
+                  Switch tabs to browse areas, then click an area or skill to practice a random question from it.
                 </p>
               </div>
 
@@ -289,20 +270,26 @@ export function HomeView() {
                               return (
                                 <div
                                   key={area}
-                                  className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4"
+                                  role="button"
+                                  tabIndex={loading ? -1 : 0}
+                                  aria-disabled={loading || undefined}
+                                  onClick={() => handleStartNode(area)}
+                                  onKeyDown={(e) => {
+                                    if (e.target !== e.currentTarget) return;
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.preventDefault();
+                                      handleStartNode(area);
+                                    }
+                                  }}
+                                  title={`Practice a random ${label(area)} question`}
+                                  className={`rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4 text-left transition-colors hover:border-[var(--color-accent)]/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] ${
+                                    loading ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'
+                                  }`}
                                 >
                                   <div className="flex w-full items-center justify-between gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleStartNode(area)}
-                                      disabled={loading}
-                                      title={`Practice ${label(area)}`}
-                                      className="min-w-0 flex-1 rounded-md text-left transition-colors hover:text-[var(--color-accent)] disabled:opacity-40"
-                                    >
-                                      <span className="block truncate text-sm font-semibold text-[var(--color-text-primary)]">
-                                        {label(area)}
-                                      </span>
-                                    </button>
+                                    <span className="block min-w-0 truncate text-sm font-semibold text-[var(--color-text-primary)]">
+                                      {label(area)}
+                                    </span>
                                     <span className="shrink-0 text-sm font-bold text-[var(--color-text-primary)]">
                                       {started ? `${Math.round(entry.score * 100)}%` : 'New'}
                                     </span>
@@ -317,7 +304,11 @@ export function HomeView() {
                                     {skills.length > 0 && (
                                       <button
                                         type="button"
-                                        onClick={() => setExpanded((e) => ({ ...e, [area]: !e[area] }))}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setExpanded((s) => ({ ...s, [area]: !s[area] }));
+                                        }}
+                                        aria-expanded={!!expanded[area]}
                                         className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
                                       >
                                         {expanded[area] ? 'Hide' : 'Skills'}
@@ -408,6 +399,9 @@ export function HomeView() {
             )}
           </div>
         )}
+        <p className="mt-8 text-[11px] text-[var(--color-text-muted)]">
+          AI Research Coach can make mistakes.
+        </p>
       </div>
     </div>
   );
