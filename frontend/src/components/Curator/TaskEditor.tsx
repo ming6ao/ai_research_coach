@@ -218,23 +218,6 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
     }
   };
 
-  /** Save the current draft as a brand-new task (copy). */
-  const duplicate = async () => {
-    const body = buildBody();
-    if (!body) return;
-    setSaving(true);
-    try {
-      const saved = await apiClient.createTask(body);
-      onSaved(saved as CuratorTask);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setFormError(msg);
-      onError(msg);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const remove = async () => {
     if (!task) return;
     const cascade = task.attempt_count
@@ -507,16 +490,6 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
             >
               {saving ? 'Saving…' : task ? 'Save changes' : 'Create question'}
             </button>
-            {task && (
-              <button
-                onClick={() => void duplicate()}
-                disabled={saving}
-                title="Save a copy as a new question"
-                className="rounded-lg border border-[var(--color-border-default)] px-3 py-1.5 text-xs disabled:opacity-40"
-              >
-                Duplicate
-              </button>
-            )}
             <button
               onClick={onClose}
               className="rounded-lg border border-[var(--color-border-default)] px-3 py-1.5 text-xs"
