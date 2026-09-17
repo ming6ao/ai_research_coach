@@ -18,16 +18,23 @@ def _insert_task(task_id: str, tags: dict, parts: list | None = None) -> None:
     from coach.tasks import TaskModel
 
     create_schema()
+    if parts is None:
+        parts = [{
+            "key": "solution",
+            "prompt": f"Prompt for {task_id}",
+            "tags": tags,
+            "max_score": 5,
+            "difficulty": 2,
+        }]
     session = learner_session()
     try:
         session.add(
             TaskModel(
                 id=task_id,
                 owner="bank@example.com",
-                prompt=f"Prompt for {task_id}",
                 difficulty=2,
                 max_score=5,
-                parts_json=json.dumps(parts or []),
+                parts_json=json.dumps(parts),
                 tags_json=json.dumps(tags),
                 task_type="implement",
                 language="python",
@@ -85,7 +92,16 @@ def test_apply_remaps_mappable_and_drops_classic(tmp_path, monkeypatch):
     from coach.migrate import run_migration
     from coach.tasks import get_task
 
-    _insert_task("good", {"primary": "attention_transformer", "secondary": ["kv_cache"]})
+    _insert_task(
+        "good",
+        {"primary": "attention_transformer", "secondary": ["kv_cache"]},
+        parts=[
+            {"key": "a", "prompt": "def a(): ...", "tags": {"primary": "attention_transformer"},
+             "max_score": 5, "difficulty": 2},
+            {"key": "b", "prompt": "def b(): ...", "tags": {"primary": "kv_cache"},
+             "max_score": 5, "difficulty": 2},
+        ],
+    )
     _insert_task(
         "classic",
         {"primary": "linear_regression"},
@@ -218,10 +234,10 @@ def test_delivery_migration_normalizes_bank_sessions_and_steps(tmp_path, monkeyp
     dry = migrate_delivery(apply=False)
     assert dry["tasks_updated"] == 2
     assert get_task("blocky")["delivery"] == "block"
-    assert get_task("plain").get("parts") is None
+    assert get_task("plain")["delivery"] == "block"
 
     report = migrate_delivery(apply=True)
-    assert report["tasks_wrapped"] == 1
+    assert report["tasks_wrapped"] == 0  # create_schema already ensures parts
 
     assert get_task("blocky")["delivery"] == "phased"
     plain = get_task("plain")
@@ -234,3 +250,56 @@ def test_delivery_migration_normalizes_bank_sessions_and_steps(tmp_path, monkeyp
         )
     assert step_snap["delivery"] == "phased"
     assert step_snap["parts"][0]["key"] == "solution"
+
+
+def test_hygiene_report_flags_leaky_scaffold(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "hygiene.db")
+    from coach.migrate import hygiene_report
+
+    _insert_task(
+        "hyg_leak",
+        {"primary": "testing", "secondary": []},
+        parts=[
+            {"key": "p1", "prompt": "Do the thing.",
+             "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+             "scaffold": "class A {\npublic:\n    void f();\nprivate:\n    int n_;\n};"},
+            {"key": "p2", "prompt": "Do the next thing.",
+             "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2},
+        ],
+    )
+    report = hygiene_report()
+    issues = {(f["task_id"], f["issue"], f["part_key"]) for f in report["findings"]}
+    assert ("hyg_leak", "scaffold_leaks_internals", "p1") in issues
+    assert report["counts"]["scaffold_leaks_internals"] == 1
+
+
+def test_hygiene_ignores_none_hygiene_issues(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "hygiene2.db")
+    from coach.migrate import hygiene_report
+
+    _insert_task(
+        "hyg_wrap",
+        {"primary": "testing", "secondary": []},
+        parts=[
+            {"key": "solution", "prompt": "Implement f.",
+             "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2},
+        ],
+    )
+    assert hygiene_report()["findings"] == []
+
+
+def test_hygiene_passes_api_only_scaffold(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "hygiene3.db")
+    from coach.migrate import hygiene_report
+
+    _insert_task(
+        "hyg_ok",
+        {"primary": "testing", "secondary": []},
+        parts=[
+            {"key": "p1", "prompt": "Implement f.",
+             "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+             "scaffold": "// Public API only.\nclass A {\npublic:\n    void f();\n};"},
+        ],
+    )
+    report = hygiene_report()
+    assert report["findings"] == []

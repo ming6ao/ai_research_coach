@@ -7,6 +7,7 @@ taken first unless ``--no-backup``).
     python -m coach.migrate                      # dry-run: report dispositions
     python -m coach.migrate --apply              # backup + migrate in place
     python -m coach.migrate coverage             # per-skill bank coverage
+    python -m coach.migrate hygiene              # read-only prompt/scaffold audit
     python -m coach.migrate delivery [--apply]   # normalize to step-by-step
 
 In-place migration rewrites, in order: task tags (block + parts), per-node
@@ -14,9 +15,10 @@ belief rows, active-session snapshots, and session-step snapshots/states.
 Task ids, owners, and attempt links are preserved.
 
 The separate ``delivery`` command normalizes every task (and stored snapshot)
-to step-by-step delivery: block tasks become phased and partless tasks are
-wrapped into one implicit step. It is dry-run by default and backs up first
-with ``--apply``.
+to step-by-step delivery: block tasks become phased and legacy partless
+*snapshots* are wrapped into one part. (Live partless DB rows are wrapped by
+``create_schema`` when it drops the retired ``prompt`` column.) It is dry-run
+by default and backs up first with ``--apply``.
 
 ``--on-unmapped`` controls tasks whose primary/part primary refers to a retired
 tag with no current counterpart:
@@ -472,9 +474,11 @@ def run_migration(
 def _normalize_task_delivery(task: dict) -> bool:
     """Mutate a task dict into step-by-step delivery; return True if changed.
 
-    A task with no ``parts`` is wrapped into a single implicit step built from
-    its task-level prompt/tags/max_score/difficulty/scaffold. ``delivery`` is
-    forced to ``'phased'``.
+    Legacy migration only: a stored *snapshot* task with no ``parts`` is
+    wrapped into a single part built from its task-level
+    prompt/tags/max_score/difficulty/scaffold. Live DB rows are wrapped by
+    ``coach.db.create_schema`` before the ``prompt`` column is dropped.
+    ``delivery`` is forced to ``'phased'``.
     """
     changed = False
     parts = task.get("parts")
@@ -502,9 +506,10 @@ def _normalize_task_delivery(task: dict) -> bool:
 def migrate_delivery(apply: bool) -> dict:
     """Normalize the bank and stored snapshots to step-by-step delivery.
 
-    Rewrites, in order: the ``tasks`` rows (block → phased; partless → one
-    implicit step), ``active_sessions`` task snapshots, and ``session_steps``
-    task snapshots. Task ids, owners, and attempt links are preserved.
+    Rewrites, in order: ``tasks`` rows (block → phased; row parts are already
+    guaranteed by ``create_schema``), ``active_sessions`` task snapshots, and
+    ``session_steps`` task snapshots (legacy partless snapshots become a
+    single part). Task ids, owners, and attempt links are preserved.
     """
     from coach.db import create_schema, learner_session, sqlite_conn
     from coach.tasks import TaskModel, parse_parts, parse_tags, serialize_parts
@@ -529,7 +534,9 @@ def migrate_delivery(apply: bool) -> dict:
         for m in models:
             counts["tasks_seen"] += 1
             task = {
-                "prompt": m.prompt,
+                # Legacy partless rows still carry their prompt column so the
+                # wrap below can build an implicit step from it.
+                "prompt": getattr(m, "prompt", "") or "",
                 "scaffold": m.scaffold,
                 "max_score": m.max_score,
                 "difficulty": m.difficulty,
@@ -642,6 +649,79 @@ def coverage_report() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# hygiene report (read-only)
+# ---------------------------------------------------------------------------
+
+
+def hygiene_report() -> dict:
+    """Audit the task bank for learner-facing scaffold hygiene.
+
+    Flags starter code that gives the answer away by declaring private members
+    or instance state. Read-only, like ``coverage``: it never rewrites author
+    text.
+    """
+    from sqlalchemy import select
+
+    from coach.db import create_schema, learner_session
+    from coach.tasks import TaskModel, task_to_dict
+
+    create_schema()
+    session = learner_session()
+    try:
+        models = list(session.scalars(select(TaskModel)))
+    finally:
+        session.close()
+
+    private_section = re.compile(r"(^|\n)\s*(private|protected)\s*:")
+    member_field = re.compile(r"(^|\n)\s*(?:mutable\s+)?[\w:<>,\s*&]+\s+\w+_\s*(?:=|;)")
+    self_attr = re.compile(r"(^|\n)\s*self\.\w+\s*=")
+    comment = re.compile(r"//|/\*|#")
+
+    counts = {
+        "scaffold_leaks_internals": 0,
+        "scaffold_missing_comments": 0,
+    }
+    findings: list[dict] = []
+    for model in models:
+        task = task_to_dict(model)
+        parts = task.get("parts") or []
+        for part in parts:
+            scaffold = part.get("scaffold") or ""
+            if not scaffold.strip():
+                continue
+            leaks: list[str] = []
+            if private_section.search(scaffold):
+                leaks.append("private/protected section")
+            if member_field.search(scaffold):
+                leaks.append("member field")
+            if self_attr.search(scaffold):
+                leaks.append("instance attribute")
+            if leaks:
+                counts["scaffold_leaks_internals"] += 1
+                findings.append(
+                    {
+                        "task_id": task["id"],
+                        "owner": task.get("owner"),
+                        "issue": "scaffold_leaks_internals",
+                        "part_key": part.get("key"),
+                        "detail": "; ".join(leaks),
+                    }
+                )
+            if ("class " in scaffold or "def " in scaffold) and not comment.search(scaffold):
+                counts["scaffold_missing_comments"] += 1
+                findings.append(
+                    {
+                        "task_id": task["id"],
+                        "owner": task.get("owner"),
+                        "issue": "scaffold_missing_comments",
+                        "part_key": part.get("key"),
+                        "detail": "Starter code has API surface but no comments.",
+                    }
+                )
+    return {"tasks": len(models), "findings": findings, "counts": counts}
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -656,8 +736,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         "command",
         nargs="?",
         default="migrate",
-        choices=["migrate", "coverage", "delivery"],
-        help="migrate (default) | coverage | delivery",
+        choices=["migrate", "coverage", "delivery", "hygiene"],
+        help="migrate (default) | coverage | delivery | hygiene",
     )
     parser.add_argument("--apply", action="store_true", help="write changes (default: dry run)")
     parser.add_argument(
@@ -680,6 +760,10 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if args.command == "coverage":
         _print(coverage_report())
+        return 0
+
+    if args.command == "hygiene":
+        _print(hygiene_report())
         return 0
 
     if args.command == "delivery":

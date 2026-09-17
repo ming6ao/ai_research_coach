@@ -60,7 +60,11 @@ def _seed_candidate(candidate):
     sid = store.create(candidate)
     store.save(sid, {"session": {"candidate": candidate}})
 
-    task = create_task(prompt="Owned question?", owner=candidate, tags={"primary": "testing"})
+    task = create_task(
+        owner=candidate, tags={"primary": "testing"},
+        parts=[{"key": "solution", "prompt": "Owned question?",
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+    )
     _record_step(candidate, task["id"], 0.8, 4, 5)
     save_skill_belief(candidate, 0.6, 0.1, 1)
     return task["id"]
@@ -110,8 +114,9 @@ def test_admin_can_wipe_other_candidate_and_shared_task(client):
 
     _seed_candidate("bob@x.com")
     shared_task = create_task(
-        prompt="Shared bank question?", owner="bank@example.com",
-        source="user", is_public=True, tags={"primary": "testing"},
+        owner="bank@example.com", source="user", is_public=True, tags={"primary": "testing"},
+        parts=[{"key": "solution", "prompt": "Shared bank question?",
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
     )
     _record_step("alice@x.com", shared_task["id"], 0.5, 2, 5)
 
@@ -135,7 +140,11 @@ def test_task_owner_delete_cascades_attempts(client):
     from coach.tasks import create_task, get_task
 
     token = _login("carol@x.com")
-    task = create_task(prompt="Carol's question?", owner="carol@x.com", tags={"primary": "testing"})
+    task = create_task(
+        owner="carol@x.com", tags={"primary": "testing"},
+        parts=[{"key": "solution", "prompt": "Carol's question?",
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+    )
 
     _record_step("carol@x.com", task["id"], 1.0, 5, 5)
 
@@ -156,7 +165,11 @@ def test_task_owner_can_edit_context_notes(client):
 
     token = _login("dave@x.com")
     stranger = _login("mallory@x.com")
-    task = create_task(prompt="Dave's question?", owner="dave@x.com", tags={"primary": "testing"})
+    task = create_task(
+        owner="dave@x.com", tags={"primary": "testing"},
+        parts=[{"key": "solution", "prompt": "Dave's question?",
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+    )
 
     res = client.patch(
         f"/api/v1/tasks/{task['id']}",

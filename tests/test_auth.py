@@ -23,14 +23,13 @@ def client(tmp_path, monkeypatch):
     from coach.tasks import create_task as _seed_task
 
     _seed_task(
-        prompt="Seed task for auth tests. Signature: def f():",
         owner="bank@example.com",
-        difficulty=2,
-        max_score=5,
         source="user",
         is_public=True,
         tags={"primary": "testing"},
         task_id="seed_auth_01",
+        parts=[{"key": "solution", "prompt": "Seed task for auth tests. Signature: def f():",
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
     )
     from backend.main import app
     return TestClient(app)

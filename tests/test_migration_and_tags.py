@@ -81,10 +81,12 @@ def test_tags_round_trip_create_get_patch(tmp_path, monkeypatch):
     from coach.tasks import create_task, get_task, update_task
 
     t = create_task(
-        prompt="Implement softmax.",
         owner="tester@example.com",
         tags={"primary": "normalization", "secondary": ["pretraining_objectives"]},
         task_type="implement",
+        parts=[{"key": "solution", "prompt": "Implement softmax.",
+                "tags": {"primary": "normalization", "secondary": ["pretraining_objectives"]},
+                "max_score": 5, "difficulty": 2}],
     )
     assert t["tags"] == {"primary": "normalization", "secondary": ["pretraining_objectives"]}
     assert t["task_type"] == "implement"
@@ -106,10 +108,18 @@ def test_unknown_tag_rejected_on_create_and_patch_api(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
     client = TestClient(app)
-    bad = client.post("/api/v1/tasks", json={"prompt": "q", "tags": {"primary": "bogus"}})
+    bad = client.post("/api/v1/tasks", json={
+        "parts": [{"key": "solution", "prompt": "q",
+                   "tags": {"primary": "bogus"}, "max_score": 5, "difficulty": 2}],
+        "tags": {"primary": "bogus"},
+    })
     assert bad.status_code == 422
 
-    good = client.post("/api/v1/tasks", json={"prompt": "q", "tags": {"primary": "testing"}})
+    good = client.post("/api/v1/tasks", json={
+        "parts": [{"key": "solution", "prompt": "q",
+                   "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+        "tags": {"primary": "testing"},
+    })
     assert good.status_code == 201
 
     # Authenticated owner PATCH with an unknown tag is rejected (422).
@@ -120,7 +130,10 @@ def test_unknown_tag_rejected_on_create_and_patch_api(tmp_path, monkeypatch):
     headers = {"Authorization": f"Bearer {token}"}
     mine = client.post(
         "/api/v1/tasks",
-        json={"prompt": "mine", "tags": {"primary": "vision_encoders"}},
+        json={"parts": [{"key": "solution", "prompt": "mine",
+                           "tags": {"primary": "vision_encoders"},
+                           "max_score": 5, "difficulty": 2}],
+              "tags": {"primary": "vision_encoders"}},
         headers=headers,
     )
     assert mine.status_code == 201
@@ -220,18 +233,26 @@ def test_task_type_validated():
     from coach.tasks import create_task
 
     with pytest.raises(ValueError):
-        create_task(prompt="x", owner="tester@example.com", task_type="bogus")
+        create_task(
+            owner="tester@example.com", task_type="bogus",
+            parts=[{"key": "a", "prompt": "q", "tags": {"primary": "testing"},
+                    "max_score": 5, "difficulty": 2}],
+        )
 
 
 def test_create_task_requires_tags(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "notags.db")
     from coach.tasks import create_task
 
-    with pytest.raises(ValueError, match="Tags are required"):
-        create_task(prompt="uncategorized question", owner="tester@example.com")
-    # A block with tagged parts still auto-derives block-level tags.
+    # An untagged part is rejected by part validation.
+    with pytest.raises(ValueError, match="Part 'a'"):
+        create_task(
+            owner="tester@example.com",
+            parts=[{"key": "a", "prompt": "uncategorized question",
+                    "max_score": 5, "difficulty": 2}],
+        )
+    # A tagged part auto-derives the task-level tags.
     task = create_task(
-        prompt="block",
         owner="tester@example.com",
         parts=[{"key": "a", "prompt": "def a(): ...", "tags": {"primary": "grpo"},
                 "max_score": 5, "difficulty": 2}],

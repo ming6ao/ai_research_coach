@@ -304,14 +304,13 @@ def create_session(
     custom_task = None
     if req.initial_question and req.initial_question.strip():
         from coach.tasks import create_task as _create_task
+        from coach.tasks import single_part
 
         prompt = req.initial_question.strip()
         tags = _categorize_tags(prompt)
         custom_task = _create_task(
-            prompt=prompt,
             owner=candidate,
-            difficulty=2,
-            max_score=5,
+            parts=[single_part(prompt, tags=tags, max_score=5, difficulty=2)],
             source="user",
             is_public=is_guest,
             context_notes=_describe_context(prompt),

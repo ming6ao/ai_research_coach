@@ -261,45 +261,22 @@ def _compose_step_scaffold(task: dict) -> str | None:
 def build_code_stub(task: dict) -> str | None:
     """Build an editor scaffold for a code task.
 
-    A task that already carries a `scaffold` uses it. Otherwise the scaffold
-    is composed from the step prompts; a legacy partless task falls back to a
-    stub generated from the signature mentioned in the prompt, so the coding
-    area is never blank.
+    A task that already carries a `scaffold` uses it; otherwise the scaffold
+    is composed from the step prompts. Every task has at least one part, so
+    there is no task-level-prompt fallback.
     """
     if task.get("scaffold"):
         return task["scaffold"]
-    composed = _compose_step_scaffold(task)
-    if composed:
-        return composed
-    m = re.search(r"def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)", task.get("prompt", ""))
-    if m:
-        name, params = m.group(1), m.group(2)
-        return f"def {name}({params}):\n    # TODO: implement {name}\n    pass\n"
-    return None
+    return _compose_step_scaffold(task)
 
 
 def effective_parts(task: dict) -> list[dict]:
-    """The task's steps.
+    """The task's steps (always one or more for a valid task).
 
-    Every task is delivered step-by-step. A legacy partless task is treated
-    as a single implicit step (its prompt becomes the step prompt) so old
-    rows and in-flight session snapshots keep working without a migration.
+    Every task is created with at least one part; a single-step question is a
+    task with exactly one. There is no implicit/partless form.
     """
-    parts = task.get("parts") or []
-    if parts:
-        return parts
-    m = re.search(r"def\s+([A-Za-z_]\w*)\s*\(", task.get("prompt", ""))
-    key = m.group(1) if m else "solution"
-    part = {
-        "key": key,
-        "prompt": task.get("prompt", ""),
-        "tags": task.get("tags") or {"primary": None, "secondary": []},
-        "max_score": int(task.get("max_score") or 5),
-        "difficulty": int(task.get("difficulty") or 1),
-    }
-    if task.get("scaffold"):
-        part["scaffold"] = task["scaffold"]
-    return [part]
+    return list(task.get("parts") or [])
 
 
 def completed_phases(task: dict, session: Session) -> int:
@@ -331,7 +308,7 @@ def task_view(
     Every task is step-by-step: the view emits only the active step plus
     ``phase_index``/``phase_total`` and its own scaffold, so the learner sees
     one step at a time with their prior code carried forward via
-    ``previous_code``. A partless legacy task is a single implicit step.
+    ``previous_code``. Every task has at least one part.
     """
     if task is None:
         return None
@@ -340,7 +317,8 @@ def task_view(
     view = {
         "id": task["id"],
         "type": "code",
-        "prompt": task["prompt"],
+        # Derived from the first step; no authored overview is stored.
+        "prompt": parts[0]["prompt"] if parts else task.get("prompt", ""),
         "difficulty": task.get("difficulty", 1),
         "max_score": task.get("max_score", 5),
         "scaffold": _phase_scaffold(task, active) if active else build_code_stub(task),

@@ -49,7 +49,6 @@ def ctx(tmp_path, monkeypatch):
     from coach.tasks import create_task
 
     create_task(
-        prompt="Two-phase block.",
         owner="bank@example.com",
         source="user",
         is_public=True,
@@ -64,14 +63,12 @@ def ctx(tmp_path, monkeypatch):
         ],
     )
     create_task(
-        prompt="Plain task. Signature: def plain(x):",
         owner="bank@example.com",
         source="user",
         is_public=True,
         task_id="plain_01",
-        max_score=5,
-        difficulty=2,
-        tags={"primary": "testing"},
+        parts=[{"key": "plain", "prompt": "Plain task. Signature: def plain(x):",
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
     )
     from backend.main import app
 

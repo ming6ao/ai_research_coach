@@ -60,9 +60,16 @@ function PartResults({ r }: { r: ResultWithFeedback }) {
   if (!parts || parts.length === 0) return null;
   return (
     <ul className="space-y-1.5">
-      {parts.map((p) => {
+      {parts.map((p, i) => {
         const part = r.parts?.find((x) => x.key === p.key);
         const max = part?.max_score ?? 5;
+        // Step keys are internal identifiers; show a human label instead.
+        const label =
+          parts.length > 1
+            ? `Part ${i + 1}`
+            : r.phase_index != null
+              ? `Step ${r.phase_index}`
+              : 'Result';
         const pct = max ? Math.round((p.score / max) * 100) : 0;
         const tone =
           pct >= 80
@@ -76,8 +83,8 @@ function PartResults({ r }: { r: ResultWithFeedback }) {
             className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-2.5 py-1.5"
           >
             <div className="flex items-center justify-between gap-2">
-              <span className="min-w-0 truncate font-mono text-[12px] text-[var(--color-text-primary)]">
-                {p.key}
+              <span className="min-w-0 truncate text-[12px] text-[var(--color-text-primary)]">
+                {label}
               </span>
               <span className={`shrink-0 text-[11px] font-semibold ${tone}`}>
                 {p.score}/{max} · {pct}%
@@ -200,7 +207,6 @@ export function ChatView() {
           {results.map((r, i) => (
             <Fragment key={`res-${i}`}>
               <QuestionBubble
-                prompt={r.prompt}
                 parts={r.parts}
                 phaseIndex={r.phase_index}
                 phaseTotal={r.phase_total}
@@ -212,7 +218,6 @@ export function ChatView() {
 
           {showTask && currentTask && (
             <QuestionBubble
-              prompt={currentTask.prompt}
               parts={currentTask.parts}
               remediation={currentTask.remediation}
               phaseIndex={currentTask.phase_index}

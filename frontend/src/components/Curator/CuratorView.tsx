@@ -60,14 +60,14 @@ export function CuratorView({ onClose }: Props) {
   const handleSaved = (task: CuratorTask) => {
     setEditing(task);
     setCreating(false);
-    setNotice(editing && !creating ? `Saved ${task.id}.` : `Created ${task.id}.`);
+    setNotice(editing && !creating ? 'Question saved.' : 'Question created.');
     void load(q);
   };
 
-  const handleDeleted = (taskId: string) => {
+  const handleDeleted = (_taskId: string) => {
     setEditing(null);
     setCreating(false);
-    setNotice(`Deleted ${taskId}.`);
+    setNotice('Question deleted.');
     void load(q);
   };
 

@@ -13,6 +13,7 @@ databases converge.
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import threading
@@ -339,6 +340,9 @@ def create_schema():
                 conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN delivery TEXT DEFAULT 'phased'")
         except Exception:
             pass
+        # Retire the authored task-level prompt: wrap any legacy partless row
+        # into a single part from its stored prompt, then drop the column.
+        _migrate_partless_tasks(conn)
     with _schema_lock:
         _schema_done.add(key)
     # Backfill session_steps from legacy JSON blobs (deterministic replay) so
@@ -350,6 +354,62 @@ def create_schema():
     except Exception:
         pass
     return engine
+
+
+def _migrate_partless_tasks(conn) -> None:
+    """Retire the partless task: backfill a single part, then drop ``prompt``.
+
+    Legacy databases stored a task-level prompt with no steps. Every task now
+    requires at least one part, so a partless row becomes a one-part task
+    (its prompt, tags, scores and scaffold move into the step). Best-effort so
+    startup never breaks.
+    """
+    try:
+        cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(tasks)").fetchall()]
+    except Exception:
+        return
+    if "prompt" in cols:
+        try:
+            rows = conn.exec_driver_sql(
+                "SELECT id, prompt, tags_json, max_score, difficulty, scaffold, parts_json "
+                "FROM tasks"
+            ).fetchall()
+        except Exception:
+            rows = []
+        for task_id, prompt, tags_json, max_score, difficulty, scaffold, raw in rows:
+            try:
+                parts = json.loads(raw or "[]")
+            except Exception:
+                parts = []
+            if isinstance(parts, list) and parts:
+                continue
+            prompt = str(prompt or "").strip()
+            if not prompt:
+                continue
+            try:
+                tags = json.loads(tags_json) if tags_json else None
+            except Exception:
+                tags = None
+            part = {
+                "key": "solution",
+                "prompt": prompt,
+                "tags": tags or {"primary": None, "secondary": []},
+                "max_score": max(1, min(100, int(max_score or 5))),
+                "difficulty": max(1, min(5, int(difficulty or 1))),
+            }
+            if scaffold:
+                part["scaffold"] = str(scaffold)
+            try:
+                conn.exec_driver_sql(
+                    "UPDATE tasks SET parts_json = ? WHERE id = ?",
+                    (json.dumps([part]), task_id),
+                )
+            except Exception:
+                pass
+        try:
+            conn.exec_driver_sql("ALTER TABLE tasks DROP COLUMN prompt")
+        except Exception:
+            pass
 
 
 def _migrate_active_sessions(conn) -> None:

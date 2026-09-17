@@ -164,8 +164,11 @@ def test_only_primary_tag_updates_the_estimator():
     from fastapi.testclient import TestClient
 
     task = create_task(
-        prompt="Implement flash attention.", owner="bank@example.com", source="user", is_public=True,
+        owner="bank@example.com", source="user", is_public=True,
         tags={"primary": "flash_attention", "secondary": ["continuous_batching"]},
+        parts=[{"key": "solution", "prompt": "Implement flash attention.",
+                "tags": {"primary": "flash_attention", "secondary": ["continuous_batching"]},
+                "max_score": 5, "difficulty": 2}],
     )
     client = TestClient(app)
     res = client.post("/api/v1/sessions", json={"task_ids": [task["id"]]})

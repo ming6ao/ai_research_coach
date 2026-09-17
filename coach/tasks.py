@@ -8,10 +8,12 @@ Each task carries ``context_notes`` (2-4 plain-English sentences generated
 once at creation time) and closed-vocabulary tags. There is no knowledge
 graph and no nodes/edges.
 
-A task is a **step sequence**: its ``parts_json`` holds ordered steps
-``{key, prompt, tags, max_score, difficulty, pass_score?, scaffold?}``
+A task is a **step sequence**: its ``parts_json`` holds one or more ordered
+steps ``{key, prompt, tags, max_score, difficulty, pass_score?, scaffold?}``
 delivered one at a time, pass-gated, with the candidate's code carried
-forward. A partless task is wrapped into one implicit step at creation.
+forward. Every task has at least one part; a single-step question is a task
+with exactly one. The task-level ``prompt`` is derived from the first step —
+there is no partless request.
 
 Visibility: a candidate sees their own rows and every public row. There is no
 system-owned bucket — every task has a user owner. Guests create public rows
@@ -57,7 +59,6 @@ class TaskModel(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     owner: Mapped[str] = mapped_column(String(255), nullable=False)
-    prompt: Mapped[str] = mapped_column(Text, nullable=False)
     scaffold: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     difficulty: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
     max_score: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
@@ -208,10 +209,8 @@ def validate_parts(parts) -> list[dict]:
     """
     from coach.taxonomy import validate as validate_tags
 
-    if parts is None:
-        return []
-    if not isinstance(parts, list):
-        raise ValueError("parts must be a list.")
+    if not isinstance(parts, list) or not parts:
+        raise ValueError("At least one part is required.")
     out: list[dict] = []
     seen: set[str] = set()
     for item in parts:
@@ -260,6 +259,43 @@ def validate_parts(parts) -> list[dict]:
     return out
 
 
+def _task_prompt(parts: list[dict]) -> str:
+    """The task-level prompt is derived from its first step.
+
+    There is no authored overview and no partless task: the first step's
+    prompt is the task's summary (used for search/listing).
+    """
+    if not parts:
+        return ""
+    return str(parts[0].get("prompt") or "")
+
+
+def single_part(
+    prompt: str,
+    *,
+    key: str = "solution",
+    tags: Optional[dict] = None,
+    max_score: int = 5,
+    difficulty: int = 2,
+    scaffold: Optional[str] = None,
+) -> dict:
+    """Build one step dict for an internal single-step task.
+
+    Single-step questions are still tasks with exactly one part; this keeps
+    the generated/initial-question creators from hand-rolling the shape.
+    """
+    part: dict[str, Any] = {
+        "key": key,
+        "prompt": prompt,
+        "tags": tags or {"primary": None, "secondary": []},
+        "max_score": max(1, min(100, int(max_score or 5))),
+        "difficulty": max(1, min(5, int(difficulty or 2))),
+    }
+    if scaffold:
+        part["scaffold"] = scaffold
+    return part
+
+
 def derive_step_tags(parts: list[dict]) -> dict | None:
     """Task-level tags from its steps: first step's primary + up to 2 others.
 
@@ -278,21 +314,11 @@ def derive_step_tags(parts: list[dict]) -> dict | None:
     return {"primary": primary, "secondary": secondary[:2]}
 
 
-def _step_key(prompt: str) -> str:
-    """Best-effort step key for a single implicit step.
-
-    Prefer the function name named in the prompt, else ``solution``.
-    """
-    import re
-
-    m = re.search(r"def\s+([A-Za-z_]\w*)\s*\(", prompt or "")
-    return m.group(1) if m else "solution"
-
-
 def task_to_dict(model: TaskModel) -> dict:
+    parts = parse_parts(getattr(model, "parts_json", "") or "[]")
     d: dict[str, Any] = {
         "id": model.id,
-        "prompt": model.prompt,
+        "prompt": _task_prompt(parts),
         "difficulty": model.difficulty,
         "max_score": model.max_score,
         "context_notes": getattr(model, "context_notes", "") or "",
@@ -304,7 +330,6 @@ def task_to_dict(model: TaskModel) -> dict:
         "owner": model.owner,
         "delivery": (getattr(model, "delivery", "") or "phased"),
     }
-    parts = parse_parts(getattr(model, "parts_json", "") or "[]")
     if parts:
         d["parts"] = parts
     if model.scaffold:
@@ -320,8 +345,8 @@ def task_to_dict(model: TaskModel) -> dict:
 
 
 def create_task(
-    prompt: str,
     owner: str,
+    parts: Optional[list] = None,
     scaffold: Optional[str] = None,
     difficulty: Optional[int] = None,
     max_score: Optional[int] = None,
@@ -334,15 +359,14 @@ def create_task(
     tags: Optional[dict] = None,
     task_type: str = "implement",
     language: Optional[str] = None,
-    parts: Optional[list] = None,
 ) -> dict:
     """Persist a task row and return its dict form.
 
-    ``tags`` and each part's ``tags`` are validated against the closed
-    vocabulary (``coach.taxonomy.validate``); invalid or missing tags raise
-    ``ValueError`` — every task must be categorized. A task without ``parts``
-    is wrapped into a single implicit step from its prompt, so every task is
-    delivered step-by-step. When ``tags`` is omitted for a multi-step task
+    ``parts`` is required and must contain at least one step; a single-step
+    question is a task with exactly one part. ``tags`` and each part's
+    ``tags`` are validated against the closed vocabulary
+    (``coach.taxonomy.validate``); invalid or missing tags raise
+    ``ValueError`` — every task must be categorized. When ``tags`` is omitted
     they are auto-derived from the steps. ``max_score`` and ``difficulty``
     default to the steps' aggregates when omitted.
     """
@@ -356,7 +380,7 @@ def create_task(
     parts = validate_parts(parts)
     tid = task_id or f"task_{uuid.uuid4().hex[:10]}"
 
-    if tags is None and parts:
+    if tags is None:
         tags = derive_step_tags(parts)
     if tags is None:
         raise ValueError(
@@ -364,19 +388,6 @@ def create_task(
             "every task must be categorized into the taxonomy."
         )
     tags = validate_tags(tags)
-
-    if not parts:
-        # Single-step task: wrap the task-level prompt into one step.
-        part: dict[str, Any] = {
-            "key": _step_key(prompt),
-            "prompt": prompt,
-            "tags": tags,
-            "max_score": max(1, int(max_score or 5)),
-            "difficulty": max(1, min(5, int(difficulty or 2))),
-        }
-        if scaffold:
-            part["scaffold"] = scaffold
-        parts = validate_parts([part])
 
     if difficulty is None:
         difficulty = max(p["difficulty"] for p in parts)
@@ -390,7 +401,6 @@ def create_task(
         model = TaskModel(
             id=tid,
             owner=owner,
-            prompt=prompt,
             scaffold=scaffold,
             difficulty=difficulty,
             max_score=max_score,
@@ -416,23 +426,21 @@ def create_task(
 def update_task(task_id: str, **fields) -> Optional[dict]:
     """Update whitelisted task columns (v1 PATCH path).
 
-    Allowed: prompt, scaffold, difficulty (1-5), max_score (>=1),
-    parts (validated list), is_public (bool), context_notes (<=2000 chars),
-    tags (validated against the vocabulary), task_type, language, owner.
-    When ``parts`` is updated without ``difficulty``/``max_score``, the
-    task-level aggregates are re-derived from the steps.
-    Returns the updated dict, or None when the task does not exist.
+    Allowed: scaffold, difficulty (1-5), max_score (>=1), parts (validated
+    list, at least one), is_public (bool), context_notes (<=2000 chars), tags
+    (validated against the vocabulary), task_type, language, owner. When
+    ``parts`` is updated without ``difficulty``/``max_score``, the task-level
+    aggregates are re-derived from the steps. Returns the updated dict, or
+    None when the task does not exist.
     """
     from coach.db import create_schema
 
     allowed = {
-        "prompt", "scaffold", "difficulty", "max_score", "parts",
+        "scaffold", "difficulty", "max_score", "parts",
         "is_public", "context_notes", "tags", "task_type", "language",
         "owner",
     }
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
-    if "prompt" in updates and not str(updates["prompt"]).strip():
-        raise ValueError("Prompt must not be empty.")
     if "owner" in updates and not str(updates["owner"]).strip():
         raise ValueError("Owner must not be empty.")
     create_schema()
@@ -454,8 +462,6 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
         model = session.get(TaskModel, task_id)
         if model is None:
             return None
-        if "prompt" in updates:
-            model.prompt = str(updates["prompt"]).strip()
         if "scaffold" in updates:
             model.scaffold = updates["scaffold"]
         if "difficulty" in updates:
@@ -636,7 +642,9 @@ def _list_tasks(
         if owner:
             stmt = stmt.where(TaskModel.owner == owner)
         if q:
-            stmt = stmt.where(TaskModel.prompt.contains(q))
+            # Search the serialized steps so results always match the derived
+            # task prompt (the `prompt` column is a materialized copy).
+            stmt = stmt.where(TaskModel.parts_json.contains(q))
         stmt = stmt.limit(limit)
         rows = session.scalars(stmt).all()
         if not rows:

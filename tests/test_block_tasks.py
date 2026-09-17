@@ -14,10 +14,16 @@ def test_parts_validation(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "parts.db")
     from coach.tasks import create_task
 
+    # At least one part is required (no partless tasks).
+    with pytest.raises(ValueError, match="At least one part"):
+        create_task(owner="tester@example.com", parts=[])
+    with pytest.raises(ValueError, match="At least one part"):
+        create_task(owner="tester@example.com")
+
     # Duplicate keys rejected.
     with pytest.raises(ValueError):
         create_task(
-            prompt="b", owner="tester@example.com", parts=[
+            owner="tester@example.com", parts=[
                 {"key": "a", "prompt": "p", "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2},
                 {"key": "a", "prompt": "q", "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2},
             ]
@@ -25,17 +31,50 @@ def test_parts_validation(tmp_path, monkeypatch):
     # Empty prompt rejected.
     with pytest.raises(ValueError):
         create_task(
-            prompt="b", owner="tester@example.com", parts=[
+            owner="tester@example.com", parts=[
                 {"key": "a", "prompt": "", "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2},
             ]
         )
     # Unknown tag rejected with a part-scoped message.
     with pytest.raises(ValueError, match="Part 'a'"):
         create_task(
-            prompt="b", owner="tester@example.com", parts=[
+            owner="tester@example.com", parts=[
                 {"key": "a", "prompt": "p", "tags": {"primary": "bogus"}, "max_score": 5, "difficulty": 2},
             ]
         )
+
+
+def test_prompt_is_derived_from_first_step(tmp_path, monkeypatch):
+    """There is no authored overview: the task prompt is the first step's."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "derived.db")
+    from coach.tasks import create_task, get_task
+
+    t = create_task(
+        owner="tester@example.com",
+        tags={"primary": "testing"},
+        parts=[
+            {"key": "a", "prompt": "Implement the allocator.",
+             "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2},
+            {"key": "b", "prompt": "Now free the blocks.",
+             "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2},
+        ],
+    )
+    assert t["prompt"] == "Implement the allocator."
+    assert get_task(t["id"])["prompt"] == "Implement the allocator."
+
+
+def test_single_part_task(tmp_path, monkeypatch):
+    """A single-step question is just a task with one part."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "single.db")
+    from coach.tasks import create_task, get_task, single_part
+
+    t = create_task(
+        owner="tester@example.com",
+        parts=[single_part("Implement def f(x): return x.", tags={"primary": "testing"})],
+    )
+    parts = get_task(t["id"])["parts"]
+    assert len(parts) == 1
+    assert parts[0]["prompt"] == t["prompt"] == "Implement def f(x): return x."
 
 
 def test_block_aggregates_and_derives_tags(tmp_path, monkeypatch):
@@ -43,7 +82,6 @@ def test_block_aggregates_and_derives_tags(tmp_path, monkeypatch):
     from coach.tasks import create_task, get_task
 
     t = create_task(
-        prompt="Two-part block.",
         owner="bank@example.com",
         source="user",
         is_public=True,

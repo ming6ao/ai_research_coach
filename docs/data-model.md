@@ -95,8 +95,9 @@ transitions) lives in `session_steps`:
 }
 ```
 
-- `Task` — the task dict (see `task_to_dict`, `coach/tasks.py`): `id`, `prompt`,
-  `difficulty` (1–5), `max_score`, `parts` (one or more steps:
+- `Task` — the task dict (see `task_to_dict`, `coach/tasks.py`): `id`,
+  `prompt` (derived from the first step), `difficulty` (1–5), `max_score`,
+  `parts` (one or more steps:
   `[{key, prompt, tags, max_score, difficulty, pass_score?, scaffold?}]`),
   `context_notes`, `tags` (`{primary, secondary[]}`), `task_type`, `language`,
   `source`, `is_public`, `owner`, plus optional `scaffold`, `parent_task_id`,
@@ -123,14 +124,18 @@ The question bank, authored directly in the DB via `POST /api/v1/tasks` or the
 curator UI. Each task
 carries tags (1 primary leaf skill + 0–2 secondary) and a `task_type`.
 Delivery is always **step-by-step**: `parts` are shown one at a time
-(pass-gated, code carried forward); a partless task is one implicit step.
-Task-level `difficulty`/`max_score` are derived from the steps when omitted.
+(pass-gated, code carried forward). Every task has at least one part; a
+single-step question is a one-part task (there is no partless request).
+Task-level `difficulty`/`max_score` and `prompt` are all derived from the steps:
+`prompt` is always the first step's prompt, never authored separately. The old
+`prompt` column was dropped; `create_schema()` wraps any legacy partless row
+into a single part before removing it.
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | VARCHAR(64) | PK (`task_<hex>`) |
 | `owner` | VARCHAR(255) | NOT NULL — candidate email or guest id (every task has a user owner) |
-| `prompt` | TEXT | NOT NULL |
+| ~~`prompt`~~ | — | **dropped** — the task prompt is derived at read time from the first step (`_task_prompt`) |
 | `scaffold` | TEXT | nullable — legacy/single-step starter code (step scaffolds live in `parts_json`) |
 | `difficulty` | INTEGER | NOT NULL, 1–5 |
 | `max_score` | INTEGER | NOT NULL, default 5 |

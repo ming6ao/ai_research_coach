@@ -55,7 +55,8 @@ def _create_owned(client, token, prompt, owner_email, is_public=True):
     res = client.post(
         "/api/v1/tasks",
         json={
-            "prompt": prompt,
+            "parts": [{"key": "solution", "prompt": prompt,
+                       "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
             "is_public": is_public,
             "tags": {"primary": "testing", "secondary": []},
         },
@@ -120,7 +121,11 @@ def test_curator_can_edit_and_delete_own(client):
 
     res = client.patch(
         f"/api/v1/tasks/{task['id']}",
-        json={"prompt": "After", "difficulty": 4, "is_public": False},
+        json={
+            "parts": [{"key": "solution", "prompt": "After",
+                       "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 4}],
+            "is_public": False,
+        },
         headers=_h(token),
     )
     assert res.status_code == 200

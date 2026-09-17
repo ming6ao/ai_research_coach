@@ -6,13 +6,13 @@ import {
   type TaskCreateBody,
   type TaskPart,
 } from '../../api/client';
+import { scaffoldHygieneIssues } from '../../lib/task-hygiene';
 import { CodeEditor } from '../TaskPanel/CodeEditor';
 import { QuestionBubble } from '../Task/QuestionBubble';
 import {
   EditableMarkdown,
   EditableNumber,
   EditableText,
-  EditableTextarea,
   TagEditor,
 } from './Editable';
 
@@ -74,13 +74,13 @@ function autoPassScore(maxScore: number): number {
 
 /**
  * Merged curator editor: a single learner-style column. The question bubble
- * renders exactly as a candidate sees it (markdown prompt, numbered active
- * step, tag chips, starter code) with the editable fields inline, plus
- * curator-only settings/step-detail panels marked "hidden from learners".
+ * renders exactly as a candidate sees it (the active step's markdown prompt,
+ * tag chips, starter code) with the editable fields inline, plus curator-only
+ * settings/step-detail panels marked "hidden from learners". There is no
+ * overview field — the task-level prompt is derived from the first step.
  */
 export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props) {
   const [taxonomy, setTaxonomy] = useState<Taxonomy | null>(null);
-  const [prompt, setPrompt] = useState(task?.prompt ?? '');
   const [language, setLanguage] = useState(task?.language ?? 'python');
   const [primary, setPrimary] = useState(task?.tags?.primary ?? '');
   const [secondary, setSecondary] = useState<string[]>(task?.tags?.secondary ?? []);
@@ -140,12 +140,6 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
   /** Validate + build the create/update body; returns null on invalid input. */
   const buildBody = (): TaskCreateBody | null => {
     setFormError(null);
-    if (!prompt.trim()) {
-      const msg = 'Prompt must not be empty.';
-      setFormError(msg);
-      onError(msg);
-      return null;
-    }
     if (!primary) {
       const msg = 'Select a primary skill.';
       setFormError(msg);
@@ -197,7 +191,6 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
       return null;
     }
     const body: TaskCreateBody = {
-      prompt: prompt.trim(),
       parts: cleaned,
       tags: { primary, secondary: secondary.slice(0, 2) },
       task_type: taskType,
@@ -247,7 +240,8 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
     const cascade = task.attempt_count
       ? `\nThis will also delete ${task.attempt_count} recorded attempt(s).`
       : '';
-    if (!window.confirm(`Delete task ${task.id}?${cascade}\nThis cannot be undone.`)) return;
+    const title = task.prompt.trim().slice(0, 60) || 'this question';
+    if (!window.confirm(`Delete “${title}”?${cascade}\nThis cannot be undone.`)) return;
     try {
       await apiClient.deleteTask(task.id);
       onDeleted(task.id);
@@ -275,6 +269,7 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
     1,
   );
   const derivedMaxScore = parts.reduce((s, p) => s + (clamp1to100(Number(p.max_score)) || 5), 0);
+  const activeScaffoldIssues = scaffoldHygieneIssues(active.scaffold);
 
   const activeTaskPart: TaskPart = {
     key: active.key.trim() || `step_${activeStep + 1}`,
@@ -290,7 +285,7 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
         <div className="mx-auto max-w-2xl space-y-5 px-4 py-6 lg:max-w-4xl">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="truncate text-sm font-semibold text-[var(--color-text-primary)]">
-              {task ? `Edit ${task.id}` : 'New question'}
+              {task ? 'Edit question' : 'New question'}
             </h3>
             {task && (
               <span className="text-[11px] text-[var(--color-text-muted)]">
@@ -359,7 +354,7 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
 
           {/* Step tabs mirror the learner advancing one step at a time. */}
           <div className="flex flex-wrap items-center gap-1.5">
-            {parts.map((p, i) => (
+            {parts.map((_p, i) => (
               <button
                 key={i}
                 type="button"
@@ -370,7 +365,7 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
                     : 'border-[var(--color-border-default)] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
                 }`}
               >
-                {p.key.trim() || `Step ${i + 1}`}
+                Step {i + 1}
               </button>
             ))}
             <button
@@ -384,37 +379,15 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
 
           {/* Learner-style question bubble, editable in place. */}
           <QuestionBubble
-            prompt={prompt}
             parts={[activeTaskPart]}
             phaseIndex={activeStep + 1}
             phaseTotal={parts.length}
             renderPrompt={(p) => (
               <EditableMarkdown
                 value={p}
-                onCommit={setPrompt}
-                placeholder="Describe the task in plain English…"
+                onCommit={(v) => updatePart(activeStep, { prompt: v })}
+                placeholder="What should the learner do in this step?"
               />
-            )}
-            renderPart={() => (
-              <li className="flex flex-wrap items-baseline gap-1">
-                <span className="font-semibold text-[var(--color-text-primary)]">1.</span>
-                <EditableText
-                  value={active.key}
-                  onCommit={(v) => updatePart(activeStep, { key: v })}
-                  placeholder="step_key"
-                  ariaLabel="Step key"
-                  mono
-                  className="w-32 rounded border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-1.5 py-0.5 text-xs text-[var(--color-text-primary)]"
-                />
-                <span className="text-[var(--color-text-muted)]">—</span>
-                <div className="min-w-[12rem] flex-1">
-                  <EditableTextarea
-                    value={active.prompt}
-                    onCommit={(v) => updatePart(activeStep, { prompt: v })}
-                    placeholder="What should the learner do in this step?"
-                  />
-                </div>
-              </li>
             )}
           />
 
@@ -423,6 +396,17 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
             <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
               Step {activeStep + 1} details — hidden from learners
             </p>
+            <label className="block">
+              <span className={labelCls}>step key (internal id, not shown to learners)</span>
+              <EditableText
+                value={active.key}
+                onCommit={(v) => updatePart(activeStep, { key: v })}
+                placeholder="step_key"
+                ariaLabel="Step key"
+                mono
+                className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-xs"
+              />
+            </label>
             <div className="grid grid-cols-3 gap-2">
               <label className="block">
                 <span className={labelCls}>max_score</span>
@@ -501,6 +485,12 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
               onChange={(v) => updatePart(activeStep, { scaffold: v })}
               height="h-56"
             />
+            {activeScaffoldIssues.length > 0 && (
+              <p className="mt-1.5 rounded-lg border border-[var(--color-warning,#b45309)]/30 bg-[var(--color-bg-secondary)] px-3 py-1.5 text-[11px] text-[var(--color-text-secondary)]">
+                Starter-code check: exposes {activeScaffoldIssues.join('; ')}. Comment the API
+                instead — learners are evaluated on the design too.
+              </p>
+            )}
           </div>
 
           {formError && (

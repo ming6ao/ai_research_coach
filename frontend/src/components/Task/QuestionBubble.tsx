@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import type { Task, TaskPart } from '../../api/client';
 import { Markdown } from '../Markdown/Markdown';
 
@@ -33,34 +33,35 @@ function followUpLabel(remediation?: Task['remediation']): string | null {
 }
 
 interface Props {
-  prompt: string;
-  /** The step(s) to show. Callers pass only what the learner would see. */
+  /** The step(s) to show. Only the active/first step is displayed. */
   parts?: TaskPart[];
   remediation?: Task['remediation'];
   phaseIndex?: number;
   phaseTotal?: number;
-  /** Curator slot: when provided, replaces the rendered markdown prompt. */
+  /** Curator slot: when provided, replaces the rendered markdown step prompt. */
   renderPrompt?: (prompt: string) => ReactNode;
-  /** Curator slot: when provided, replaces a numbered part's list item. */
-  renderPart?: (part: TaskPart, index: number) => ReactNode;
 }
 
 /**
  * The single source of truth for how a question is presented to a learner:
  * a coach bubble with a "Question" header, optional step badge / follow-up
- * label, the markdown prompt, a numbered parts list and the tag chips.
- * `ChatView` uses it read-only; the curator editor injects editable slots.
+ * label and the active step's markdown prompt. Skill tags are internal and
+ * are never shown to the learner.
+ *
+ * There is no task-level fallback (every task has at least one part); the
+ * step prompt the learner answers gets the prominent "question" style. Step
+ * keys are internal identifiers and never appear in the UI. `ChatView` uses
+ * this read-only; the curator editor injects an editable step-prompt slot.
  */
 export function QuestionBubble({
-  prompt,
   parts,
   remediation,
   phaseIndex,
   phaseTotal,
   renderPrompt,
-  renderPart,
 }: Props) {
   const label = followUpLabel(remediation);
+  const primary = parts?.[0]?.prompt ?? '';
   return (
     <CoachBubble>
       <div className="space-y-1">
@@ -77,27 +78,7 @@ export function QuestionBubble({
             </span>
           )}
         </p>
-        {renderPrompt ? renderPrompt(prompt) : <Markdown text={prompt} size="lg" />}
-        {parts && parts.length > 0 && (
-          <ol className="space-y-1 border-l border-[var(--color-border-default)] pl-3">
-            {parts.map((part, i) =>
-              renderPart ? (
-                <Fragment key={part.key || i}>{renderPart(part, i)}</Fragment>
-              ) : (
-                <li
-                  key={part.key}
-                  className="text-[15px] leading-6 text-[var(--color-text-secondary)]"
-                >
-                  <span className="font-semibold text-[var(--color-text-primary)]">
-                    {i + 1}. {part.key}
-                  </span>
-                  {' — '}
-                  {part.prompt}
-                </li>
-              ),
-            )}
-          </ol>
-        )}
+        {renderPrompt ? renderPrompt(primary) : <Markdown text={primary} size="lg" />}
       </div>
     </CoachBubble>
   );

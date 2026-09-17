@@ -57,24 +57,24 @@ def client(tmp_path, monkeypatch):
     from coach.tasks import create_task as _seed_task
 
     _seed_task(
-        prompt="Implement overfitting detection from loss curves. Signature: def detect_overfitting(train_losses, val_losses):",
         owner="bank@example.com",
-        difficulty=2,
-        max_score=5,
         source="user",
         is_public=True,
         tags={"primary": "experiment_design"},
         task_id="seed_ml_01",
+        parts=[{"key": "solution",
+                "prompt": "Implement overfitting detection from loss curves. Signature: def detect_overfitting(train_losses, val_losses):",
+                "tags": {"primary": "experiment_design"}, "max_score": 5, "difficulty": 2}],
     )
     _seed_task(
-        prompt="Implement top-k gradient compression. Signature: def topk_compress(grads, k):",
         owner="bank@example.com",
-        difficulty=2,
-        max_score=5,
         source="user",
         is_public=True,
         tags={"primary": "collectives_and_overlap"},
         task_id="seed_sys_01",
+        parts=[{"key": "solution",
+                "prompt": "Implement top-k gradient compression. Signature: def topk_compress(grads, k):",
+                "tags": {"primary": "collectives_and_overlap"}, "max_score": 5, "difficulty": 2}],
     )
     from backend.main import app
 
@@ -109,7 +109,6 @@ def test_step_by_step_updates_per_part_beliefs(client):
     from coach.tasks import create_task as _create
 
     _create(
-        prompt="Implement a two-step task.",
         owner="bank@example.com",
         source="user",
         is_public=True,

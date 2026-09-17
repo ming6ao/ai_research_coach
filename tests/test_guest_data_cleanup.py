@@ -39,20 +39,22 @@ def test_guest_data_requires_admin(client):
 def test_guest_data_delete_keeps_signed_in_user(client):
     admin = _login(ADMIN)
     create_task(
-        prompt="Guest-owned task",
         owner="guest-abc",
         source="user",
         is_public=False,
         tags={"primary": "testing"},
         task_id="guest_task",
+        parts=[{"key": "solution", "prompt": "Guest-owned task",
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
     )
     create_task(
-        prompt="Signed-in owned task",
         owner=ADMIN,
         source="user",
         is_public=False,
         tags={"primary": "testing"},
         task_id="owner_task",
+        parts=[{"key": "solution", "prompt": "Signed-in owned task",
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
     )
     from coach.tasks import save_skill_belief
 

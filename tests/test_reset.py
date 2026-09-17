@@ -38,7 +38,11 @@ def _add_app_data():
 
     now = _now()
     dt = db.naive_utc(datetime.now(timezone.utc))
-    task = create_task(prompt="Custom user task?", owner="alice@example.com", tags={"primary": "testing"})
+    task = create_task(
+        owner="alice@example.com", tags={"primary": "testing"},
+        parts=[{"key": "solution", "prompt": "Custom user task?",
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+    )
     with db.sqlite_conn() as conn:
         conn.execute(
             "INSERT INTO active_sessions (session_id, candidate, session_json, status, updated_at) "

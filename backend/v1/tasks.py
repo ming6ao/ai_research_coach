@@ -79,28 +79,32 @@ def create_task(
     from coach.tasks import create_task as _create_task
     from coach.taxonomy import validate as validate_tags
 
-    if not req.prompt.strip():
-        raise HTTPException(status_code=422, detail="Prompt must not be empty.")
+    if not req.parts:
+        raise HTTPException(
+            status_code=422, detail="At least one part is required."
+        )
     try:
         tags = validate_tags(req.tags)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     candidate = resolve_candidate(user, request)
     is_guest = candidate.startswith("guest-")
-    task = _create_task(
-        prompt=req.prompt.strip(),
-        owner=candidate,
-        scaffold=req.scaffold,
-        parts=req.parts,
-        source="user",
-        is_public=bool(req.is_public or is_guest),
-        context_notes=_describe_context(
-            req.prompt.strip(), req.context_notes
-        ),
-        tags=tags,
-        task_type=req.task_type or "implement",
-        language=req.language,
-    )
+    # Context notes describe the first thing the learner sees: the first step.
+    source_text = str((req.parts or [{}])[0].get("prompt") or "")
+    try:
+        task = _create_task(
+            owner=candidate,
+            scaffold=req.scaffold,
+            parts=req.parts,
+            source="user",
+            is_public=bool(req.is_public or is_guest),
+            context_notes=_describe_context(source_text, req.context_notes),
+            tags=tags,
+            task_type=req.task_type or "implement",
+            language=req.language,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     return {"data": task}
 
 

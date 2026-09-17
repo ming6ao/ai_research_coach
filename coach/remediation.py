@@ -401,15 +401,19 @@ def least_covered(session) -> str:
 def _persist_generated_task(session, generated: dict, parent_task: dict | None) -> None:
     """Best-effort persistence of generated tasks to the task bank."""
     try:
-        from coach.tasks import create_task
+        from coach.tasks import create_task, single_part
 
         candidate = getattr(session, "candidate", None) or "unknown"
-        create_task(
-            prompt=generated.get("prompt", ""),
-            owner=candidate,
-            scaffold=generated.get("scaffold"),
-            difficulty=generated.get("difficulty", 2),
+        part = single_part(
+            generated.get("prompt", ""),
+            tags=generated.get("tags"),
             max_score=generated.get("max_score", 5),
+            difficulty=generated.get("difficulty", 2),
+            scaffold=generated.get("scaffold"),
+        )
+        create_task(
+            owner=candidate,
+            parts=[part],
             context_notes=generated.get("context_notes", ""),
             tags=generated.get("tags"),
             source="generated",

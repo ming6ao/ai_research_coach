@@ -434,21 +434,34 @@ class TaskDecomposer:
         tags: dict | None = None,
         context_notes: str = "",
     ) -> dict:
+        validated_tags = None
+        if tags:
+            from coach.taxonomy import validate as validate_tags
+
+            validated_tags = validate_tags(tags)
+        part: dict = {
+            "key": "solution",
+            "prompt": prompt,
+            "tags": validated_tags or {"primary": None, "secondary": []},
+            "max_score": 5,
+            "difficulty": difficulty,
+        }
+        if scaffold:
+            part["scaffold"] = scaffold
         task: dict = {
             "id": task_id,
             "type": "code",
             "difficulty": difficulty,
             "prompt": prompt,
             "max_score": 5,
+            "parts": [part],
             "generated": True,
             "generated_kind": kind,
             "target_text": target_text,
             "context_notes": (context_notes or "").strip()[:2000],
         }
-        if tags:
-            from coach.taxonomy import validate as validate_tags
-
-            task["tags"] = validate_tags(tags)
+        if validated_tags:
+            task["tags"] = validated_tags
         if parent_task_id:
             task["parent_task_id"] = parent_task_id
         if root_task_id:

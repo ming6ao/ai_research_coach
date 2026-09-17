@@ -283,11 +283,11 @@ export interface CuratorTask extends Task {
 }
 
 export interface TaskCreateBody {
-  prompt: string;
+  /** One or more steps; a single-step question is a one-part task. */
+  parts: TaskPart[];
   scaffold?: string;
   difficulty?: number;
   max_score?: number;
-  parts?: TaskPart[];
   is_public?: boolean;
   context_notes?: string;
   tags?: { primary: string; secondary: string[] };
