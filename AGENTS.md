@@ -119,6 +119,14 @@ EVAL_RETRY_MAX_DELAY=30.0       # Max backoff (seconds)
 
 ## Gotchas
 
+- **New git worktree**: a worktree shares `.git` but **not** gitignored per-checkout state, so a fresh one has no `.venv/`, `.env`, `data/coach.db`, or `frontend/node_modules`. `./run.sh` then fails to launch the backend and Vite's `/api` proxy answers `502 Bad Gateway` (surfaced in the UI as a login error), and a missing/empty DB forces a re-login. Link/copy that state from the main checkout before running:
+  ```bash
+  ln -sfn /path/to/main/.env .env
+  ln -sfn /path/to/main/.venv .venv
+  ln -sfn /path/to/main/frontend/node_modules frontend/node_modules
+  mkdir -p data && cp /path/to/main/data/coach.db* data/
+  ```
+  Add `.venv` to `.git/info/exclude` (the `.gitignore` pattern `.venv/` does not match the symlink, so it would otherwise show as untracked). Copying `data/coach.db*` preserves the existing session token and task bank (no re-login, questions are available) and stays independent, so worktree writes do not affect the main checkout. Only one checkout can run at a time — both bind `:8001`/`:5173` and `run.sh` frees those ports.
 - `.venv` is the virtualenv; `run.sh` uses `.venv/bin/uvicorn` directly
 - `data/` directory is gitignored; the SQLite DB is created on first run
 - The `.env` file contains a real API key — do not commit changes to it
