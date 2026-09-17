@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAssessmentStore } from '../../stores/assessmentStore';
 import { useAuthStore } from '../../stores/authStore';
 import { apiClient, type Taxonomy, type MasteryArea, type MasteryEntry, type UnifiedSession } from '../../api/client';
@@ -60,6 +60,8 @@ export function HomeView() {
   const [showSessions, setShowSessions] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [taxonomy, setTaxonomy] = useState<Taxonomy | null>(null);
+  const [activeDomain, setActiveDomain] = useState<string | null>(null);
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   useEffect(() => {
     loadOverview();
@@ -122,6 +124,28 @@ export function HomeView() {
     }));
   }, [taxonomy, mastery]);
 
+  // Keep the selected tab valid even after the taxonomy/fallback domains change.
+  const currentDomain =
+    activeDomain && domains.some((d) => d.domain === activeDomain)
+      ? activeDomain
+      : (domains[0]?.domain ?? null);
+
+  const handleTabKeyDown = (e: React.KeyboardEvent, index: number) => {
+    const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+    if (!keys.includes(e.key) || domains.length === 0) return;
+    e.preventDefault();
+    const last = domains.length - 1;
+    let next = index;
+    if (e.key === 'ArrowLeft') next = index === 0 ? last : index - 1;
+    else if (e.key === 'ArrowRight') next = index === last ? 0 : index + 1;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = last;
+    const target = domains[next];
+    if (!target) return;
+    setActiveDomain(target.domain);
+    tabRefs.current[target.domain]?.focus();
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-4 pb-24">
       <div className="flex w-full max-w-2xl flex-col items-center lg:max-w-4xl xl:max-w-6xl">
@@ -173,112 +197,165 @@ export function HomeView() {
               )}
             </div>
 
-            <div className="space-y-6">
+            <div className="space-y-4">
               <div className="space-y-1">
                 <h3 className="text-sm font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-                  Mastery by domain
+                  Explore by domain
                 </h3>
                 <p className="text-xs text-[var(--color-text-muted)]">
-                  Click a domain, area, or skill to practice a question from it.
+                  Switch tabs to browse areas, then click an area or skill to practice a question from it.
                 </p>
               </div>
-              {domains.map(({ domain, areas }) => {
-                const domainEntry: MasteryEntry = mastery?.domains?.[domain] ?? EMPTY_ENTRY;
-                const domainStarted = domainEntry.questions_answered > 0;
-                return (
-                  <div key={domain} className="space-y-3">
-                    <button
-                      type="button"
-                      onClick={() => handleStartNode(domain)}
-                      disabled={loading}
-                      title={`Practice ${label(domain)}`}
-                      className="flex w-full items-center justify-between gap-3 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-4 py-3 text-left transition-colors hover:border-[var(--color-accent)]/40 disabled:opacity-40"
-                    >
-                      <span className="text-base font-bold text-[var(--color-text-primary)]">
-                        {label(domain)}
-                      </span>
-                      <span className="flex items-center gap-3">
-                        <span className="text-sm font-bold text-[var(--color-text-primary)]">
-                          {domainStarted ? `${Math.round(domainEntry.score * 100)}%` : 'New'}
-                        </span>
-                        <span className="text-[10px] text-[var(--color-text-muted)]">
-                          {domainStarted ? `${domainEntry.questions_answered} asked` : ''}
-                        </span>
-                      </span>
-                    </button>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      {areas.map((area) => {
-                        const entry: MasteryArea = mastery?.domains?.[domain]?.areas?.[area] ?? EMPTY_AREA;
-                        const started = entry.questions_answered > 0;
-                        const skills = taxonomy?.tree?.[domain]?.[area] ?? [];
-                        return (
-                          <div
-                            key={area}
-                            className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4"
+
+              {currentDomain && (
+                <>
+                  <div
+                    role="tablist"
+                    aria-label="Domains"
+                    className="flex flex-wrap gap-1 border-b border-[var(--color-border-default)]"
+                  >
+                    {domains.map(({ domain }, i) => {
+                      const entry: MasteryEntry = mastery?.domains?.[domain] ?? EMPTY_ENTRY;
+                      const started = entry.questions_answered > 0;
+                      const isActive = domain === currentDomain;
+                      return (
+                        <button
+                          key={domain}
+                          ref={(el) => {
+                            tabRefs.current[domain] = el;
+                          }}
+                          type="button"
+                          role="tab"
+                          id={`domain-tab-${domain}`}
+                          aria-selected={isActive}
+                          aria-controls={`domain-panel-${domain}`}
+                          tabIndex={isActive ? 0 : -1}
+                          onClick={() => setActiveDomain(domain)}
+                          onKeyDown={(e) => handleTabKeyDown(e, i)}
+                          className={`-mb-px flex items-center gap-2 rounded-t-lg border-b-2 px-3 py-2 text-sm font-semibold transition-colors ${
+                            isActive
+                              ? 'border-[var(--color-accent)] text-[var(--color-text-primary)]'
+                              : 'border-transparent text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
+                          }`}
+                        >
+                          {label(domain)}
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                              started
+                                ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
+                                : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]'
+                            }`}
                           >
-                            <div className="flex w-full items-center justify-between gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleStartNode(area)}
-                                disabled={loading}
-                                title={`Practice ${label(area)}`}
-                                className="min-w-0 flex-1 rounded-md text-left transition-colors hover:text-[var(--color-accent)] disabled:opacity-40"
-                              >
-                                <span className="block truncate text-sm font-semibold text-[var(--color-text-primary)]">
-                                  {label(area)}
-                                </span>
-                              </button>
-                              <span className="shrink-0 text-sm font-bold text-[var(--color-text-primary)]">
-                                {started ? `${Math.round(entry.score * 100)}%` : 'New'}
-                              </span>
-                            </div>
-                            <div className="mt-2">
-                              <MasteryBar value={started ? entry.score : 0} tone={masteryTone(entry.score)} />
-                            </div>
-                            <div className="mt-1 flex items-center justify-between">
-                              <span className="text-[10px] text-[var(--color-text-muted)]">
-                                {started ? `${entry.questions_answered} asked` : 'Not started'}
-                              </span>
-                              {skills.length > 0 && (
-                                <button
-                                  type="button"
-                                  onClick={() => setExpanded((e) => ({ ...e, [area]: !e[area] }))}
-                                  className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
-                                >
-                                  {expanded[area] ? 'Hide' : 'Skills'}
-                                  <svg
-                                    viewBox="0 0 20 20"
-                                    fill="currentColor"
-                                    className={`h-3 w-3 transition-transform ${expanded[area] ? 'rotate-180' : ''}`}
-                                  >
-                                    <path
-                                      fillRule="evenodd"
-                                      d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
-                                      clipRule="evenodd"
-                                    />
-                                  </svg>
-                                </button>
-                              )}
-                            </div>
-                            {expanded[area] && skills.length > 0 && (
-                              <div className="mt-2 flex flex-wrap gap-1.5">
-                                {skills.map((skill) => (
-                                  <SkillChip
-                                    key={skill}
-                                    id={skill}
-                                    entry={entry.skills?.[skill] ?? EMPTY_ENTRY}
-                                    onStart={handleStartNode}
-                                  />
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
+                            {started ? `${Math.round(entry.score * 100)}%` : 'New'}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
-                );
-              })}
+
+                  {domains
+                    .filter(({ domain }) => domain === currentDomain)
+                    .map(({ domain, areas }) => (
+                      <div
+                        key={domain}
+                        role="tabpanel"
+                        id={`domain-panel-${domain}`}
+                        aria-labelledby={`domain-tab-${domain}`}
+                        tabIndex={0}
+                        className="space-y-3 focus:outline-none"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-[var(--color-text-muted)]">
+                            {areas.length} area{areas.length === 1 ? '' : 's'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleStartNode(domain)}
+                            disabled={loading}
+                            title={`Practice ${label(domain)}`}
+                            className="text-xs font-medium text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-accent)] disabled:opacity-40"
+                          >
+                            Practice all of {label(domain)} →
+                          </button>
+                        </div>
+                        {areas.length === 0 ? (
+                          <p className="text-sm text-[var(--color-text-muted)]">No areas yet.</p>
+                        ) : (
+                          <div className="grid gap-3 md:grid-cols-2">
+                            {areas.map((area) => {
+                              const entry: MasteryArea = mastery?.domains?.[domain]?.areas?.[area] ?? EMPTY_AREA;
+                              const started = entry.questions_answered > 0;
+                              const skills = taxonomy?.tree?.[domain]?.[area] ?? [];
+                              return (
+                                <div
+                                  key={area}
+                                  className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4"
+                                >
+                                  <div className="flex w-full items-center justify-between gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleStartNode(area)}
+                                      disabled={loading}
+                                      title={`Practice ${label(area)}`}
+                                      className="min-w-0 flex-1 rounded-md text-left transition-colors hover:text-[var(--color-accent)] disabled:opacity-40"
+                                    >
+                                      <span className="block truncate text-sm font-semibold text-[var(--color-text-primary)]">
+                                        {label(area)}
+                                      </span>
+                                    </button>
+                                    <span className="shrink-0 text-sm font-bold text-[var(--color-text-primary)]">
+                                      {started ? `${Math.round(entry.score * 100)}%` : 'New'}
+                                    </span>
+                                  </div>
+                                  <div className="mt-2">
+                                    <MasteryBar value={started ? entry.score : 0} tone={masteryTone(entry.score)} />
+                                  </div>
+                                  <div className="mt-1 flex items-center justify-between">
+                                    <span className="text-[10px] text-[var(--color-text-muted)]">
+                                      {started ? `${entry.questions_answered} asked` : 'Not started'}
+                                    </span>
+                                    {skills.length > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setExpanded((e) => ({ ...e, [area]: !e[area] }))}
+                                        className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
+                                      >
+                                        {expanded[area] ? 'Hide' : 'Skills'}
+                                        <svg
+                                          viewBox="0 0 20 20"
+                                          fill="currentColor"
+                                          className={`h-3 w-3 transition-transform ${expanded[area] ? 'rotate-180' : ''}`}
+                                        >
+                                          <path
+                                            fillRule="evenodd"
+                                            d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+                                            clipRule="evenodd"
+                                          />
+                                        </svg>
+                                      </button>
+                                    )}
+                                  </div>
+                                  {expanded[area] && skills.length > 0 && (
+                                    <div className="mt-2 flex flex-wrap gap-1.5">
+                                      {skills.map((skill) => (
+                                        <SkillChip
+                                          key={skill}
+                                          id={skill}
+                                          entry={entry.skills?.[skill] ?? EMPTY_ENTRY}
+                                          onStart={handleStartNode}
+                                        />
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                </>
+              )}
             </div>
 
             {sessions.length > 0 && (
