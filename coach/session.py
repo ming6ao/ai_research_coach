@@ -11,8 +11,8 @@ from coach.taxonomy import family_of
 def _load_bank_tasks(candidate: str) -> list:
     """Load the visible task bank from the DB.
 
-    The YAML bank was removed; tasks are user-created or seeded rows in
-    the ``tasks`` table. An empty bank is valid (the UI prompts the user
+    Tasks live in the ``tasks`` table (the DB is the source of truth; there
+    is no code-embedded bank). An empty bank is valid (the UI prompts the user
     to enter their own question).
     """
     try:

@@ -296,26 +296,6 @@ export interface AdminResetResult {
   wiped: Record<string, number>;
   total_deleted: number;
   preserved: string[];
-  seeded?: number;
-}
-
-export interface CoverageEntryInfo {
-  seed_tasks: string[];
-  asked_total: number;
-  candidates: Record<string, number>;
-}
-
-export interface CoverageFamilyInfo extends CoverageEntryInfo {
-  tags: string[];
-}
-
-export interface CoverageTagInfo extends CoverageEntryInfo {
-  family: string | null;
-}
-
-export interface AdminCoverageReport {
-  families: Record<string, CoverageFamilyInfo>;
-  tags: Record<string, CoverageTagInfo>;
 }
 
 export interface AdminTableQuery {
@@ -494,11 +474,6 @@ export const apiClient = {
 
   adminTables: () =>
     adminApi<{ tables: AdminTableMeta[] }>('/tables', undefined, 'GET'),
-
-  adminCoverage: () =>
-    adminApi<{ data: AdminCoverageReport }>('/coverage', undefined, 'GET').then(
-      (r) => r.data,
-    ),
 
   adminTableRows: (table: string, query: AdminTableQuery = {}) =>
     adminApi<AdminTablePage>(`/table/${encodeURIComponent(table)}${buildAdminTableQuery(query)}`, undefined, 'GET'),

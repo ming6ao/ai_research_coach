@@ -6,7 +6,7 @@ Implements the hierarchical mastery estimator from the design doc §4:
   estimate, each family, and each fine tag: ``mean`` (own observations),
   ``variance`` (posterior variance from a neutral prior updated only by
   observations *at that level*), and ``questions_answered``.
-- At **read time** (progress view, picker, coverage report) the reported
+- At **read time** (progress view, picker) the reported
   estimate is computed with an order-invariant empirical-Bayes fold:
 
       eta  = 2.0

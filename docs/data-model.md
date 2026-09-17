@@ -18,9 +18,10 @@ Eight tables split between two access layers that share one file:
 
 `create_schema()` (called at startup and lazily from the task/step CRUD paths) is
 idempotent: it creates all tables, drops removed knowledge-graph/learner tables,
-drops removed columns, migrates legacy beliefs, seeds the builtin question
-bank, and backfills `session_steps` from legacy JSON blobs. All timestamps are
-stored as naive UTC.
+drops removed columns, migrates legacy beliefs, and backfills `session_steps`
+from legacy JSON blobs. It never writes tasks — the `tasks` table is the source
+of truth and is populated through the API. All timestamps are stored as naive
+UTC.
 
 ## Tables
 
@@ -118,25 +119,26 @@ Cross-session ability/mastery aggregates are *not* stored here — they live in
 `candidate`.
 
 ### `tasks`
-The question bank: system seeds, user-created, and LLM-generated tasks. Each task
+The question bank, authored directly in the DB via `POST /api/v1/tasks`, the
+curator UI, or the admin "Add question" form (`POST /admin/seeds`). Each task
 carries tags (1 primary fine tag + 0–2 secondary) and a `task_type`.
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `id` | VARCHAR(64) | PK (`task_<hex>` for user/generated, `seed_<slug>` for seeds) |
-| `owner` | VARCHAR(255) | NOT NULL — `system` for seeds, otherwise candidate email/guest id |
+| `id` | VARCHAR(64) | PK (`task_<hex>` for user/generated, `seed_admin_<hex>` for admin-authored) |
+| `owner` | VARCHAR(255) | NOT NULL — `system` for admin-authored rows, otherwise candidate email/guest id |
 | `prompt` | TEXT | NOT NULL |
 | `scaffold` | TEXT | nullable — starter code for scaffold tasks |
 | `difficulty` | INTEGER | NOT NULL, 1–5 |
 | `max_score` | INTEGER | NOT NULL, default 5 |
-| `hints_json` | TEXT | NOT NULL — ordered hints `[{id, text, weight, reveal_threshold}]` |
+| `parts_json` | TEXT | NOT NULL — code-block parts `[{key, prompt, tags, max_score, difficulty}]` |
 | `context_notes` | TEXT | 2–4 plain-English sentences, generated once at creation |
 | `tags_json` | TEXT | `{"primary": <fine tag>, "secondary": [<fine tag>…]}` (closed vocabulary from `coach/taxonomy.py`) |
 | `task_type` | TEXT | `implement | apply | debug | design | analyze` |
-| `source` | VARCHAR(32) | NOT NULL — `system`/`seed`/`seed_llm`/`user`/`generated` |
+| `source` | VARCHAR(32) | NOT NULL — `user`/`seed_admin`/`generated` (legacy `seed`/`seed_llm` values remain on pre-existing rows) |
 | `parent_task_id` | VARCHAR(64) | nullable — root task for generated follow-ups |
 | `target_text` | TEXT | nullable — judge's misconception/gap text for generated drills |
-| `is_public` | INTEGER | NOT NULL — visibility flag (seeds are public; guests create public rows, signed-in default private) |
+| `is_public` | INTEGER | NOT NULL — visibility flag (admin rows are public; guests create public rows, signed-in default private) |
 | `created_at` | DATETIME | NOT NULL |
 
 Index: `ix_tasks_owner (owner)`.
@@ -244,10 +246,7 @@ The learner key used by `candidate` columns is resolved by
 5. `_migrate_active_sessions` — drops the legacy `feedback_json` column **only
    after** every session has been backfilled (or has no legacy results); the
    column is kept while any session still needs replay.
-6. `seed_question_bank()` — single batched `INSERT OR IGNORE` of the builtin
-   `SEED_CATALOG`; no network/model; re-runs are no-ops and human-edited seeds
-   are never overwritten.
-7. `backfill_session_steps()` — deterministic replay of legacy
+6. `backfill_session_steps()` — deterministic replay of legacy
    `session_json`/`feedback_json` blobs into `session_steps` (per-step
    `state_before`/`state_after` reconstructed via the Bayesian belief update);
    idempotent and best-effort.

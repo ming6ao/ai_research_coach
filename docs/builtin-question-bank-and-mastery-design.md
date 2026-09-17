@@ -12,9 +12,9 @@ This design:
 2. **Keeps exploration a tiebreaker, not a replacement.** Exploration bonuses
    are calibrated so they never swamp the EIG engine, and the breadth guard is
    a soft penalty that cannot deadlock selection.
-3. **Stays hermetic and fast.** Seeds are fully pre-authored (no LLM or network
-   at boot), inserted in a single batched transaction, and task
-   creation/`initial_question` uses one combined LLM call.
+3. **Treats the database as the source of truth for tasks.** There is no
+   code-embedded catalog; the `tasks` table is the question bank, populated
+   through the API (`POST /api/v1/tasks`, curator UI, admin "Add question").
 4. **Uses a SQLite-legal schema.** A unique index (not an `ALTER TABLE`
    constraint) enforces one belief row per `(candidate, level, key)`, and
    belief lookups are updated so multiple rows never crash a scalar query.
@@ -23,22 +23,23 @@ This design:
 
 ## 1. Goals & scope
 
-1. **Builtin question bank.** Ship a curated set of tasks with the app that
-   covers "most of the important stuff in Machine Learning practice." Only
-   topics whose mastery can be tested by **executing candidate code** are
-   eligible; purely conceptual Q&A is out of scope. The catalog is kept **as
-   small as possible**: each seed task is authored to exercise several tags at
-   once, so a small set of tasks covers every family and every fine tag.
-2. **Tag everything.** Every task — seed, user-created, or LLM-generated —
-   carries a fine tag + family, so every attempt produces a mastery signal at
-   both levels.
+1. **DB-managed question bank.** The `tasks` table is the only question bank —
+   the database is the source of truth, not source code. Tasks are authored in
+   the DB via `POST /api/v1/tasks`, the curator UI ("My questions"), or the
+   admin "Add question" form (`POST /admin/seeds`); a fresh database starts
+   with an empty bank until tasks are added. Only topics whose mastery can be
+   tested by **executing candidate code** are eligible; purely conceptual Q&A is
+   out of scope.
+2. **Tag everything.** Every task — user-created, admin-authored, or
+   LLM-generated — carries a fine tag + family, so every attempt produces a
+   mastery signal at both levels.
 3. **Hierarchical mastery estimation.** Three Gaussian layers per candidate —
    `tag ← family ← global` — estimated with **order-invariant empirical-Bayes
    shrinkage computed at read time**. Sparse tags report ≈ family estimate;
    dense tags converge to the candidate's own evidence. No path-dependency.
 4. **Scope-increasing selection.** The picker widens coverage into
    under-explored families/tags with **small, well-calibrated exploration
-   bonuses** layered on top of the EIG engine, and LLM generation is
+   bonuses** layered on top of the EIG engine, and challenge generation is
    *tag-directed* so new tasks land on uncovered areas.
 
 Non-goals: no knowledge graph; no new dependencies; no changes to the judge,
@@ -58,8 +59,8 @@ Rationale for the size:
 - A typical session is 5–12 questions. Fine tags must be coarse enough to
   accumulate evidence within a handful of sessions; a much finer vocabulary
   would leave most tag bars as pure priors.
-- The catalog is kept minimal (each seed covers multiple tags, §3.1), so the
-  vocabulary must be small enough for a small seed set to cover every tag.
+- Tags are covered by whatever tasks exist in the bank (§3), so the vocabulary
+  must be small enough for a practical task set to cover every tag.
 
 | Family | Fine tags |
 |---|---|
@@ -107,108 +108,58 @@ Notes on what was excluded and why:
 
 ---
 
-## 3. Builtin question bank
+## 3. Question bank (database as source of truth)
 
-### 3.1 Catalog
+### 3.1 The `tasks` table is the bank
 
-A curated, static catalog lives in **`coach/seed_bank.py`** as
-`SEED_CATALOG: list[SeedTask]`:
+There is **no code-embedded catalog**. All tasks live in the `tasks` table and
+are authored through the API:
 
-```
-SeedTask = {
-  "slug": "seed_softmax",            # stable id prefix
-  "prompt": "Write a numerically stable softmax...",
-  "scaffold": "def softmax(logits: list[float]) -> list[float]:\n    ...",
-  "difficulty": 1-5,
-  "max_score": 5,
-  "hints": [...],                    # optional, ordered
-  "tags": {"primary": "activation_normalization", "secondary": ["mlp", "loss_functions"]},
-  "task_type": "implement",
-  "context_notes": "…",              # REQUIRED, pre-authored, 2–4 sentences
-}
-```
+- `POST /api/v1/tasks` — any signed-in user creates a task (optional
+  `initial_question` on `POST /api/v1/sessions` for one-off prompts).
+- The curator UI ("My questions") — the same v1 API with a form + learner-view
+  preview.
+- The admin "Add question" form (`POST /admin/seeds`) — owner `system`,
+  `source="seed_admin"`, `is_public=1`.
 
-**Minimal, multi-tag catalog.** Target size **~24–30 tasks** (roughly 2–3 per
-family). Each seed task is authored as a **multi-tag exercise**: one primary tag
-(feeds the estimator) plus 0–2 secondary tags (extend coverage). The catalog
-covers **every family and every fine tag at least once** (counting primary +
-secondary) without a dedicated task per tag. A tag covered only as a secondary
-still counts as "covered" for selection and gap-filling; when the picker wants
-to drill such a tag, tag-directed generation mints a task with it as primary
-(§3.3).
+A fresh database starts with an empty bank; the admin/tasks rows are the
+question set until more are added. `create_schema()` never writes tasks and
+`reset_database()` preserves the task bank.
 
-Seed prompts are **code tasks** solvable with standard Python + NumPy in under
-~30 lines. Illustrative examples (the full catalog is ~24–30):
+A task may be a **code block**: one task-level `scaffold` covering related
+functions, with `parts: [{key, prompt, tags, max_score, difficulty}]` scored
+per part by the judge. Tasks link into **version chains** via
+`depends_on_task_id` / `version_root_id` (`version_index`); a successor
+modifies the predecessor's code and is judged against its own criteria with the
+predecessor's answer shown as `previous_code`.
 
-| Seed task (code) | primary tag | secondary tags |
-|---|---|---|
-| Numerically stable softmax + log-softmax | `dl_arch.activation_normalization` | `training.loss_functions` |
-| K-fold CV with stratification | `eval.cross_validation` | `data_etl.pandas_cleaning`, `stats_probability.bias_variance` |
-| Linear regression with R² | `ml_classical.linear_regression` | `stats_probability.bias_variance`, `eval.regression_metrics` |
-| K-Means (Lloyd's) + elbow check | `ml_classical.clustering_kmeans` | `data_etl.pandas_cleaning`, `eval.metrics_classification` |
-| PCA via SVD + variance explained | `ml_classical.dimensionality_reduction` | `feature_eng.scaling_encoding`, `data_etl.pandas_cleaning` |
-| Backprop for a 2-layer MLP | `training.backprop` | `dl_arch.mlp`, `optimization.gradient_descent_sgd` |
-| Scaled dot-product attention head | `dl_arch.attention_transformer` | `llm_genai.kv_cache` |
-| Retrieval + scoring over a small corpus | `llm_genai.rag_retrieval` | `data_etl.pandas_cleaning` |
-| Incremental attention with KV cache | `llm_genai.kv_cache` | `dl_arch.attention_transformer` |
-| Metrics + confusion matrix | `eval.metrics_classification` | `ml_classical.classification_logistic` |
-| Bootstrap CI for a statistic | `stats_probability.bootstrap_ci` | `data_etl.missing_outliers` |
-| Class-weighted oversampling | `feature_eng.imbalanced_classes` | `ml_classical.classification_logistic` |
-| z-score anomaly detector | `data_etl.missing_outliers` | `stats_probability.distributions` |
-| Cosine decay LR schedule | `training.lr_scheduling` | `optimization.gradient_descent_sgd` |
-| Thread-safe bounded queue | `python.data_structures` | `python.generators_iterators` |
-| int8 quantize + dequant | `llm_genai.quantization` | `mlops_serving.deployment_serving` |
-| PSI / KS drift score | `mlops_serving.monitoring_drift` | `eval.metrics_classification` |
-| Functional-style ETL pipeline | `python.functional` | `data_etl.pandas_cleaning`, `data_etl.joins_merges` |
+### 3.2 Task shape & tagging
 
-Every catalog entry ships a **pre-authored `context_notes` string** (no LLM
-call at seed time, §3.2).
+Every task carries `tags: {primary, secondary[]}` + `task_type`; every part
+carries its own tags too. `context_notes` (2–4 plain-English sentences) is
+generated once at creation by one combined LLM call
+(`describe_and_categorize`), with a deterministic no-API-key fallback, and is
+editable via `PATCH /api/v1/tasks/{id}`.
 
-Authoring rule enforced by review, not code: **every seed must be
-self-contained, deterministic, and gradeable by the existing code judge.**
+Authoring rule: every task must be self-contained, deterministic, and gradeable
+by the existing code judge. No hints (`coach/hints.py` was removed).
 
-### 3.2 Seeding (idempotent, hermetic, fast)
+### 3.3 Coverage & gap-filling
 
-- `seed_question_bank()` in `coach/tasks.py`, invoked from `create_schema()`
-  (startup) so it self-heals on fresh databases and in tests.
-- **No network and no model calls.** All `context_notes` are pre-authored in
-  the catalog. Seeding is a single batched transaction:
-  `INSERT OR IGNORE INTO tasks (...) VALUES (...), …` — one commit for the whole
-  catalog, not one transaction per task.
-- `task_id = f"seed_{slug}"`, `owner="system"`, `source="seed"`,
-  `is_public=1`. `INSERT OR IGNORE` is keyed on the primary key, so re-runs are
-  no-ops.
-- **A seed row edited by a human is never overwritten** — `INSERT OR IGNORE`
-  only inserts when the id is absent. To ship a content fix, bump the slug
-  (e.g. `seed_softmax_rev2`) so the corrected task is added alongside the
-  stale-but-human-edited one; the old row can be deprecated in a later cleanup.
-- Seeds are already visible to every candidate through `list_visible_tasks`
-  (`owner='system'` + `is_public=1`) — no visibility code change needed.
+Coverage is whatever the DB currently contains — there is no separate seed
+coverage report. Under-explored families/tags are reached at runtime: the
+picker's exploration bonuses steer the bank branch, and when the bank has no
+eligible task for an area the scope-widening challenge generates one
+(`plan_challenge(prefer_tag=...)`, §5). The picker excludes non-root version
+successors from the bank (successors only appear as follow-ups to their
+predecessor).
 
-### 3.3 Coverage report & gap-filling
+### 3.4 Generated tasks
 
-- `coverage_report()` returns, per family and per tag: seed count (a tag/family
-  counts as covered if it appears as **primary or secondary** on any seed), plus
-  per-candidate asked counts (from `task_attempts` joined on task tags). Used by
-  the admin UI and by the generator.
-- **Tag-directed generation** (the "gradually new tasks are generated" path):
-  - `generate_seed_task_for_tag(tag, difficulty) -> SeedTask` in
-    `coach/task_decomposer.py` — one Gemini call (reusing
-    `_FOLLOWUP_SCHEMA`-style JSON) returning a self-contained code task for that
-    exact tag, with the tag pre-attached as primary.
-  - A CLI/admin action `python -m coach.seed_bank --fill-gaps [--limit N]`
-    mints tasks for tags with **zero seed coverage** (or lowest coverage),
-    persisted as `source="seed_llm"`, `is_public=1`.
-  - Generated seeds are still judged normally; a human can PATCH them (owner is
-    system → admin only), and any human edit disables future auto-overwrites
-    via the idempotent insert.
-
-### 3.4 Per-session generated tasks
-
-Generated remediation drills/challenges inherit the root task's tags (see §6);
+Remediation drills and scope-widening challenges are `create_task`-persisted
+(`source="generated"`) and inherit the root task's tags (see §6);
 `plan_challenge` gains `prefer_family`/`prefer_tag` arguments so open-ended
-tasks expand scope. All generated tasks are `create_task`-persisted (already
-true) — now with tags, so re-asked tasks keep feeding the right beliefs.
+tasks expand scope. Re-asked tasks keep feeding the right beliefs.
 
 ---
 
@@ -270,7 +221,7 @@ Why read-time shrinkage instead of stateful cross-level seeding:
 ### 4.2 Pipeline on `POST /api/v1/sessions/{id}/answers`
 
 1. Resolve the task's primary tag `t` and family `f` (tasks always carry tags
-   now — seeds, user tasks via the combined LLM call in §6, generated tasks via
+   now — admin/user tasks via the combined LLM call in §6, generated tasks via
    inheritance).
 2. Compute `y` (hint-adjusted effective score) as today
    (`coach/score.py:effective_score`).
@@ -358,7 +309,6 @@ Guards & interactions:
 - `TaskCreateRequest` / `TaskPatchRequest` accept optional `tags`; explicit
   tags override LLM output; `PATCH` validates against the vocabulary (422 on
   unknown).
-- Seeds ship pre-tagged; `--fill-gaps` generation pre-attaches the target tag.
 - Generated remediation tasks inherit the root task's tags (`_build` in
   `coach/task_decomposer.py`); `generate_challenge_task` gains
   `prefer_family`/`prefer_tag`.
@@ -409,49 +359,46 @@ Guards & interactions:
   shape so the existing frontend store contract (`SubmitResponse` /
   `AbilityUpdate` in `frontend/src/api/client.ts`) stays valid.
 - `LearnerProgressView.tsx` renders per-family bars + tag chips from `mastery`.
-  Task bubbles show tag chips; the admin task list adds a tag column and a
-  coverage-report view.
+  Task bubbles show tag chips; the admin task list adds a tag column.
 
 ---
 
 ## 9. Files touched
 
 **New**
-- `coach/seed_bank.py` — `SEED_CATALOG` (pre-authored `context_notes`) +
-  `seed_question_bank()` + `coverage_report()` + `--fill-gaps` CLI.
-- `coach/taxonomy.py` — vocabulary (9 families / 36 tags), alias map,
+- `coach/taxonomy.py` — vocabulary (11 families / 46 tags), alias map,
   validation/lookup.
 - `coach/area_score.py` — per-level own-statistics updates + read-time
   shrinkage fold (§4.1) + read helpers.
 - `docs/builtin-question-bank-and-mastery-design-v3.md` — this doc.
 
 **Modified**
-- `coach/db.py` — `tags_json`/`task_type` columns; `level`/`key` on beliefs;
-  unique index; seed hook into `create_schema`; fix scalar belief lookups.
-- `coach/tasks.py` — tags in model/dict/CRUD, batched seed insert,
+- `coach/db.py` — `tags_json`/`task_type`/`parts_json`/version columns;
+  `level`/`key` on beliefs; unique index; fix scalar belief lookups.
+- `coach/tasks.py` — tags in model/dict/CRUD,
   `save_family_belief`/`save_tag_belief`/`get_area_beliefs`.
 - `coach/session.py` — `family_states`/`tag_states` serialize/restore;
   `task_view` emits tags/task_type.
 - `coach/task_decomposer.py` — combined `describe_task`+`categorize_task`,
-  `generate_seed_task_for_tag`, tag inheritance in `_build`,
-  `prefer_family`/`prefer_tag` in `generate_challenge_task`.
+  tag inheritance in `_build`, `prefer_family`/`prefer_tag` in
+  `generate_challenge_task`.
 - `coach/picker.py` — exploration terms + soft breadth penalty.
 - `coach/remediation.py` — least-covered family/tag selection in
   `plan_challenge`.
 - `backend/v1/schemas.py`, `backend/v1/tasks.py`, `backend/v1/sessions.py`.
 - `frontend/.../LearnerProgressView.tsx` (family bars + tag chips), task tag
-  chips, admin tag column + coverage report view.
+  chips, admin tag column.
+
+**Removed**
+- `coach/seed_bank.py` — the code-embedded catalog (`SEED_CATALOG`),
+  `seed_question_bank()`, `coverage_report()`, and the `--fill-gaps`/`--reset`
+  CLI. Tasks are DB-managed now.
 
 ---
 
 ## 10. Tests & verification
 
 Backend (`pytest`):
-- Seed bank: idempotent re-seed; admin-edited seeds not overwritten; batched
-  single-transaction insert; **catalog coverage** — every family and every fine
-  tag is covered by at least one seed task (primary or secondary);
-  coverage_report counts; `--fill-gaps` only touches zero-coverage tags;
-  **seeding runs with no API key and no network**.
 - Categorization: no-key fallback; combined-call shape; unknown tag rejected on
   create/PATCH.
 - Hierarchy: **order-invariance** (shuffle the same answer sequence → identical
@@ -465,8 +412,10 @@ Backend (`pytest`):
 - Migration: existing rows → `global/overall`; junk collapse; known-family rows
   survive; unique index present; scalar `get_skill_belief` returns the global
   row without `MultipleResultsFound`.
-- Round-trip: tags persist seed → user → generated through create/PATCH/list;
+- Round-trip: tags persist user → admin → generated through create/PATCH/list;
   `task_view` emits tags/task_type.
+- Reset: `reset_database()` wipes activity but preserves the task bank +
+  auth.
 
 Frontend: `npm test`, `npx tsc -b`, `npm run lint`.
 
@@ -479,12 +428,12 @@ Frontend: `npm test`, `npx tsc -b`, `npm run lint`.
    `level`/`key` + unique index; fix scalar lookups.
 3. `coach/area_score.py` per-level updates + read-time fold + tests
    (incl. order-invariance).
-4. `coach/tasks.py` + `coach/session.py` persistence/serialization + seed hook.
-5. `coach/seed_bank.py`: catalog (families-first, ~24–30 multi-tag tasks, all
-   pre-authored), batched seeding, coverage report, `--fill-gaps`; tests.
-6. Combined `categorize_task`/`describe_task` + `generate_seed_task_for_tag` +
-   API wiring.
+4. `coach/tasks.py` + `coach/session.py` persistence/serialization.
+5. Remove the code-embedded catalog (`coach/seed_bank.py`): the `tasks` table
+   becomes the source of truth; `create_schema()` stops writing tasks and
+   `reset_database()` preserves them.
+6. Combined `categorize_task`/`describe_task` + API wiring.
 7. Picker exploration + soft breadth penalty + `prefer_tag` challenge
    targeting; tests.
-8. Frontend: progress per-family bars + tag chips + admin coverage view.
+8. Frontend: progress per-family bars + tag chips + admin task list.
 9. Full test/lint/typecheck pass; update `AGENTS.md` notes.

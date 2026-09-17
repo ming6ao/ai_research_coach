@@ -11,14 +11,14 @@ exactly one family (``TAG_TO_FAMILY``); no tag maps to more than one family.
 
 ``validate`` is the server-side gate: unknown tags are rejected (422 on
 create/PATCH). Only the primary tag feeds the belief estimator; secondary
-tags contribute to coverage reporting and task diversity only.
+tags contribute to task diversity only.
 """
 
 from __future__ import annotations
 
 # Families (11) -> fine tags (46). The vocabulary is deliberately limited to
-# code-gradable ML/AI topics; each seed task is authored as a multi-tag
-# exercise so a small catalog covers every family and every fine tag.
+# code-gradable ML/AI topics; tasks are authored so the bank covers every
+# family and every fine tag (the DB is the source of truth for tasks).
 FAMILIES: list[str] = [
     "python",
     "data_etl",

@@ -58,12 +58,11 @@ def taxonomy(user: dict = Depends(_require_admin)):
 
 @admin_router.post("/seeds", summary="Create an admin-authored seed question")
 def create_seed(req: AdminSeedCreateRequest, user: dict = Depends(_require_admin)):
-    """Persist a new builtin-style seed task (owner ``system``, public).
+    """Persist a new public system-authored task (owner ``system``).
 
-    Admin-authored seeds use ``source="seed_admin"`` so they are never
-    touched by stale-seed cleanup (which only targets ``source="seed"``).
-    They are runtime-only: a DB reset re-bootstraps the bank from the code
-    catalog and wipes them.
+    The task bank lives in the database, so admin-authored questions are just
+    ``tasks`` rows created through this API (``source="seed_admin"``) — there
+    is no code catalog to stay in sync with.
     """
     from coach.tasks import SYSTEM_OWNER, create_task
     from coach.taxonomy import validate as validate_tags
@@ -106,14 +105,6 @@ def list_tables(user: dict = Depends(_require_admin)):
     from coach.admin_tables import list_tables as _list_tables
 
     return {"tables": _list_tables()}
-
-
-@admin_router.get("/coverage", summary="Seed + per-candidate coverage report")
-def coverage_report_endpoint(user: dict = Depends(_require_admin)):
-    """Per-family/per-tag seed coverage + per-candidate asked counts."""
-    from coach.seed_bank import coverage_report
-
-    return {"data": coverage_report()}
 
 
 @admin_router.get("/table/{table_name}")
@@ -203,31 +194,15 @@ def reset_preview(user: dict = Depends(_require_admin)):
 
 @admin_router.post("/reset")
 def reset_database_endpoint(user: dict = Depends(_require_admin)):
-    """Wipe app data and re-bootstrap the question bank from SEED_CATALOG.
+    """Wipe activity/progress data; preserve identity/auth and the task bank.
 
-    Deletes sessions, steps, beliefs, shares, and tasks (users/auth tokens
-    preserved), then re-seeds the builtin catalog so the DB is in sync with
-    the code. Admin-only.
+    Deletes sessions, steps, beliefs, and shares (users/auth tokens and the
+    ``tasks`` table are preserved — the DB is the source of truth for
+    questions). Admin-only.
     """
     from coach.db import reset_database
 
     return {"ok": True, **reset_database(preview=False)}
-
-
-@admin_router.get("/stale-seeds/preview")
-def stale_seeds_preview(user: dict = Depends(_require_admin)):
-    """Dry-run: which stale seed rows + their dependents would be deleted."""
-    from coach.admin import stale_seed_cleanup
-
-    return {"ok": True, **stale_seed_cleanup(preview=True)}
-
-
-@admin_router.delete("/stale-seeds")
-def stale_seeds_delete(user: dict = Depends(_require_admin)):
-    """Delete stale seed rows and everything referencing them (admin-only)."""
-    from coach.admin import stale_seed_cleanup
-
-    return {"ok": True, **stale_seed_cleanup(preview=False)}
 
 
 @admin_router.get("/guest-data/preview")

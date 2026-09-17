@@ -30,8 +30,6 @@ export function maskSensitive(table: string, column: string, value: unknown): st
 export function sourceBadgeClasses(value: unknown): string {
   const v = String(value ?? '');
   const palette: Record<string, string> = {
-    seed: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500',
-    seed_llm: 'border-sky-500/40 bg-sky-500/10 text-sky-500',
     generated: 'border-amber-500/40 bg-amber-500/10 text-amber-500',
     user: 'border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-500',
   };

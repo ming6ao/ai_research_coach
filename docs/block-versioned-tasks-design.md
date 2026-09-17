@@ -42,42 +42,29 @@ fallback `def {key}(*args): ...`). Empty `parts` = legacy single-question task
 (used by generated/remediation tasks; treated as one implicit part at
 judge/belief time).
 
-Migration: `seed_question_bank` additionally deletes `source='seed'` rows whose
-id is not in the new catalog, so no manual `--reset` is required.
+Tasks are authored directly in the database (there is no code-embedded catalog):
+blocks and version chains are created through `create_task` with `parts` and
+the version fields, surfaced in `POST /api/v1/tasks`, the curator UI, and the
+admin "Add question" form.
 
-## 2. Seed catalog restructure (`coach/seed_bank.py`)
+## 2. Blocks & version chains in the DB (no code catalog)
 
-`SEED_CATALOG` entries become blocks (no `cluster`/`followups`/`hints`); the
-~30 seeds regroup into **13 blocks + 3 versioned chains**. Multi-function
-prompts (softmax+log_softmax, quantize+dequantize) split into one part per
-function. Parts keep their original tags so the union still covers all 46 fine
-tags / 11 families (enforced by the existing coverage test).
+Blocks and version chains are ordinary `tasks` rows — the DB is the source of
+truth. A block is one task-level `scaffold` over a set of functions (`parts`),
+and a version chain links successor rows via `depends_on_task_id` (each
+successor modifies the predecessor's code). `create_task` resolves the chain
+root and `version_index` automatically when `depends_on_task_id` is set.
 
-| Block | Parts | Versions |
+| Example chain | Parts | Versions |
 |---|---|---|
-| `transformer_decode` | softmax, log_softmax, attention, kv_cache | v1 implement; **v2 add causal `mask` param to attention** |
+| `transformer_decode` | softmax, log_softmax, attention, kv_cache | v1 implement; v2 add causal `mask` param to attention |
 | `training_step` | bp_step, adam_step, lr_at_step | single |
-| `regression_fit` | fit_linear, ridge_gd | v1 OLS; **v2 add ridge regularization + overfitting check** |
-| `model_selection` | stratified_kfold_splits, grid_search | single |
-| `classifier_prep` | balance_by_oversampling, knn_predict | single |
-| `dim_reduction` | pca, kmeans | single |
-| `tree_interpretability` | best_gini_split, permutation_importance | single |
-| `generalization_monitoring` | drift_scores, zscore_anomalies | single |
-| `stats_inference` | bootstrap_ci, ttest | single |
-| `llm_lifecycle` | bpe_merge, retrieve, finetune_head, quantize_int8/dequantize_int8 | single |
-| `deep_architectures` | conv2d_single, lstm_cell | single |
-| `data_pipeline` | etl_pipeline, BoundedQueue | **v1 plain bounded queue; v2 thread-safe (Lock + Conditions, block on full/empty)** |
-| `eval_metrics` | binary_metrics, train_test_gap | single |
+| `regression_fit` | fit_linear, ridge_gd | v1 OLS; v2 add ridge regularization + overfitting check |
+| `data_pipeline` | etl_pipeline, BoundedQueue | v1 plain bounded queue; v2 thread-safe (Lock + Conditions, block on full/empty) |
 
-Every catalog function appears in exactly one block: the 30 seed rows' 32
-functions partition cleanly into these 13 blocks (a function is never shared
-across blocks, so coverage and `depends_on_task_id` lookups stay unambiguous).
-The three functions that straddled blocks in earlier drafts now land in a
-single block each: `binary_metrics` and `train_test_gap` in `eval_metrics`,
-`drift_scores` in `generalization_monitoring`.
-
-Versioned successors are separate catalog entries with slug suffixes
-(`thread_queue`, `thread_queue_safe`, …) linked via `depends_on_task_id`.
+Every function appears in exactly one block, so coverage and
+`depends_on_task_id` lookups stay unambiguous. Versioned successors are
+separate rows linked via `depends_on_task_id`.
 
 ## 3. Backend changes
 
@@ -145,15 +132,15 @@ Versioned successors are separate catalog entries with slug suffixes
 ## 5. Tests & docs
 
 - Delete `test_hints.py`, `test_curated_followups.py`.
-- Rewrite `test_seed_bank.py`, `test_admin_tables.py`, `test_reset.py`
-  (parts/versions, no hints/cluster/followups).
+- Rewrite `test_admin_tables.py`, `test_reset.py` (parts/versions, no
+  hints/cluster/followups; reset preserves the task bank).
 - Update `test_score.py`, `test_remediation.py`, `test_tasks_db.py`,
   `test_assessment_flow.py`, `test_picker*.py` for hint removal.
 - New tests: judge per-part schema; per-part belief updates;
   `_version_successor` ordering + code carry-forward into `task_view` and judge
   context; scaffold auto-composition; parts validation.
 - Update `AGENTS.md` (remove hints/followups/cluster; document parts + version
-  chains + per-part scoring).
+  chains + per-part scoring + DB-managed task bank).
 
 ## 6. Execution order
 
@@ -162,8 +149,7 @@ Versioned successors are separate catalog entries with slug suffixes
 3. `coach/session.py`, `coach/selection.py`, `coach/picker.py`
 4. `backend/v1/schemas.py`, `backend/v1/tasks.py`, `backend/v1/sessions.py`,
    `backend/admin_routes.py`, `coach/admin_tables.py`
-5. `coach/seed_bank.py` (restructure catalog + versioned chains)
-6. `coach/remediation.py`, `coach/task_decomposer.py`, `coach/solvability.py`,
+5. `coach/remediation.py`, `coach/task_decomposer.py`, `coach/solvability.py`,
    `coach/steps.py`, `coach/shares.py`
-7. Frontend: `client.ts`, `ChatView.tsx`, `NewSeedForm.tsx`, store
-8. Tests + `AGENTS.md`
+6. Frontend: `client.ts`, `ChatView.tsx`, `NewSeedForm.tsx`, store
+7. Tests + `AGENTS.md`

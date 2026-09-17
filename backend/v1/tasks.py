@@ -40,7 +40,7 @@ def list_tasks(
 ):
     from coach.tasks import list_visible_tasks
 
-    # Guests without a stable id list as system: seed + public tasks.
+    # Guests without a stable id list as system: public + own-visible tasks.
     candidate = user["email"] if user is not None else "system"
     tasks = list_visible_tasks(candidate)
     if q and q.strip():

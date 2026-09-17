@@ -1,6 +1,6 @@
 """Per-task plain-English context + follow-up task generation.
 
-The knowledge graph is gone. Each task optionally carries ``context_notes``:
+Each task optionally carries ``context_notes``:
 2-4 plain sentences such as "A is a prerequisite of B, which is often
 confused with C." Produced once by an LLM at creation time (empty string
 on failure keeps startup/tests hermetic). Follow-up generation takes the
@@ -156,34 +156,6 @@ _COMBINED_SCHEMA = types.Schema(
     },
     required=["context_notes", "primary_tag", "secondary_tag"],
 )
-
-_SEED_GEN_SYSTEM_PROMPT = """\
-You are a question author for an ML practice app. Create ONE self-contained, \
-deterministic Python coding task that tests the requested tag, solvable with \
-standard Python + NumPy in under ~30 lines. It must be gradeable by executing \
-the candidate's code with hidden tests.
-
-Return JSON with exactly four keys:
-  "prompt": the task prompt (2-6 sentences, self-contained, with a clear \
-    function signature or spec). Do not reveal the answer.
-  "scaffold": a Python code stub for the candidate to fill in (the exact \
-    function signature from the prompt, with a TODO comment and a `pass` \
-    body — never the solution).
-  "difficulty": an integer in [1, 5].
-  "context_notes": 2-4 plain English sentences describing prerequisites and \
-    common confusions for this task."""
-
-_SEED_GEN_SCHEMA = types.Schema(
-    type=types.Type.OBJECT,
-    properties={
-        "prompt": types.Schema(type=types.Type.STRING),
-        "scaffold": types.Schema(type=types.Type.STRING),
-        "difficulty": types.Schema(type=types.Type.INTEGER),
-        "context_notes": types.Schema(type=types.Type.STRING),
-    },
-    required=["prompt", "difficulty"],
-)
-
 
 def _scaffold_for(prompt: str, original_task: dict | None) -> str | None:
     """Derive a fill-in stub when the model omits ``scaffold``.
@@ -484,71 +456,6 @@ class TaskDecomposer:
             logger.error("[challenge] raw model response: %r", raw[:2000])
             raise RuntimeError(
                 f"Challenge generation failed: {type(exc).__name__}: {exc}; "
-                f"raw response: {raw[:2000]!r}"
-            ) from exc
-
-    def generate_seed_task_for_tag(self, tag: str, difficulty: int = 2) -> dict:
-        """Generate a self-contained code task for an exact tag (LLM).
-
-        Used by ``python -m coach.seed_bank --fill-gaps`` to mint tasks for
-        tags with zero/lowest seed coverage. The tag is pre-attached as the
-        primary tag. Returns a SeedTask-shaped dict
-        (``prompt/scaffold/difficulty/max_score/tags/task_type/context_notes``).
-
-        Raises ``RuntimeError`` when the API key is missing or generation
-        fails (the CLI surfaces the error and moves on).
-        """
-        import os
-
-        from coach.taxonomy import validate as validate_tags
-
-        difficulty = max(1, min(5, int(difficulty)))
-        if not os.getenv("GOOGLE_API_KEY"):
-            reason = "missing GOOGLE_API_KEY"
-            logger.error("[seed-gen] %s, cannot generate task for tag=%s", reason, tag)
-            raise RuntimeError(f"Seed task generation failed: {reason}")
-        raw = ""
-        try:
-            client = self._client()
-            body = (
-                f"Target tag: {tag}\n"
-                f"Desired difficulty (1-5): {difficulty}\n"
-                "Create ONE coding task that directly tests this tag, "
-                "self-contained with a clear function signature, plus a "
-                "'scaffold' Python stub (TODO + pass, no solution) and "
-                "2-4 sentences of 'context_notes'. Do not reveal the answer."
-            )
-            resp = client.models.generate_content(
-                model=self._model,
-                contents=body,
-                config={
-                    "system_instruction": _SEED_GEN_SYSTEM_PROMPT,
-                    "response_mime_type": "application/json",
-                    "response_schema": _SEED_GEN_SCHEMA,
-                },
-            )
-            raw = getattr(resp, "text", "") or ""
-            payload = json.loads(raw)
-            prompt = str(payload.get("prompt") or "").strip()
-            if not prompt:
-                raise ValueError(f"empty seed prompt in model response: {raw[:2000]!r}")
-            llm_difficulty = int(payload.get("difficulty", difficulty))
-            difficulty = max(1, min(5, llm_difficulty or difficulty))
-            scaffold = str(payload.get("scaffold") or "").strip() or _scaffold_for(prompt, None)
-            return {
-                "prompt": prompt,
-                "scaffold": scaffold,
-                "difficulty": difficulty,
-                "max_score": 5,
-                "tags": validate_tags({"primary": tag, "secondary": []}),
-                "task_type": "implement",
-                "context_notes": str(payload.get("context_notes") or "").strip()[:2000],
-            }
-        except Exception as exc:
-            logger.exception("[seed-gen] LLM generation failed (%s: %s)", type(exc).__name__, exc)
-            logger.error("[seed-gen] raw model response: %r", raw[:2000])
-            raise RuntimeError(
-                f"Seed task generation failed: {type(exc).__name__}: {exc}; "
                 f"raw response: {raw[:2000]!r}"
             ) from exc
 

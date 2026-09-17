@@ -19,11 +19,15 @@ export function CuratorView({ onClose, initialTaskId = null, adminMode = false }
   const [editing, setEditing] = useState<CuratorTask | null>(null);
   const [creating, setCreating] = useState(false);
 
-  const load = async (needle: string, pageSize = 200) => {
+  const load = async (needle: string, pageSize = 100) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiClient.myTasks({ q: needle || undefined, page: 1, page_size: pageSize });
+      const res = await apiClient.myTasks({
+        q: needle || undefined,
+        page: 1,
+        page_size: Math.min(100, Math.max(1, pageSize)),
+      });
       setTasks(res.tasks);
       setTotal(res.total);
     } catch (e) {

@@ -43,10 +43,8 @@ def _seed(client_admin_headers):
 
 
 def _seed_task_count():
-    """Total tasks expected in the DB: builtin catalog + the _seed() rows."""
-    from coach.seed_bank import SEED_CATALOG
-
-    return len(SEED_CATALOG) + 4
+    """Total tasks expected in the DB: the _seed() rows only (no code catalog)."""
+    return 4
 
 
 def test_table_endpoints_require_auth(client):
@@ -56,8 +54,6 @@ def test_table_endpoints_require_auth(client):
 
 
 def test_reset_endpoints_require_admin(client):
-    from coach.seed_bank import SEED_CATALOG
-
     user = _login("mallory@x.com")
     _seed(_h(user))
     # Non-admin gets 403.
@@ -65,25 +61,26 @@ def test_reset_endpoints_require_admin(client):
     assert client.post("/admin/reset", headers=_h(user)).status_code == 403
 
     admin = _login(ADMIN)
-    # Dry-run preview reports the app-data rows (users/auth not listed as wiped).
+    # Dry-run preview reports the activity rows (users/auth/tasks not wiped).
     preview = client.get("/admin/reset/preview", headers=_h(admin)).json()
     assert preview["preview"] is True
     assert "users" not in preview["wiped"]
+    assert "tasks" not in preview["wiped"]  # task bank is preserved
     assert preview["total_deleted"] > 0
 
-    # The real reset wipes app data, keeps the catalog + auth.
+    # The real reset wipes activity but keeps the task bank + auth.
     res = client.post("/admin/reset", headers=_h(admin))
     assert res.status_code == 200
     body = res.json()
     assert body["preview"] is False
-    assert body["seeded"] == len(SEED_CATALOG)
     assert body["wiped"]["active_sessions"] == 1  # the _seed() session
     assert body["wiped"]["session_steps"] == 1
+    assert "tasks" in body["preserved"]
     tasks_meta = next(
         t for t in client.get("/admin/tables", headers=_h(admin)).json()["tables"]
         if t["name"] == "tasks"
     )
-    assert tasks_meta["count"] == len(SEED_CATALOG)
+    assert tasks_meta["count"] == 4  # task bank survived the reset
     # Auth survived the reset.
     assert client.get("/admin/whoami", headers=_h(admin)).json()["is_admin"] is True
 
@@ -130,30 +127,43 @@ def test_tasks_registry_exposes_parts_and_version_fields(client):
     assert {"parts_json", "version_index", "depends_on_task_id", "version_root_id"} <= cols
     assert not ({"hints_json", "cluster_id", "followups_json"} & cols)
 
-    # A block seed carries parts and a successor carries version links.
+    # A block task carries parts and a successor carries version links.
+    block = create_task(
+        prompt="Block task?",
+        owner="alice@x.com",
+        task_id="block_01",
+        parts=[{"key": "f", "prompt": "def f(): ...", "tags": {"primary": "python"},
+                "max_score": 5, "difficulty": 2}],
+    )
+    create_task(
+        prompt="Successor task?",
+        owner="alice@x.com",
+        task_id="block_01_v2",
+        depends_on_task_id="block_01",
+    )
     rows = client.get("/admin/table/tasks?page_size=100", headers=headers).json()["rows"]
-    block_row = next(r for r in rows if r["id"] == "seed_transformer_decode")
-    assert '"key": "softmax"' in block_row["parts_json"]
-    successor_row = next(r for r in rows if r["id"] == "seed_transformer_decode_mask")
+    block_row = next(r for r in rows if r["id"] == "block_01")
+    assert '"key": "f"' in block_row["parts_json"]
+    successor_row = next(r for r in rows if r["id"] == "block_01_v2")
     assert successor_row["version_index"] == 2
-    assert successor_row["depends_on_task_id"] == "seed_transformer_decode"
+    assert successor_row["depends_on_task_id"] == "block_01"
 
-    detail = client.get("/admin/table/tasks/seed_transformer_decode", headers=headers).json()
-    assert '"key": "attention"' in detail["row"]["parts_json"]
+    detail = client.get("/admin/table/tasks/block_01", headers=headers).json()
+    assert '"key": "f"' in detail["row"]["parts_json"]
 
     # Editable through the admin API (parts validated, version fields writable).
     created = create_task(
         prompt="New task?", owner="alice@x.com",
-        parts=[{"key": "f", "prompt": "def f(): ...", "tags": {"primary": "python"},
+        parts=[{"key": "g", "prompt": "def g(): ...", "tags": {"primary": "python"},
                 "max_score": 5, "difficulty": 2}],
     )
     res = client.patch(
         f"/admin/table/tasks/{created['id']}",
-        json={"depends_on_task_id": "seed_transformer_decode", "version_index": 2},
+        json={"depends_on_task_id": "block_01", "version_index": 2},
         headers=headers,
     )
     assert res.status_code == 200
-    assert res.json()["row"]["depends_on_task_id"] == "seed_transformer_decode"
+    assert res.json()["row"]["depends_on_task_id"] == "block_01"
     assert res.json()["row"]["version_index"] == 2
 
     bad = client.patch(

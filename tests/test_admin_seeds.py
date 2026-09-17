@@ -62,7 +62,6 @@ def test_taxonomy_endpoint(client):
 
 def test_admin_creates_seed(client):
     from coach.tasks import get_task
-    from coach.seed_bank import coverage_report
 
     admin = _login(ADMIN)
     res = client.post("/admin/seeds", json=_seed_payload(), headers=_h(admin))
@@ -78,11 +77,6 @@ def test_admin_creates_seed(client):
     stored = get_task(task["id"])
     assert stored["owner"] == "system"
     assert stored["source"] == "seed_admin"
-
-    # Admin seed shows up in the coverage report (seed / seed_llm / seed_admin).
-    report = coverage_report()
-    assert task["id"] in report["tags"]["data_structures"]["seed_tasks"]
-    assert task["id"] in report["tags"]["functional"]["seed_tasks"]
 
     # Visible to any candidate (public system-owned row).
     alice = _login("alice@x.com")

@@ -1,7 +1,8 @@
-"""DB-backed task bank: user-created questions + seeded tasks + attempt log.
+"""DB-backed task bank: user/admin-created questions + LLM-generated tasks.
 
 Tasks live in the shared SQLite file (``data/coach.db``) via the SQLAlchemy
-``Base`` in ``coach.db``.
+``Base`` in ``coach.db`` — the database is the source of truth for tasks
+(there is no code-embedded catalog).
 
 Each task optionally carries ``context_notes``: 2-4 plain-English sentences
 generated once at creation time. There is no knowledge graph, no nodes/edges,
@@ -15,7 +16,7 @@ hints. Tasks can be linked into **version chains** via ``depends_on_task_id`` /
 on its own criteria, with the predecessor's submitted answer carried forward
 as context.
 
-Visibility: a candidate sees system seed rows (``owner='system'``,
+Visibility: a candidate sees public system rows (``owner='system'``,
 ``is_public=1``), their own rows, and any public rows. Guests create
 public rows (per product decision); signed-in users create private rows
 by default with an opt-in ``is_public`` flag.
@@ -482,8 +483,8 @@ def record_attempt(
     """Record a scored attempt as a ``session_steps`` row (compat shim).
 
     ``session_id`` is optional (legacy callers); a synthetic episode id is
-    used so rows stay unique under ``uq_session_steps``. Coverage/admin
-    aggregate by candidate so a step without a real episode is still counted.
+    used so rows stay unique under ``uq_session_steps``. Admin
+    aggregation is by candidate, so a step without a real episode is still counted.
     ``hints_used`` is accepted for legacy callers but always stored as ``[]``.
     """
     from coach.steps import insert_step

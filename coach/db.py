@@ -94,9 +94,10 @@ _DROPPED_TASK_COLUMNS = (
     "skill", "hints_json", "cluster_id", "followups_json",
 )
 
-# Tables reset_database() wipes (learner/app data) vs. preserves (identity/auth).
-_WIPED_TABLES = ("tasks", "session_steps", "user_skill_beliefs", "active_sessions", "trajectory_shares")
-_PRESERVED_TABLES = ("users", "auth_tokens", "oauth_states")
+# Tables reset_database() wipes (activity/progress) vs. preserves (identity/auth
+# and the task bank — the DB is the source of truth for tasks).
+_WIPED_TABLES = ("session_steps", "user_skill_beliefs", "active_sessions", "trajectory_shares")
+_PRESERVED_TABLES = ("users", "auth_tokens", "oauth_states", "tasks")
 
 
 # Process-local guard so per-request create_schema()/sqlite_conn() calls only
@@ -337,16 +338,8 @@ def create_schema():
                 conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN version_root_id TEXT")
         except Exception:
             pass
-    # Seed the builtin question bank (idempotent, hermetic: no network/model
-    # calls). Runs once per DB file; failures never break startup.
     with _schema_lock:
         _schema_done.add(key)
-    try:
-        from coach.seed_bank import seed_question_bank
-
-        seed_question_bank()
-    except Exception:
-        pass
     # Backfill session_steps from legacy JSON blobs (deterministic replay) so
     # old sessions become exportable episodes. Best-effort.
     try:
@@ -405,17 +398,16 @@ def learner_session() -> Session:
 
 
 def reset_database(preview: bool = False) -> dict:
-    """Wipe app data and re-bootstrap the question bank from SEED_CATALOG.
+    """Wipe activity/progress data; preserve identity/auth and the task bank.
 
-    Deletes every row from the learner/app tables (``tasks``,
-    ``session_steps``, ``user_skill_beliefs``, ``active_sessions``,
-    ``trajectory_shares``) so the DB is re-synced from the builtin catalog.
-    Identity/auth tables (``users``, ``auth_tokens``, ``oauth_states``) are
-    preserved, so signed-in users do not need to re-authenticate.
+    Deletes every row from the activity tables (``session_steps``,
+    ``user_skill_beliefs``, ``active_sessions``, ``trajectory_shares``). The
+    task bank (``tasks``) and identity/auth tables (``users``,
+    ``auth_tokens``, ``oauth_states``) are preserved: the DB is the source of
+    truth for tasks, so a reset never destroys questions.
 
-    ``preview=True`` returns per-table row counts without mutating anything.
-    The execute path clears the in-process schema/seed guard so the catalog
-    is re-seeded, then returns the deleted counts plus the seed count.
+    ``preview=True`` returns per-table row counts without mutating anything;
+    ``preview=False`` deletes the rows and returns what was removed.
     """
     create_schema()
     with sqlite_conn() as conn:
@@ -435,16 +427,10 @@ def reset_database(preview: bool = False) -> dict:
             cur = conn.execute(f"DELETE FROM {table}")
             deleted[table] = cur.rowcount or 0
         conn.commit()
-    # Force DDL + seed to re-run so the catalog lands fresh in this process.
-    with _schema_lock:
-        _schema_done.clear()
-    create_schema()
-    from coach.seed_bank import SEED_CATALOG
 
     return {
         "preview": False,
         "wiped": deleted,
         "total_deleted": sum(deleted.values()),
         "preserved": list(_PRESERVED_TABLES),
-        "seeded": len(SEED_CATALOG),
     }

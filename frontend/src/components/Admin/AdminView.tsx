@@ -12,7 +12,6 @@ import {
 import { useAdminTable } from './useAdminTable';
 import { RowGrid } from './RowGrid';
 import { DetailPane } from './DetailPane';
-import { CoverageView } from './CoverageView';
 import { NewSeedForm } from './NewSeedForm';
 
 interface Props {
@@ -45,12 +44,10 @@ export function AdminView({ onClose, onOpenTask }: Props) {
   const [editing, setEditing] = useState<Record<string, string> | null>(null);
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [showCoverage, setShowCoverage] = useState(false);
   const [showNewSeed, setShowNewSeed] = useState(false);
 
   const switchTable = (name: string) => {
     table.switchTable(name);
-    setShowCoverage(false);
     setShowNewSeed(false);
     setDetail(null);
     setDetailId(null);
@@ -125,7 +122,7 @@ export function AdminView({ onClose, onOpenTask }: Props) {
     }
   };
 
-  const syncDb = async () => {
+  const resetActivity = async () => {
     setError(null);
     try {
       const preview = await apiClient.adminResetPreview();
@@ -134,14 +131,12 @@ export function AdminView({ onClose, onOpenTask }: Props) {
         .map(([t, n]) => `${t} (${n})`)
         .join(', ');
       const prompt = wiped
-        ? `Reset app data to match the seed catalog?\n\nWipes ${preview.total_deleted} rows: ${wiped}.\nUsers and auth tokens are kept. Re-seed the builtin bank.\nThis cannot be undone.`
-        : `Database is already in sync (0 rows to wipe). Re-seed the builtin bank anyway?`;
+        ? `Reset activity data?\n\nWipes ${preview.total_deleted} rows: ${wiped}.\nUsers, auth tokens, and the task bank are kept.\nThis cannot be undone.`
+        : `No activity rows to wipe. Reset anyway?`;
       if (!window.confirm(prompt)) return;
       setResetting(true);
       const res = await apiClient.adminReset();
-      setNotice(
-        `DB synced: deleted ${res.total_deleted} rows, ${res.seeded ?? 0} seed tasks in sync.`,
-      );
+      setNotice(`Activity reset: deleted ${res.total_deleted} rows. Tasks and auth preserved.`);
       setDetail(null);
       setDetailId(null);
       setEditing(null);
@@ -202,7 +197,6 @@ export function AdminView({ onClose, onOpenTask }: Props) {
           <button
             onClick={() => {
               setShowNewSeed(true);
-              setShowCoverage(false);
               setDetail(null);
               setDetailId(null);
               setEditing(null);
@@ -212,11 +206,11 @@ export function AdminView({ onClose, onOpenTask }: Props) {
             Add question
           </button>
           <button
-            onClick={() => void syncDb()}
+            onClick={() => void resetActivity()}
             disabled={resetting}
             className="rounded-lg border border-[var(--color-border-default)] px-3 py-1.5 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] disabled:opacity-50"
           >
-            {resetting ? 'Syncing…' : 'Sync DB'}
+            {resetting ? 'Resetting…' : 'Reset activity'}
           </button>
           <button
             onClick={onClose}
@@ -228,28 +222,12 @@ export function AdminView({ onClose, onOpenTask }: Props) {
       </div>
 
       <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--color-border-default)] px-3 pt-2">
-        <button
-          onClick={() => {
-            setShowCoverage(true);
-            setShowNewSeed(false);
-            setDetail(null);
-            setDetailId(null);
-            setEditing(null);
-          }}
-          className={`whitespace-nowrap rounded-t-lg px-3 py-1.5 text-xs font-medium ${
-            showCoverage
-              ? 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)]'
-              : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
-          }`}
-        >
-          coverage
-        </button>
         {tables.map((t) => (
           <button
             key={t.name}
             onClick={() => switchTable(t.name)}
             className={`whitespace-nowrap rounded-t-lg px-3 py-1.5 text-xs font-medium ${
-              t.name === activeTable && !showCoverage
+              t.name === activeTable
                 ? 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)]'
                 : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
             }`}
@@ -302,60 +280,54 @@ export function AdminView({ onClose, onOpenTask }: Props) {
       )}
 
       <div className="flex min-h-0 flex-1">
-        {showCoverage ? (
-          <CoverageView onError={setError} />
-        ) : (
-          <>
-            <RowGrid
-              meta={meta}
-              rows={table.rows}
-              loading={table.loading}
-              total={table.total}
-              pages={table.pages}
-              query={query}
-              setQuery={setQuery}
-              activeTable={activeTable}
-              detailId={detailId}
-              onOpenDetail={openDetail}
-              onDeleteRow={deleteRow}
-              onSort={table.setSort}
-            />
+        <RowGrid
+          meta={meta}
+          rows={table.rows}
+          loading={table.loading}
+          total={table.total}
+          pages={table.pages}
+          query={query}
+          setQuery={setQuery}
+          activeTable={activeTable}
+          detailId={detailId}
+          onOpenDetail={openDetail}
+          onDeleteRow={deleteRow}
+          onSort={table.setSort}
+        />
 
-            {detail && (
-              <DetailPane
-                detail={detail}
-                editableCols={editableCols}
-                editing={editing}
-                setEditing={setEditing}
-                saving={saving}
-                onStartEdit={startEdit}
-                onSaveEdit={saveEdit}
-                onOpenEditor={
-                  onOpenTask && activeTable === 'tasks'
-                    ? (row) => onOpenTask(String(row[meta?.pk ?? 'id'] ?? ''))
-                    : undefined
-                }
-                onClose={() => {
-                  setDetail(null);
-                  setDetailId(null);
-                  setEditing(null);
-                }}
-                onDelete={deleteRow}
-              />
-            )}
+        {detail && (
+          <DetailPane
+            detail={detail}
+            editableCols={editableCols}
+            editing={editing}
+            setEditing={setEditing}
+            saving={saving}
+            onStartEdit={startEdit}
+            onSaveEdit={saveEdit}
+            onOpenEditor={
+              onOpenTask && activeTable === 'tasks'
+                ? (row) => onOpenTask(String(row[meta?.pk ?? 'id'] ?? ''))
+                : undefined
+            }
+            onClose={() => {
+              setDetail(null);
+              setDetailId(null);
+              setEditing(null);
+            }}
+            onDelete={deleteRow}
+          />
+        )}
 
-            {showNewSeed && (
-              <NewSeedForm
-                onCreated={(taskId) => {
-                  setShowNewSeed(false);
-                  setNotice(`Created seed ${taskId}.`);
-                  void loadRows(activeTable, query);
-                }}
-                onClose={() => setShowNewSeed(false)}
-                onError={setError}
-              />
-            )}
-          </>
+        {showNewSeed && (
+          <NewSeedForm
+            onCreated={(taskId) => {
+              setShowNewSeed(false);
+              setNotice(`Created seed ${taskId}.`);
+              void loadRows(activeTable, query);
+            }}
+            onClose={() => setShowNewSeed(false)}
+            onError={setError}
+          />
         )}
       </div>
     </div>
