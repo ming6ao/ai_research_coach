@@ -351,6 +351,33 @@ export interface AdminSeedCreate {
   version_root_id?: string;
 }
 
+/** Curator-owned task record: full serialized task (owner + attempt stats). */
+export interface CuratorTask extends Task {
+  owner: string;
+  source: string;
+  is_public: boolean;
+  attempt_count?: number;
+  created_at?: string;
+}
+
+export interface TaskCreateBody {
+  prompt: string;
+  scaffold?: string;
+  difficulty?: number;
+  max_score?: number;
+  parts?: TaskPart[];
+  is_public?: boolean;
+  context_notes?: string;
+  tags?: { primary: string; secondary: string[] };
+  task_type?: string;
+  version_index?: number;
+  depends_on_task_id?: string;
+  version_root_id?: string;
+  owner?: string;
+}
+
+export type TaskPatchBody = Partial<TaskCreateBody>;
+
 const ADMIN_BASE = '/admin';
 
 async function adminApi<T>(path: string, body?: unknown, method?: string): Promise<T> {
@@ -430,6 +457,36 @@ export const apiClient = {
 
   me: () =>
     api<{ user: AuthUser }>('/auth/me'),
+
+  // v1 task CRUD (owner-or-admin). Used by the curator UI.
+  myTasks: async (opts: { q?: string; page?: number; page_size?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.q?.trim()) params.set('q', opts.q.trim());
+    if (opts.page) params.set('page', String(opts.page));
+    if (opts.page_size) params.set('page_size', String(opts.page_size));
+    const s = params.toString();
+    const res = await request<{ data: CuratorTask[]; meta: { total: number } }>(
+      V1_BASE, `/me/tasks${s ? `?${s}` : ''}`, undefined, 'GET',
+    );
+    return { tasks: res.data, total: res.meta.total };
+  },
+
+  getTask: (id: string) =>
+    v1<CuratorTask>(`/tasks/${encodeURIComponent(id)}`, undefined, 'GET'),
+
+  createTask: (body: TaskCreateBody) =>
+    v1<Task>('/tasks', body, 'POST'),
+
+  updateTask: (id: string, body: TaskPatchBody) =>
+    v1<Task>(`/tasks/${encodeURIComponent(id)}`, body, 'PATCH'),
+
+  deleteTask: (id: string) =>
+    v1<{ task_id: string; deleted_task: number; deleted_attempts: number }>(
+      `/tasks/${encodeURIComponent(id)}`, undefined, 'DELETE',
+    ),
+
+  taxonomy: () =>
+    v1<AdminTaxonomy>('/taxonomy', undefined, 'GET'),
 
   // Admin endpoints (served under /admin, not /api)
   adminWhoami: () =>

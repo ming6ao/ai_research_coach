@@ -133,6 +133,10 @@ def patch_task(
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found.")
     _check_task_owner(task, user)
+    if req.owner is not None and not is_admin(user):
+        raise HTTPException(
+            status_code=403, detail="Only admins can change task ownership."
+        )
     try:
         updated = _update_task(task_id, **req.model_dump(exclude_unset=True))
     except ValueError as e:

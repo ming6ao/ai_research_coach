@@ -25,6 +25,20 @@ def get_me(user: dict = Depends(require_user)):
     return {"data": user}
 
 
+@router.get("/me/tasks", summary="List my own tasks")
+def list_my_tasks(
+    q: Optional[str] = None,
+    page: PageParams = Depends(),
+    user: dict = Depends(require_user),
+):
+    """Tasks owned by the current user (curator UI), with attempt counts."""
+    from coach.tasks import list_tasks_for_owner
+
+    rows = list_tasks_for_owner(user["email"], q=q or None, limit=500)
+    items, meta = paginate(rows, page.page, page.page_size)
+    return {"data": items, "meta": meta}
+
+
 def _progress_for_candidate(candidate: str) -> tuple[Optional[dict], Optional[dict]]:
     """Persisted (ability, mastery) snapshot for a candidate, or (None, None).
 

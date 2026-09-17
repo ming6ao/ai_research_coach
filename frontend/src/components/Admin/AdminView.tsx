@@ -17,9 +17,10 @@ import { NewSeedForm } from './NewSeedForm';
 
 interface Props {
   onClose: () => void;
+  onOpenTask?: (taskId: string) => void;
 }
 
-export function AdminView({ onClose }: Props) {
+export function AdminView({ onClose, onOpenTask }: Props) {
   const table = useAdminTable();
   const {
     gate,
@@ -329,6 +330,11 @@ export function AdminView({ onClose }: Props) {
                 saving={saving}
                 onStartEdit={startEdit}
                 onSaveEdit={saveEdit}
+                onOpenEditor={
+                  onOpenTask && activeTable === 'tasks'
+                    ? (row) => onOpenTask(String(row[meta?.pk ?? 'id'] ?? ''))
+                    : undefined
+                }
                 onClose={() => {
                   setDetail(null);
                   setDetailId(null);

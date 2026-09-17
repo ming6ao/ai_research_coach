@@ -10,6 +10,7 @@ interface Props {
   onSaveEdit: () => void;
   onClose: () => void;
   onDelete: (row: Record<string, unknown>) => void;
+  onOpenEditor?: (row: Record<string, unknown>) => void;
 }
 
 export function DetailPane({
@@ -22,6 +23,7 @@ export function DetailPane({
   onSaveEdit,
   onClose,
   onDelete,
+  onOpenEditor,
 }: Props) {
   return (
     <div className="w-96 shrink-0 overflow-y-auto border-l border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
@@ -29,12 +31,22 @@ export function DetailPane({
         <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
           Row detail
         </h3>
-        <button
-          onClick={onClose}
-          className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
-        >
-          ×
-        </button>
+        <div className="flex items-center gap-2">
+          {onOpenEditor && (
+            <button
+              onClick={() => onOpenEditor(detail)}
+              className="rounded-lg border border-[var(--color-accent)]/40 px-2 py-0.5 text-xs text-[var(--color-accent)] hover:border-[var(--color-accent)]/70"
+            >
+              Curator editor
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+          >
+            ×
+          </button>
+        </div>
       </div>
       {editing ? (
         <div className="space-y-2">

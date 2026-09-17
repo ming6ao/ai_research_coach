@@ -379,10 +379,13 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
         "prompt", "scaffold", "difficulty", "max_score", "parts",
         "is_public", "context_notes", "tags", "task_type",
         "version_index", "depends_on_task_id", "version_root_id",
+        "owner",
     }
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if "prompt" in updates and not str(updates["prompt"]).strip():
         raise ValueError("Prompt must not be empty.")
+    if "owner" in updates and not str(updates["owner"]).strip():
+        raise ValueError("Owner must not be empty.")
     create_schema()
     from coach.taxonomy import TASK_TYPES, validate as validate_tags
 
@@ -421,6 +424,8 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
             model.depends_on_task_id = str(updates["depends_on_task_id"] or "").strip() or None
         if "version_root_id" in updates:
             model.version_root_id = str(updates["version_root_id"] or "").strip() or None
+        if "owner" in updates:
+            model.owner = str(updates["owner"]).strip()
         session.commit()
         return task_to_dict(model)
     finally:
@@ -614,12 +619,15 @@ def save_ability(candidate: str, mean: float, variance: float, questions_answere
     return save_skill_belief(candidate, mean, variance, questions_answered)
 
 
-def list_tasks_for_admin(
+def _list_tasks(
     owner: Optional[str] = None,
     q: Optional[str] = None,
     limit: int = 200,
 ) -> list[dict]:
-    """List tasks for the admin UI, newest last, with per-task attempt counts."""
+    """List tasks newest last with per-task attempt counts (shared helper).
+
+    Used by the admin UI (all tasks) and the curator UI (one owner's tasks).
+    """
     from coach.db import create_schema
     from sqlalchemy import func
 
@@ -659,6 +667,24 @@ def list_tasks_for_admin(
         return out
     finally:
         session.close()
+
+
+def list_tasks_for_admin(
+    owner: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 200,
+) -> list[dict]:
+    """List tasks for the admin UI, newest last, with per-task attempt counts."""
+    return _list_tasks(owner=owner, q=q, limit=limit)
+
+
+def list_tasks_for_owner(
+    owner: str,
+    q: Optional[str] = None,
+    limit: int = 200,
+) -> list[dict]:
+    """List one owner's tasks for the curator UI (with attempt counts)."""
+    return _list_tasks(owner=owner, q=q, limit=limit)
 
 
 def delete_task(task_id: str) -> dict:

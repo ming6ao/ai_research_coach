@@ -6,9 +6,10 @@ import { apiClient } from '../../api/client';
 interface Props {
   onOpenAuth: (tab: 'login' | 'signup') => void;
   onOpenAdmin: () => void;
+  onOpenCurator: () => void;
 }
 
-export function Header({ onOpenAuth, onOpenAdmin }: Props) {
+export function Header({ onOpenAuth, onOpenAdmin, onOpenCurator }: Props) {
   const { sessionId, taskIndex, completeSession, loading, reset } = useAssessmentStore();
   const { user, logout } = useAuthStore();
   const [isAdmin, setIsAdmin] = useState(false);
@@ -65,6 +66,12 @@ export function Header({ onOpenAuth, onOpenAdmin }: Props) {
 
         {user ? (
           <>
+            <button
+              onClick={onOpenCurator}
+              className="text-xs text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
+            >
+              My questions
+            </button>
             {isAdmin && (
               <button
                 onClick={onOpenAdmin}

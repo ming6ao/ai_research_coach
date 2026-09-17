@@ -8,6 +8,7 @@ import { HomeView } from './components/Home/HomeView';
 import { SharedView } from './components/Shared/SharedView';
 import { AuthModal } from './components/Auth/AuthModal';
 import { AdminView } from './components/Admin/AdminView';
+import { CuratorView } from './components/Curator/CuratorView';
 
 function OfflineBanner() {
   const [online, setOnline] = useState(() => navigator.onLine);
@@ -48,6 +49,9 @@ export default function App() {
   const [authModal, setAuthModal] = useState<null | 'login' | 'signup'>(null);
   const [restored, setRestored] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [curatorOpen, setCuratorOpen] = useState(false);
+  const [curatorTaskId, setCuratorTaskId] = useState<string | null>(null);
+  const [curatorAdminMode, setCuratorAdminMode] = useState(false);
   const [sharedToken, setSharedToken] = useState<string | null>(() => {
     const m = window.location.pathname.match(/^\/shared\/([A-Za-z0-9]+)\/?$/);
     return m ? m[1] : null;
@@ -75,11 +79,33 @@ export default function App() {
 
   return (
     <div className="flex h-screen flex-col">
-      <Header onOpenAuth={setAuthModal} onOpenAdmin={() => setShowAdmin(true)} />
+      <Header
+        onOpenAuth={setAuthModal}
+        onOpenAdmin={() => setShowAdmin(true)}
+        onOpenCurator={() => {
+          setCuratorTaskId(null);
+          setCuratorAdminMode(false);
+          setCuratorOpen(true);
+        }}
+      />
       <OfflineBanner />
 
-      {showAdmin ? (
-        <AdminView onClose={() => setShowAdmin(false)} />
+      {curatorOpen ? (
+        <CuratorView
+          adminMode={curatorAdminMode}
+          initialTaskId={curatorTaskId}
+          onClose={() => setCuratorOpen(false)}
+        />
+      ) : showAdmin ? (
+        <AdminView
+          onClose={() => setShowAdmin(false)}
+          onOpenTask={(taskId) => {
+            setCuratorTaskId(taskId);
+            setCuratorAdminMode(true);
+            setCuratorOpen(true);
+            setShowAdmin(false);
+          }}
+        />
       ) : sharedToken ? (
         <SharedView token={sharedToken} onResumed={() => setSharedToken(null)} />
       ) : sessionId ? (
