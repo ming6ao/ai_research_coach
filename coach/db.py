@@ -338,7 +338,7 @@ def create_schema():
             if "parts_json" not in cols:
                 conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN parts_json TEXT DEFAULT '[]'")
             if "delivery" not in cols:
-                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN delivery TEXT DEFAULT 'block'")
+                conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN delivery TEXT DEFAULT 'phased'")
         except Exception:
             pass
     with _schema_lock:

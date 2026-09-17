@@ -104,12 +104,12 @@ def _answer(client, session_id, task_id, answer="def f(): pass", headers=None):
     return res.json()["data"]
 
 
-def test_block_tasks_carry_no_hints_and_per_part_scoring_updates_beliefs(client):
-    """A code block has no hints; a full-mark submission updates per-part tags."""
+def test_step_by_step_updates_per_part_beliefs(client):
+    """A two-step task is scored one step at a time; each step updates its tag."""
     from coach.tasks import create_task as _create
 
-    block = _create(
-        prompt="Implement a two-part block.",
+    _create(
+        prompt="Implement a two-step task.",
         owner="bank@example.com",
         source="user",
         is_public=True,
@@ -124,13 +124,20 @@ def test_block_tasks_carry_no_hints_and_per_part_scoring_updates_beliefs(client)
     started = _start(client, task_ids=["seed_block_01"])
     task = started["current_task"]
     assert "hints" not in task
-    assert len(task["parts"]) == 2
-    assert task["max_score"] == 10
+    assert len(task["parts"]) == 1
+    assert task["parts"][0]["key"] == "mean"
+    assert task["phase_index"] == 1
+    assert task["phase_total"] == 2
+    assert task["max_score"] == 5
 
-    data = _answer(client, started["id"], task["id"])
-    assert data["result"]["score"] == 10
-    assert len(data["result"]["parts"]) == 2
-    assert data["ability_update"] is not None
+    first = _answer(client, started["id"], task["id"])
+    assert first["result"]["score"] == 5
+    assert len(first["result"]["parts"]) == 1
+    assert first["result"]["parts"][0]["key"] == "mean"
+    assert first["ability_update"] is not None
+
+    second = _answer(client, started["id"], "seed_block_01")
+    assert second["result"]["parts"][0]["key"] == "variance"
 
     from coach.tasks import get_area_beliefs
 

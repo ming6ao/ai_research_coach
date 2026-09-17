@@ -15,13 +15,8 @@ interface PartDraft {
   scaffold: string;
   max_score: string;
   difficulty: string;
-  pass_score: string;
   primary: string;
-  secondary: string[];
 }
-
-type Mode = 'simple' | 'advanced';
-type Delivery = 'block' | 'phased';
 
 interface Props {
   task: CuratorTask | null;
@@ -32,16 +27,11 @@ interface Props {
   onError: (msg: string) => void;
 }
 
-const TASK_TYPES = ['implement', 'apply', 'debug', 'design', 'analyze'];
 const LANGUAGES = ['python', 'cpp', 'c', 'javascript', 'typescript', 'java', 'go', 'rust'];
 
 const inputCls =
   'w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)]';
 const labelCls = 'mb-0.5 block text-xs text-[var(--color-text-muted)]';
-
-function defaultPassScore(maxScore: number): number {
-  return Math.max(1, Math.round(0.7 * Math.max(1, maxScore)));
-}
 
 function blankPart(): PartDraft {
   return {
@@ -50,9 +40,7 @@ function blankPart(): PartDraft {
     scaffold: '',
     max_score: '5',
     difficulty: '2',
-    pass_score: '4',
     primary: '',
-    secondary: [],
   };
 }
 
@@ -63,33 +51,27 @@ function partsToDrafts(parts?: TaskPart[]): PartDraft[] {
     scaffold: p.scaffold ?? '',
     max_score: String(p.max_score),
     difficulty: String(p.difficulty),
-    pass_score: String(p.pass_score ?? defaultPassScore(p.max_score)),
     primary: p.tags?.primary ?? '',
-    secondary: p.tags?.secondary ?? [],
   }));
 }
 
+/**
+ * Simple, step-by-step-only question editor. Every task is a sequence of one
+ * or more steps delivered one at a time; there is no advanced mode and no
+ * single-submission delivery. Task-level difficulty/max_score/context notes
+ * are derived or generated server-side.
+ */
 export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClose, onError }: Props) {
   const [taxonomy, setTaxonomy] = useState<AdminTaxonomy | null>(null);
-  const [mode, setMode] = useState<Mode>('simple');
   const [prompt, setPrompt] = useState(task?.prompt ?? '');
-  const [scaffold, setScaffold] = useState(task?.scaffold ?? '');
-  const [difficulty, setDifficulty] = useState(task?.difficulty ?? 2);
-  const [maxScore, setMaxScore] = useState(task?.max_score ?? 5);
-  const [taskType, setTaskType] = useState(task?.task_type ?? 'implement');
   const [language, setLanguage] = useState(task?.language ?? 'python');
-  const [delivery, setDelivery] = useState<Delivery>((task?.delivery as Delivery) ?? 'block');
   const [primary, setPrimary] = useState(task?.tags?.primary ?? '');
-  const [secondary, setSecondary] = useState<string[]>(task?.tags?.secondary ?? []);
-  const [contextNotes, setContextNotes] = useState(task?.context_notes ?? '');
   const [isPublic, setIsPublic] = useState(task ? task.is_public : true);
   const [parts, setParts] = useState<PartDraft[]>(partsToDrafts(task?.parts));
   const [owner, setOwner] = useState(task?.owner ?? '');
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
-
-  const advanced = mode === 'advanced';
 
   useEffect(() => {
     apiClient
@@ -98,44 +80,14 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
         setTaxonomy(t);
         if (!task) {
           const firstSkill = t.skills[0];
-          if (firstSkill) setPrimary(firstSkill);
+          if (firstSkill) setPrimary((prev) => prev || firstSkill);
         }
       })
       .catch((e) => onError(e instanceof Error ? e.message : String(e)));
   }, [task, onError]);
 
-  const allTags = taxonomy
-    ? taxonomy.domains.flatMap((domain) =>
-        Object.entries(taxonomy.tree[domain] ?? {}).flatMap(([area, skills]) =>
-          skills.map((tag) => ({ tag, area, domain })),
-        ),
-      )
-    : [];
-
-  const toggleSecondary = (tag: string) => {
-    if (tag === primary) return;
-    setSecondary((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : prev.length >= 2 ? prev : [...prev, tag],
-    );
-  };
-
   const updatePart = (idx: number, patch: Partial<PartDraft>) => {
     setParts((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)));
-  };
-
-  const togglePartSecondary = (idx: number, tag: string) => {
-    setParts((prev) =>
-      prev.map((p, i) => {
-        if (i !== idx) return p;
-        if (tag === p.primary) return p;
-        const next = p.secondary.includes(tag)
-          ? p.secondary.filter((t) => t !== tag)
-          : p.secondary.length >= 2
-            ? p.secondary
-            : [...p.secondary, tag];
-        return { ...p, secondary: next };
-      }),
-    );
   };
 
   /** Validate + build the create/update body; returns null on invalid input. */
@@ -178,41 +130,28 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
         return null;
       }
       seen.add(p.key.trim());
-      const partMax = clamp1to100(Number(p.max_score)) || 5;
       const part: TaskPart = {
         key: p.key.trim(),
         prompt: p.prompt.trim(),
-        max_score: partMax,
+        max_score: clamp1to100(Number(p.max_score)) || 5,
         difficulty: clamp1to5(Number(p.difficulty)) || 2,
-        tags: { primary: p.primary, secondary: p.secondary },
+        tags: { primary: p.primary, secondary: [] },
       };
       if (p.scaffold.trim()) part.scaffold = p.scaffold;
-      if (delivery === 'phased') {
-        part.pass_score = clampPass(Number(p.pass_score), partMax);
-      }
       cleaned.push(part);
     }
-    if (task || delivery === 'phased') {
-      // Editing an existing single-question task without parts is fine.
-      if (cleaned.length === 0 && delivery === 'phased') {
-        const msg = 'A step-by-step task needs at least one step.';
-        setFormError(msg);
-        onError(msg);
-        return null;
-      }
+    if (cleaned.length === 0) {
+      const msg = 'Add at least one step.';
+      setFormError(msg);
+      onError(msg);
+      return null;
     }
     const body: TaskCreateBody = {
       prompt: prompt.trim(),
-      scaffold: scaffold.trim() || undefined,
-      difficulty,
-      max_score: maxScore,
-      parts: cleaned.length ? cleaned : undefined,
-      tags: { primary, secondary },
-      task_type: taskType,
+      parts: cleaned,
+      tags: { primary, secondary: [] },
       language,
-      context_notes: contextNotes.trim() || undefined,
       is_public: isPublic,
-      delivery,
       owner: adminMode && task ? owner.trim() || undefined : undefined,
     };
     return body;
@@ -295,16 +234,14 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
   const previewParts = parts
     .filter((p) => p.key.trim() && p.prompt.trim())
     .map((p) => {
-      const partMax = clamp1to100(Number(p.max_score)) || 5;
       const part: TaskPart = {
         key: p.key.trim(),
         prompt: p.prompt.trim(),
-        max_score: partMax,
+        max_score: clamp1to100(Number(p.max_score)) || 5,
         difficulty: clamp1to5(Number(p.difficulty)) || 2,
-        tags: { primary: p.primary, secondary: p.secondary },
+        tags: { primary: p.primary, secondary: [] },
       };
       if (p.scaffold.trim()) part.scaffold = p.scaffold;
-      if (delivery === 'phased') part.pass_score = clampPass(Number(p.pass_score), partMax);
       return part;
     });
 
@@ -316,31 +253,13 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
             <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
               {task ? `Edit ${task.id}` : 'New question'}
             </h3>
-            <div className="flex items-center gap-2">
-              <div className="flex overflow-hidden rounded-lg border border-[var(--color-border-default)]">
-                {(['simple', 'advanced'] as Mode[]).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setMode(m)}
-                    className={`px-2 py-1 text-[11px] capitalize ${
-                      mode === m
-                        ? 'bg-[var(--color-accent)] text-white'
-                        : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
-                    }`}
-                  >
-                    {m}
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowPreview((s) => !s)}
-                className="rounded-lg border border-[var(--color-border-default)] px-2 py-1 text-[11px] text-[var(--color-text-muted)] lg:hidden"
-              >
-                {showPreview ? 'Hide preview' : 'Preview'}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setShowPreview((s) => !s)}
+              className="rounded-lg border border-[var(--color-border-default)] px-2 py-1 text-[11px] text-[var(--color-text-muted)] lg:hidden"
+            >
+              {showPreview ? 'Hide preview' : 'Preview'}
+            </button>
           </div>
 
           {adminMode && task && (
@@ -364,88 +283,12 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               rows={4}
-              placeholder="Describe the block in plain English…"
+              placeholder="Describe the task in plain English…"
               className={inputCls}
             />
           </label>
 
-          <div className="flex gap-2">
-            {(['block', 'phased'] as Delivery[]).map((d) => (
-              <button
-                key={d}
-                type="button"
-                onClick={() => setDelivery(d)}
-                className={`flex-1 rounded-lg border px-3 py-2 text-left transition-colors ${
-                  delivery === d
-                    ? 'border-[var(--color-accent)]/50 bg-[var(--color-accent)]/5'
-                    : 'border-[var(--color-border-default)]'
-                }`}
-              >
-                <span className="block text-xs font-semibold text-[var(--color-text-primary)]">
-                  {d === 'block' ? 'Single submission' : 'Step-by-step'}
-                </span>
-                <span className="mt-0.5 block text-[10px] text-[var(--color-text-muted)]">
-                  {d === 'block'
-                    ? 'All parts scored together in one answer.'
-                    : 'Parts delivered one at a time; the candidate must pass each step.'}
-                </span>
-              </button>
-            ))}
-          </div>
-
-          <div>
-            <span className={labelCls}>scaffold (starter code covering all parts)</span>
-            <CodeEditor
-              code={scaffold}
-              language={language}
-              onChange={setScaffold}
-              height="h-40"
-            />
-          </div>
-
-          {advanced && (
-            <div className="grid grid-cols-2 gap-2">
-              <label className="block">
-                <span className={labelCls}>difficulty</span>
-                <select
-                  value={difficulty}
-                  onChange={(e) => setDifficulty(Number(e.target.value))}
-                  className={inputCls}
-                >
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className={labelCls}>max_score</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={maxScore}
-                  onChange={(e) => setMaxScore(Number(e.target.value))}
-                  className={inputCls}
-                />
-              </label>
-            </div>
-          )}
-
-          <div className={advanced ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-1 gap-2'}>
-            {advanced && (
-              <label className="block">
-                <span className={labelCls}>task_type</span>
-                <select value={taskType} onChange={(e) => setTaskType(e.target.value)} className={inputCls}>
-                  {TASK_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
+          <div className="grid grid-cols-1 gap-2">
             <label className="block">
               <span className={labelCls}>language</span>
               <select value={language} onChange={(e) => setLanguage(e.target.value)} className={inputCls}>
@@ -463,160 +306,69 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
             {renderTagPicker(primary, setPrimary)}
           </label>
 
-          {advanced && (
-            <div>
-              <span className={labelCls}>secondary tags (0–2)</span>
-              <div className="max-h-40 overflow-y-auto rounded-lg border border-[var(--color-border-default)] p-2">
-                {allTags
-                  .filter((t) => t.tag !== primary)
-                  .sort((a, b) => a.area.localeCompare(b.area) || a.tag.localeCompare(b.tag))
-                  .map(({ tag, area, domain }) => {
-                    const active = secondary.includes(tag);
-                    const disabled = !active && secondary.length >= 2;
-                    return (
-                      <button
-                        key={tag}
-                        type="button"
-                        disabled={disabled}
-                        onClick={() => toggleSecondary(tag)}
-                        className={`mb-0.5 mr-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] ${
-                          active
-                            ? 'border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 text-[var(--color-text-primary)]'
-                            : 'border-[var(--color-border-default)] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
-                        } ${disabled ? 'opacity-40' : ''}`}
-                        title={`${domain} / ${area}`}
-                      >
-                        {tag}
-                      </button>
-                    );
-                  })}
-              </div>
-            </div>
-          )}
-
           <div>
-            <span className={labelCls}>
-              {delivery === 'phased' ? 'steps (delivered in order)' : 'parts (code block; optional)'}
-            </span>
-            {parts.map((p, i) => {
-              const partMax = clamp1to100(Number(p.max_score)) || 5;
-              return (
-                <div key={i} className="mb-2 rounded-lg border border-[var(--color-border-default)] p-2">
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-                    {delivery === 'phased' ? `Step ${i + 1}` : `Part ${i + 1}`}
-                  </div>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    <input
-                      value={p.key}
-                      onChange={(e) => updatePart(i, { key: e.target.value })}
-                      placeholder="key, e.g. softmax"
-                      className={inputCls}
-                    />
-                    <input
-                      value={p.max_score}
-                      onChange={(e) => updatePart(i, { max_score: e.target.value })}
-                      placeholder="max_score"
-                      className={inputCls}
-                    />
-                    <input
-                      value={p.difficulty}
-                      onChange={(e) => updatePart(i, { difficulty: e.target.value })}
-                      placeholder="difficulty 1..5"
-                      className={inputCls}
-                    />
-                  </div>
-                  <textarea
-                    value={p.prompt}
-                    onChange={(e) => updatePart(i, { prompt: e.target.value })}
-                    rows={2}
-                    placeholder="Part prompt (self-contained)"
-                    className={`${inputCls} mt-1.5`}
-                  />
-                  <div className="mt-1.5">
-                    <span className={labelCls}>step starter code (optional)</span>
-                    <CodeEditor
-                      code={p.scaffold}
-                      language={language}
-                      onChange={(v) => updatePart(i, { scaffold: v })}
-                      height="h-28"
-                    />
-                  </div>
-                  {advanced && delivery === 'phased' && (
-                    <label className="mt-1.5 block">
-                      <span className={labelCls}>
-                        pass_score ({clampPass(Number(p.pass_score), partMax)} of {partMax} to advance)
-                      </span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={partMax}
-                        value={p.pass_score}
-                        onChange={(e) => updatePart(i, { pass_score: e.target.value })}
-                        className={inputCls}
-                      />
-                    </label>
-                  )}
-                  <div className="mt-1.5">
-                    {renderTagPicker(p.primary, (t) => updatePart(i, { primary: t, secondary: [] }))}
-                  </div>
-                  {advanced && (
-                    <div className="mt-1.5">
-                      {allTags
-                        .filter((t) => t.tag !== p.primary)
-                        .slice(0, 24)
-                        .map(({ tag, area, domain }) => {
-                          const active = p.secondary.includes(tag);
-                          const disabled = !active && p.secondary.length >= 2;
-                          return (
-                            <button
-                              key={tag}
-                              type="button"
-                              disabled={disabled}
-                              onClick={() => togglePartSecondary(i, tag)}
-                              className={`mb-0.5 mr-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] ${
-                                active
-                                  ? 'border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 text-[var(--color-text-primary)]'
-                                  : 'border-[var(--color-border-default)] text-[var(--color-text-muted)]'
-                              } ${disabled ? 'opacity-40' : ''}`}
-                              title={`${domain} / ${area}`}
-                            >
-                              {tag}
-                            </button>
-                          );
-                        })}
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setParts((prev) => prev.filter((_, j) => j !== i))}
-                    className="mt-1.5 rounded-lg border border-[var(--color-error)]/40 px-2 py-1 text-xs text-[var(--color-error)]"
-                  >
-                    Remove {delivery === 'phased' ? 'step' : 'part'}
-                  </button>
+            <span className={labelCls}>steps (delivered in order)</span>
+            {parts.map((p, i) => (
+              <div key={i} className="mb-2 rounded-lg border border-[var(--color-border-default)] p-2">
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+                  Step {i + 1}
                 </div>
-              );
-            })}
+                <div className="grid grid-cols-3 gap-1.5">
+                  <input
+                    value={p.key}
+                    onChange={(e) => updatePart(i, { key: e.target.value })}
+                    placeholder="key, e.g. softmax"
+                    className={inputCls}
+                  />
+                  <input
+                    value={p.max_score}
+                    onChange={(e) => updatePart(i, { max_score: e.target.value })}
+                    placeholder="max_score"
+                    className={inputCls}
+                  />
+                  <input
+                    value={p.difficulty}
+                    onChange={(e) => updatePart(i, { difficulty: e.target.value })}
+                    placeholder="difficulty 1..5"
+                    className={inputCls}
+                  />
+                </div>
+                <textarea
+                  value={p.prompt}
+                  onChange={(e) => updatePart(i, { prompt: e.target.value })}
+                  rows={2}
+                  placeholder="Step prompt (self-contained)"
+                  className={`${inputCls} mt-1.5`}
+                />
+                <div className="mt-1.5">
+                  <span className={labelCls}>step starter code (optional)</span>
+                  <CodeEditor
+                    code={p.scaffold}
+                    language={language}
+                    onChange={(v) => updatePart(i, { scaffold: v })}
+                    height="h-28"
+                  />
+                </div>
+                <div className="mt-1.5">
+                  {renderTagPicker(p.primary, (t) => updatePart(i, { primary: t }))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setParts((prev) => prev.filter((_, j) => j !== i))}
+                  className="mt-1.5 rounded-lg border border-[var(--color-error)]/40 px-2 py-1 text-xs text-[var(--color-error)]"
+                >
+                  Remove step
+                </button>
+              </div>
+            ))}
             <button
               type="button"
-              onClick={() => setParts((prev) => [...prev, blankPart()])}
+              onClick={() => setParts((prev) => [...prev, { ...blankPart(), primary }])}
               className="rounded-lg border border-[var(--color-border-default)] px-2 py-1.5 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
             >
-              + Add {delivery === 'phased' ? 'step' : 'part'}
+              + Add step
             </button>
           </div>
-
-          {advanced && (
-            <label className="block">
-              <span className={labelCls}>context_notes (optional)</span>
-              <textarea
-                value={contextNotes}
-                onChange={(e) => setContextNotes(e.target.value)}
-                rows={3}
-                placeholder={task ? 'Leave blank to keep the stored notes.' : 'Leave blank to auto-generate via LLM.'}
-                className={inputCls}
-              />
-            </label>
-          )}
 
           <label className="flex items-center gap-2 rounded-lg border border-[var(--color-border-default)] px-3 py-2">
             <input
@@ -682,19 +434,17 @@ export function TaskEditor({ task, adminMode = false, onSaved, onDeleted, onClos
           <TaskPreview
             prompt={prompt || '…'}
             parts={previewParts}
-            tags={primary ? { primary, secondary } : undefined}
-            scaffold={scaffold}
+            tags={primary ? { primary, secondary: [] } : undefined}
+            scaffold={previewParts[0]?.scaffold}
             language={language}
             phaseIndex={1}
-            phaseTotal={delivery === 'phased' ? Math.max(1, previewParts.length) : 1}
+            phaseTotal={Math.max(1, previewParts.length)}
           />
         </div>
-        {delivery === 'phased' && (
-          <p className="mt-3 text-[11px] leading-5 text-[var(--color-text-muted)]">
-            Step-by-step: the candidate sees step 1, then passes each step to advance. Their code
-            carries forward between steps.
-          </p>
-        )}
+        <p className="mt-3 text-[11px] leading-5 text-[var(--color-text-muted)]">
+          Step-by-step: the learner sees step 1, then passes each step to advance. Their code
+          carries forward between steps.
+        </p>
         {isPublic ? (
           <p className="mt-3 text-[11px] leading-5 text-[var(--color-text-muted)]">
             This question is <span className="text-[var(--color-success)]">public</span> and appears in
@@ -718,9 +468,4 @@ function clamp1to5(n: number): number {
 function clamp1to100(n: number): number {
   if (Number.isNaN(n)) return 0;
   return Math.max(1, Math.min(100, Math.round(n)));
-}
-
-function clampPass(n: number, maxScore: number): number {
-  if (Number.isNaN(n)) return defaultPassScore(maxScore);
-  return Math.max(0, Math.min(maxScore, Math.round(n)));
 }

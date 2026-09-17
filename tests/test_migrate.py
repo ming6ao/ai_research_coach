@@ -181,3 +181,56 @@ def test_coverage_report_counts_task_tags(tmp_path, monkeypatch):
     assert "flash_attention" in report["covered"]
     assert "memory_coalescing" in report["covered"]
     assert "kv_cache_management" in report["uncovered"]
+
+
+def test_delivery_migration_normalizes_bank_sessions_and_steps(tmp_path, monkeypatch):
+    """python -m coach.migrate delivery: block -> phased, partless -> one step."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "delivery.db")
+    from coach.db import create_schema, sqlite_conn
+    from coach.migrate import migrate_delivery
+    from coach.tasks import get_task
+
+    _insert_task(
+        "blocky",
+        {"primary": "attention_transformer", "secondary": []},
+        parts=[{"key": "a", "prompt": "def a(): ...", "tags": {"primary": "attention_transformer"},
+                "max_score": 5, "difficulty": 2}],
+    )
+    _insert_task("plain", {"primary": "attention_transformer", "secondary": []})
+    _insert_session(
+        "sess",
+        {"session": {"candidate": "candidate@x.com", "tasks": [
+            {"id": "plain", "prompt": "Prompt for plain", "delivery": "block",
+             "tags": {"primary": "attention_transformer", "secondary": []}},
+        ]}},
+    )
+    create_schema()
+    from coach.steps import insert_step
+
+    insert_step(
+        "sess", "candidate@x.com", 0,
+        {"id": "plain", "prompt": "Prompt for plain", "delivery": "block",
+         "tags": {"primary": "attention_transformer", "secondary": []}},
+        "bank", "code", 5, 5, 1.0, 1.0, [], None, None, {}, None,
+    )
+
+    # Dry run mutates nothing.
+    dry = migrate_delivery(apply=False)
+    assert dry["tasks_updated"] == 2
+    assert get_task("blocky")["delivery"] == "block"
+    assert get_task("plain").get("parts") is None
+
+    report = migrate_delivery(apply=True)
+    assert report["tasks_wrapped"] == 1
+
+    assert get_task("blocky")["delivery"] == "phased"
+    plain = get_task("plain")
+    assert plain["delivery"] == "phased"
+    assert [p["key"] for p in plain["parts"]] == ["solution"]
+
+    with sqlite_conn() as conn:
+        step_snap = json.loads(
+            conn.execute("SELECT task_snapshot_json FROM session_steps").fetchone()[0]
+        )
+    assert step_snap["delivery"] == "phased"
+    assert step_snap["parts"][0]["key"] == "solution"

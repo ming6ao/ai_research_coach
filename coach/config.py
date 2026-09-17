@@ -7,13 +7,12 @@ RETRY_ATTEMPTS = int(os.getenv("EVAL_RETRY_ATTEMPTS", "5"))
 RETRY_INITIAL_DELAY = float(os.getenv("EVAL_RETRY_INITIAL_DELAY", "1.0"))
 RETRY_MAX_DELAY = float(os.getenv("EVAL_RETRY_MAX_DELAY", "30.0"))
 
-# --- Phased task delivery -------------------------------------------------
-# A task's ``delivery`` is 'block' (single submission scored across all parts)
-# or 'phased' (parts delivered one at a time, each pass-gated, code carried
-# forward). A phase advances once its score reaches ``pass_score``
+# --- Step-by-step task delivery ------------------------------------------
+# Every task is delivered step-by-step: its ``parts`` are shown one at a
+# time, each pass-gated, with the candidate's code carried forward. A step
+# advances once its score reaches ``pass_score``
 # (default ``round(PHASE_PASS_FRACTION * max_score)``) or after
 # ``PHASE_MAX_ATTEMPTS`` attempts, whichever comes first.
-DELIVERIES = ("block", "phased")
 PHASE_PASS_FRACTION = float(os.getenv("PHASE_PASS_FRACTION", "0.7"))
 PHASE_MAX_ATTEMPTS = int(os.getenv("PHASE_MAX_ATTEMPTS", "3"))
 

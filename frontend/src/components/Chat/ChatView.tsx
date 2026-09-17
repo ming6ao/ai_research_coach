@@ -177,7 +177,7 @@ function TaskPromptBubble({
       <div className="space-y-1">
         <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
           Question
-          {phaseIndex != null && phaseTotal != null && (
+          {phaseIndex != null && (phaseTotal ?? 1) > 1 && (
             <span className="rounded-full border border-[var(--color-border-default)] px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-[var(--color-text-secondary)]">
               Step {phaseIndex} of {phaseTotal}
             </span>
@@ -275,13 +275,12 @@ export function ChatView() {
   const finished = !currentTask && results.length > 0 && !loading;
 
   const last = results[results.length - 1];
-  const isPhase = pendingTask?.delivery === 'phased';
   const retryingPhase =
     !!pendingTask &&
     !!last &&
     pendingTask.id === last.task_id &&
     (pendingTask.phase_index ?? 1) === (last.phase_index ?? 1);
-  const nextLabel = retryingPhase ? 'Retry step' : isPhase ? 'Next step' : 'Next question';
+  const nextLabel = retryingPhase ? 'Retry step' : 'Next step';
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

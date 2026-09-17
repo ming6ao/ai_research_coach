@@ -317,9 +317,38 @@ def build_code_stub(task: dict) -> str | None:
     return None
 
 
+def effective_parts(task: dict) -> list[dict]:
+    """The task's steps.
+
+    Every task is delivered step-by-step. A legacy partless task is treated
+    as a single implicit step (its prompt becomes the step prompt) so old
+    rows and in-flight session snapshots keep working without a migration.
+    """
+    parts = task.get("parts") or []
+    if parts:
+        return parts
+    m = re.search(r"def\s+([A-Za-z_]\w*)\s*\(", task.get("prompt", ""))
+    key = m.group(1) if m else "solution"
+    part = {
+        "key": key,
+        "prompt": task.get("prompt", ""),
+        "tags": task.get("tags") or {"primary": None, "secondary": []},
+        "max_score": int(task.get("max_score") or 5),
+        "difficulty": int(task.get("difficulty") or 1),
+    }
+    if task.get("scaffold"):
+        part["scaffold"] = task["scaffold"]
+    return [part]
+
+
 def is_phased(task: dict) -> bool:
-    """True when a task delivers its parts one at a time."""
-    return (task.get("delivery") or "block") == "phased" and bool(task.get("parts"))
+    """True when a task delivers its parts one at a time.
+
+    Delivery is always step-by-step now; a task with no stored parts is
+    treated as one implicit step, so this is effectively always true. Kept
+    so callers can stay explicit about the delivery model.
+    """
+    return bool(effective_parts(task))
 
 
 def completed_phases(task: dict, session: Session) -> int:
@@ -328,10 +357,8 @@ def completed_phases(task: dict, session: Session) -> int:
 
 
 def active_phase(task: dict, session: Session) -> Optional[dict]:
-    """The active part for a phased task, or None when complete/not phased."""
-    if not is_phased(task):
-        return None
-    parts = task.get("parts") or []
+    """The active step for a task, or None when the task is complete."""
+    parts = effective_parts(task)
     idx = completed_phases(task, session)
     if idx < 0 or idx >= len(parts):
         return None
@@ -350,16 +377,15 @@ def task_view(
 ) -> dict | None:
     """Build the client-facing view of a task.
 
-    Code blocks emit all their ``parts``. Phased tasks emit only the active
-    phase's part plus ``phase_index``/``phase_total`` and its own scaffold, so
-    the learner sees one step at a time with their prior code carried forward
-    via ``previous_code``.
+    Every task is step-by-step: the view emits only the active step plus
+    ``phase_index``/``phase_total`` and its own scaffold, so the learner sees
+    one step at a time with their prior code carried forward via
+    ``previous_code``. A partless legacy task is a single implicit step.
     """
     if task is None:
         return None
-    parts = task.get("parts") or []
-    phased = is_phased(task)
-    active = active_phase(task, session) if phased else None
+    parts = effective_parts(task)
+    active = active_phase(task, session)
     view = {
         "id": task["id"],
         "type": "code",
@@ -371,7 +397,7 @@ def task_view(
         "task_type": task.get("task_type") or "implement",
         "language": task.get("language") or "python",
     }
-    if phased and active:
+    if active:
         idx = completed_phases(task, session)
         view["delivery"] = "phased"
         view["phase_index"] = idx + 1
@@ -380,8 +406,6 @@ def task_view(
         view["max_score"] = int(active.get("max_score") or 5)
         if active.get("pass_score") is not None:
             view["pass_score"] = int(active.get("pass_score"))
-    elif parts:
-        view["parts"] = parts
     if previous_code:
         view["previous_code"] = previous_code
     if task.get("context_notes"):

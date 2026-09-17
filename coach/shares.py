@@ -122,23 +122,28 @@ def build_share_snapshot(session, steps: list[dict]) -> dict:
 def feedback_from_steps(steps: list[dict]) -> list[dict]:
     """Render step rows as the review ``results`` records the frontend expects.
 
-    Mirrors the legacy ``feedback_json`` entry shape.
+    Mirrors the legacy ``feedback_json`` entry shape. Every task is
+    step-by-step, so the active step's index/total are derived from the
+    scored part key; a legacy single-submission step (several scored parts)
+    shows all its parts with no step chip.
     """
+    from coach.session import effective_parts
+
     out = []
     for st in steps:
         task = st.get("task_snapshot") or {}
         coaching = st.get("coaching") or {}
-        parts = task.get("parts")
+        all_parts = effective_parts(task)
+        parts = all_parts
+        result_parts = (st.get("result") or {}).get("parts") or []
         phase_index = None
-        phase_total = None
-        if (task.get("delivery") or "block") == "phased" and parts:
-            phase_total = len(parts)
-            result_parts = (st.get("result") or {}).get("parts") or []
-            key = result_parts[0].get("key") if result_parts else None
-            keys = [p.get("key") for p in parts]
+        phase_total = len(all_parts)
+        if len(result_parts) == 1:
+            key = result_parts[0].get("key")
+            keys = [p.get("key") for p in all_parts]
             if key in keys:
                 phase_index = keys.index(key) + 1
-                parts = [parts[phase_index - 1]]
+                parts = [all_parts[phase_index - 1]]
         out.append(
             {
                 "task_id": st.get("task_id") or task.get("id"),
@@ -153,7 +158,7 @@ def feedback_from_steps(steps: list[dict]) -> list[dict]:
                 "parts": parts,
                 "language": task.get("language") or "python",
                 "scored": True,
-                "delivery": task.get("delivery") or "block",
+                "delivery": "phased",
                 "phase_index": phase_index,
                 "phase_total": phase_total,
             }

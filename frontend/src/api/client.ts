@@ -29,7 +29,6 @@ export interface Task {
   tags?: TaskTags;
   task_type?: string;
   language?: string;
-  delivery?: 'block' | 'phased';
   phase_index?: number;
   phase_total?: number;
   pass_score?: number;
@@ -144,7 +143,6 @@ export interface FeedbackEntry {
   tags?: TaskTags;
   parts?: TaskPart[];
   language?: string;
-  delivery?: string;
   phase_index?: number | null;
   phase_total?: number | null;
 }
@@ -308,7 +306,6 @@ export interface TaskCreateBody {
   tags?: { primary: string; secondary: string[] };
   task_type?: string;
   language?: string;
-  delivery?: 'block' | 'phased';
   owner?: string;
 }
 

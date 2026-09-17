@@ -1,7 +1,11 @@
 # Phased tasks: one task, sequential phases (design)
 
-Status: **implemented** (Phase 2). Phased delivery replaces the retired version
-chains: a multi-step task is a single row with `delivery='phased'`.
+Status: **implemented and now the only delivery mode** (Phase 2). Phased
+(step-by-step) delivery replaces both the retired version chains and the
+removed single-submission (`delivery='block'`) mode: a multi-step task is a
+single row with `delivery='phased'`. Every task — including partless flat
+questions, which are one implicit step — is delivered one step at a time.
+Legacy rows are normalized with `python -m coach.migrate delivery --apply`.
 
 Adds **phased delivery** to code-block tasks: a single task row whose `parts`
 are problem-solving *phases* delivered one at a time, instead of a single
@@ -30,21 +34,23 @@ Related: `AGENTS.md` (task/scoring overview).
 | Retry limit | **Cap then advance** (`PHASE_MAX_ATTEMPTS`, default 3) |
 | Roadmap visibility | **Current phase only** (future phases hidden) |
 | Pass threshold | Optional per-part `pass_score`, default `max(1, round(0.7 * max_score))` |
-| Backward compatibility | Opt-in via `delivery='phased'`; `delivery='block'` (default) is unchanged |
+| Backward compatibility | Every task is phased; `delivery` is a constant `'phased'`. The removed single-submission mode is normalized by `python -m coach.migrate delivery` |
 
 ## 2. Data model
 
-**One new column** on `tasks`:
+**One column** on `tasks`:
 
-- `delivery TEXT DEFAULT 'block'` — `'block'` (default) or `'phased'`. Unknown
-  values are rejected (422) on create/PATCH. `tasks` stays in
-  `_PRESERVED_TABLES`; `delivery` must not be added to `_DROPPED_TASK_COLUMNS`.
+- `delivery TEXT DEFAULT 'phased'` — always `'phased'`. Retained as a column for
+  one release (a rollback safety net); the runtime keys off `parts` alone, so
+  legacy `'block'` rows still work until the delivery migration rewrites them.
+  `tasks` stays in `_PRESERVED_TABLES`; `delivery` must not be added to
+  `_DROPPED_TASK_COLUMNS`.
 
 **Inside `parts_json` (no column change):** a part gains two optional fields,
 preserved by `validate_parts`/`parse_parts`/`task_to_dict`:
 
-- `scaffold` (≤16000) — the phase's starter code (used while no `previous_code`
-  exists; the task-level `scaffold` is ignored for phased tasks).
+- `scaffold` (≤16000) — the step's starter code (used while no `previous_code`
+  exists; the task-level `scaffold` is only a fallback for legacy rows).
 - `pass_score` (int `0..max_score`, default `max(1, round(0.7 * max_score))`) —
   the score required to advance.
 

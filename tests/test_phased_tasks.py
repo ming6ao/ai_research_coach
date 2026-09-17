@@ -1,8 +1,8 @@
-"""Phased task delivery: one phase at a time, pass gate, code carry-forward.
+"""Step-by-step task delivery: one step at a time, pass gate, code carry-forward.
 
-A ``delivery='phased'`` task exposes only its active part; a passing score (or
-the attempt cap) advances to the next phase with the candidate's prior code
-carried forward. ``delivery='block'`` is unchanged.
+Every task exposes only its active part; a passing score (or the attempt cap)
+advances to the next step with the candidate's prior code carried forward. A
+partless legacy task is delivered as a single implicit step.
 """
 
 from __future__ import annotations
@@ -54,7 +54,6 @@ def ctx(tmp_path, monkeypatch):
         source="user",
         is_public=True,
         task_id="phased_01",
-        delivery="phased",
         parts=[
             {"key": "p1", "prompt": "Implement def p1(x): ...",
              "tags": {"primary": "vision_encoders"}, "max_score": 5, "difficulty": 2,
@@ -163,28 +162,16 @@ def test_completed_phased_task_moves_to_bank(ctx):
     assert done["next_task"]["id"] == "plain_01"
 
 
-def test_block_delivery_scores_all_parts_in_one_submission(ctx, monkeypatch):
+def test_partless_task_is_a_single_step(ctx, monkeypatch):
+    """A partless task is delivered as one implicit step and scored once."""
     client, judge = ctx
-    from coach.tasks import create_task
-
-    create_task(
-        prompt="Two-part block.",
-        owner="bank@example.com",
-        source="user",
-        is_public=True,
-        task_id="block_01",
-        parts=[
-            {"key": "a", "prompt": "def a(): ...", "tags": {"primary": "vision_encoders"},
-             "max_score": 5, "difficulty": 2},
-            {"key": "b", "prompt": "def b(): ...", "tags": {"primary": "state_space_models"},
-             "max_score": 5, "difficulty": 3},
-        ],
-    )
-    data = _start(client, ["block_01"])
-    assert data["current_task"].get("delivery") in (None, "block")
-    assert len(data["current_task"]["parts"]) == 2
+    data = _start(client, ["plain_01"])
+    task = data["current_task"]
+    assert task["delivery"] == "phased"
+    assert task["phase_index"] == 1 and task["phase_total"] == 1
+    assert [p["key"] for p in task["parts"]] == ["plain"]
 
     judge.scores = [5]
-    r = _answer(client, data["id"], "block_01", "BOTH")
-    keys = sorted(p["key"] for p in r["result"]["parts"])
-    assert keys == ["a", "b"]
+    r = _answer(client, data["id"], "plain_01", "CODE")
+    assert r["result"]["parts"][0]["key"] == "plain"
+    assert len(r["result"]["parts"]) == 1

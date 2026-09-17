@@ -2,9 +2,9 @@
 
 1. Pending generated task — an injected follow-up not yet asked surfaces first
    (generated tasks are excluded from the bank picker).
-2. Active phased task — a ``delivery='phased'`` task that has been started but
-   not completed continues (next phase after a pass, or the same phase after a
-   failed attempt). Its view carries the candidate's prior code forward as
+2. Active step task — a task that has been started but not completed
+   continues (next step after a pass, or the same step after a failed
+   attempt). Its view carries the candidate's prior code forward as
    ``previous_code``.
 3. Judge-driven follow-up — after a submission, ``plan_followup`` may inject
    an adaptive drill (simpler on failure; harder escalation or sibling
@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from coach.session import is_phased, task_view
+from coach.session import effective_parts, task_view
 
 
 def _last_code_for(session_id: Optional[str], task_id: str) -> Optional[str]:
@@ -51,10 +51,11 @@ def _active_phased_task(session, task: Optional[dict] = None) -> Optional[dict]:
     (resume path, where it scans the session's tasks).
     """
     def unfinished(t: dict) -> bool:
+        parts = effective_parts(t)
         return (
-            is_phased(t)
+            bool(parts)
             and t.get("id") not in session.asked_task_ids
-            and session.task_progress.get(t.get("id"), 0) < len(t.get("parts") or [])
+            and session.task_progress.get(t.get("id"), 0) < len(parts)
             and _task_started(session, t)
         )
 

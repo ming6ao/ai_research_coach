@@ -49,7 +49,6 @@ class TaskCreateRequest(BaseModel):
     tags: Optional[dict[str, Any]] = None
     task_type: Optional[str] = Field(default=None, max_length=32)
     language: Optional[str] = Field(default=None, max_length=32)
-    delivery: Optional[str] = Field(default=None, max_length=16)
 
 
 class TaskPatchRequest(BaseModel):
@@ -64,7 +63,6 @@ class TaskPatchRequest(BaseModel):
     task_type: Optional[str] = Field(default=None, max_length=32)
     language: Optional[str] = Field(default=None, max_length=32)
     owner: Optional[str] = Field(default=None, max_length=255)
-    delivery: Optional[str] = Field(default=None, max_length=16)
 
 
 # (AdminSeedCreateRequest removed: no system-owned seed tasks; author via

@@ -7,10 +7,16 @@ taken first unless ``--no-backup``).
     python -m coach.migrate                      # dry-run: report dispositions
     python -m coach.migrate --apply              # backup + migrate in place
     python -m coach.migrate coverage             # per-skill bank coverage
+    python -m coach.migrate delivery [--apply]   # normalize to step-by-step
 
 In-place migration rewrites, in order: task tags (block + parts), per-node
 belief rows, active-session snapshots, session-step snapshots/states, and
 trajectory-share snapshots. Task ids, owners, and attempt links are preserved.
+
+The separate ``delivery`` command normalizes every task (and stored snapshot)
+to step-by-step delivery: block tasks become phased and partless tasks are
+wrapped into one implicit step. It is dry-run by default and backs up first
+with ``--apply``.
 
 ``--on-unmapped`` controls tasks whose primary/part primary refers to a retired
 tag with no current counterpart:
@@ -25,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -504,6 +511,182 @@ def run_migration(
 
 
 # ---------------------------------------------------------------------------
+# delivery (step-by-step) migration
+# ---------------------------------------------------------------------------
+
+
+def _normalize_task_delivery(task: dict) -> bool:
+    """Mutate a task dict into step-by-step delivery; return True if changed.
+
+    A task with no ``parts`` is wrapped into a single implicit step built from
+    its task-level prompt/tags/max_score/difficulty/scaffold. ``delivery`` is
+    forced to ``'phased'``.
+    """
+    changed = False
+    parts = task.get("parts")
+    if not isinstance(parts, list) or not parts:
+        prompt = str(task.get("prompt") or "")
+        m = re.search(r"def\s+([A-Za-z_]\w*)\s*\(", prompt)
+        key = m.group(1) if m else "solution"
+        part = {
+            "key": key,
+            "prompt": prompt,
+            "tags": task.get("tags") or {"primary": None, "secondary": []},
+            "max_score": int(task.get("max_score") or 5),
+            "difficulty": int(task.get("difficulty") or 2),
+        }
+        if task.get("scaffold"):
+            part["scaffold"] = task["scaffold"]
+        task["parts"] = [part]
+        changed = True
+    if task.get("delivery") != "phased":
+        task["delivery"] = "phased"
+        changed = True
+    return changed
+
+
+def migrate_delivery(apply: bool) -> dict:
+    """Normalize the bank and stored snapshots to step-by-step delivery.
+
+    Rewrites, in order: the ``tasks`` rows (block → phased; partless → one
+    implicit step), ``active_sessions`` task snapshots, ``session_steps`` task
+    snapshots, and ``trajectory_shares`` snapshots. Task ids, owners, and
+    attempt links are preserved.
+    """
+    from coach.db import create_schema, learner_session, sqlite_conn
+    from coach.tasks import TaskModel, parse_parts, parse_tags, serialize_parts
+
+    create_schema()
+    counts = {
+        "tasks_seen": 0,
+        "tasks_updated": 0,
+        "tasks_wrapped": 0,
+        "sessions_seen": 0,
+        "sessions_updated": 0,
+        "steps_seen": 0,
+        "steps_updated": 0,
+        "shares_seen": 0,
+        "shares_updated": 0,
+    }
+
+    # 1. The task bank.
+    session = learner_session()
+    try:
+        from sqlalchemy import select
+
+        models = list(session.scalars(select(TaskModel)))
+        for m in models:
+            counts["tasks_seen"] += 1
+            task = {
+                "prompt": m.prompt,
+                "scaffold": m.scaffold,
+                "max_score": m.max_score,
+                "difficulty": m.difficulty,
+                "tags": parse_tags(m.tags_json),
+                "delivery": m.delivery,
+                "parts": parse_parts(m.parts_json),
+            }
+            had_parts = bool(task["parts"])
+            if not _normalize_task_delivery(task):
+                continue
+            if not had_parts:
+                counts["tasks_wrapped"] += 1
+            counts["tasks_updated"] += 1
+            if apply:
+                m.parts_json = serialize_parts(task["parts"])
+                m.delivery = "phased"
+        if apply:
+            session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+    with sqlite_conn() as conn:
+        # 2. In-flight session task snapshots.
+        for sid, raw in conn.execute(
+            "SELECT session_id, session_json FROM active_sessions"
+        ).fetchall():
+            counts["sessions_seen"] += 1
+            try:
+                parsed = json.loads(raw or "{}")
+            except Exception:
+                continue
+            container = (
+                parsed.get("session")
+                if isinstance(parsed, dict) and "session" in parsed
+                else parsed
+            )
+            if not isinstance(container, dict):
+                continue
+            changed = False
+            for t in container.get("tasks") or []:
+                if isinstance(t, dict) and _normalize_task_delivery(t):
+                    changed = True
+            if changed:
+                counts["sessions_updated"] += 1
+                if apply:
+                    conn.execute(
+                        "UPDATE active_sessions SET session_json = ? WHERE session_id = ?",
+                        (json.dumps(parsed), sid),
+                    )
+
+        # 3. Historical step snapshots (review display).
+        for rid, snap_raw in conn.execute(
+            "SELECT id, task_snapshot_json FROM session_steps"
+        ).fetchall():
+            counts["steps_seen"] += 1
+            try:
+                task = json.loads(snap_raw or "{}")
+            except Exception:
+                continue
+            if not isinstance(task, dict):
+                continue
+            if _normalize_task_delivery(task):
+                counts["steps_updated"] += 1
+                if apply:
+                    conn.execute(
+                        "UPDATE session_steps SET task_snapshot_json = ? WHERE id = ?",
+                        (json.dumps(task), rid),
+                    )
+
+        # 4. Share snapshots (session tasks + prefix step snapshots).
+        for rid, raw in conn.execute(
+            "SELECT id, snapshot_json FROM trajectory_shares"
+        ).fetchall():
+            counts["shares_seen"] += 1
+            try:
+                snap = json.loads(raw or "{}")
+            except Exception:
+                continue
+            if not isinstance(snap, dict):
+                continue
+            changed = False
+            container = snap.get("session")
+            if isinstance(container, dict):
+                for t in container.get("tasks") or []:
+                    if isinstance(t, dict) and _normalize_task_delivery(t):
+                        changed = True
+            for st in snap.get("steps") or []:
+                if isinstance(st, dict):
+                    t = st.get("task_snapshot")
+                    if isinstance(t, dict) and _normalize_task_delivery(t):
+                        changed = True
+            if changed:
+                counts["shares_updated"] += 1
+                if apply:
+                    conn.execute(
+                        "UPDATE trajectory_shares SET snapshot_json = ? WHERE id = ?",
+                        (json.dumps(snap), rid),
+                    )
+        if apply:
+            conn.commit()
+
+    return counts
+
+
+# ---------------------------------------------------------------------------
 # coverage report
 # ---------------------------------------------------------------------------
 
@@ -552,8 +735,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         "command",
         nargs="?",
         default="migrate",
-        choices=["migrate", "coverage"],
-        help="migrate (default) | coverage",
+        choices=["migrate", "coverage", "delivery"],
+        help="migrate (default) | coverage | delivery",
     )
     parser.add_argument("--apply", action="store_true", help="write changes (default: dry run)")
     parser.add_argument(
@@ -576,6 +759,14 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if args.command == "coverage":
         _print(coverage_report())
+        return 0
+
+    if args.command == "delivery":
+        report: dict = {"apply": args.apply}
+        if args.apply and not args.no_backup:
+            report["backup"] = backup_database()
+        report["delivery"] = migrate_delivery(args.apply)
+        _print(report)
         return 0
 
     fallback = args.fallback

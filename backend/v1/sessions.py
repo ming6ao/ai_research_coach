@@ -430,10 +430,10 @@ def submit_answer(
     session_id: str, req: AnswerSubmitRequest, user: Optional[dict] = Depends(get_current_user)
 ):
     from coach.config import PHASE_MAX_ATTEMPTS, default_pass_score
-    from coach.judge import LLMJudge, score_targets
+    from coach.judge import LLMJudge
     from coach.score import effective_score
     from coach.selection import pick_next_task
-    from coach.session import active_phase, completed_phases, is_phased, task_view
+    from coach.session import active_phase, completed_phases, effective_parts, task_view
     from coach.steps import insert_step
 
     store = get_store()
@@ -446,68 +446,46 @@ def submit_answer(
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task {req.task_id} not found.")
 
-    phased = is_phased(task)
-
-    # Idempotency: block tasks replay by task id; phased tasks replay only an
-    # identical answer to the current (unadvanced) phase.
-    if phased:
-        active = active_phase(task, session)
-        if active is None:
-            latest = _latest_task_step(session_id, task["id"])
-            if latest is not None:
-                return _replay_response(session, session_id, latest)
-            raise HTTPException(status_code=400, detail="This task is already complete.")
+    # Idempotency: replay only an identical answer to the current
+    # (unadvanced) step.
+    active = active_phase(task, session)
+    if active is None:
         latest = _latest_task_step(session_id, task["id"])
-        latest_parts = (latest.get("result") or {}).get("parts") or [] if latest else []
-        if (
-            latest is not None
-            and latest.get("user_answer") == req.answer
-            and latest_parts
-            and latest_parts[0].get("key") == active["key"]
-        ):
+        if latest is not None:
             return _replay_response(session, session_id, latest)
-    elif req.task_id in session.asked_task_ids:
-        existing = next((r for r in session.results if r.task_id == req.task_id), None)
-        if existing is not None:
-            return {
-                "data": {
-                    "result": existing.to_dict(),
-                    "coach": existing.coach,
-                    "next_task": pick_next_task(
-                        session.candidate, session, session_id=session_id
-                    ),
-                    "remaining": len(session.tasks) - session.index,
-                    "ability_update": None,
-                    "mastery": _mastery_dict(session),
-                    "already_answered": True,
-                }
-            }
+        raise HTTPException(status_code=400, detail="This task is already complete.")
+    latest = _latest_task_step(session_id, task["id"])
+    latest_parts = (latest.get("result") or {}).get("parts") or [] if latest else []
+    if (
+        latest is not None
+        and latest.get("user_answer") == req.answer
+        and latest_parts
+        and latest_parts[0].get("key") == active["key"]
+    ):
+        return _replay_response(session, session_id, latest)
 
-    # Resolve the scoring target. A phased task scores only its active part,
-    # judged against the candidate's previous code for the same task.
-    if phased:
-        parts = task.get("parts") or []
-        idx = completed_phases(task, session)
-        active = parts[idx]
-        pass_score = int(
-            active.get("pass_score") or default_pass_score(int(active.get("max_score") or 5))
-        )
-        previous_code = _last_code_for(session_id, task["id"])
-        judge_task = {
-            **task,
-            "parts": [active],
-            "max_score": int(active.get("max_score") or 5),
-            "difficulty": int(active.get("difficulty") or task.get("difficulty") or 2),
-        }
-        targets = [active]
-        global_difficulty = int(active.get("difficulty") or task.get("difficulty") or 2)
-        role = "phase"
-    else:
-        previous_code = None
-        judge_task = task
-        targets = score_targets(task)
-        global_difficulty = task.get("difficulty", 1)
-        role = str(task.get("generated_kind") or "remediate") if task.get("generated") else "bank"
+    # Every task is step-by-step: score only the active step, judged against
+    # the candidate's previous code for the same task.
+    parts = effective_parts(task)
+    idx = completed_phases(task, session)
+    active = parts[idx]
+    pass_score = int(
+        active.get("pass_score") or default_pass_score(int(active.get("max_score") or 5))
+    )
+    previous_code = _last_code_for(session_id, task["id"])
+    judge_task = {
+        **task,
+        "parts": [active],
+        "max_score": int(active.get("max_score") or 5),
+        "difficulty": int(active.get("difficulty") or task.get("difficulty") or 2),
+    }
+    targets = [active]
+    global_difficulty = int(active.get("difficulty") or task.get("difficulty") or 2)
+    role = (
+        str(task.get("generated_kind") or "remediate")
+        if task.get("generated")
+        else "bank"
+    )
 
     result, coach = LLMJudge().evaluate(judge_task, req.answer, previous_code=previous_code)
 
@@ -517,23 +495,18 @@ def submit_answer(
     )
 
     step_index = session.submission_index
-    if phased:
-        attempts = session.phase_attempts.get(task["id"], 0) + 1
-        passed = result.score >= pass_score
-        advanced = passed or attempts >= PHASE_MAX_ATTEMPTS
-        if advanced:
-            session.task_progress[task["id"]] = idx + 1
-            session.phase_attempts[task["id"]] = 0
-            if session.task_progress[task["id"]] >= len(parts):
-                session.asked_task_ids.add(task["id"])
-                session.index += 1
-        else:
-            session.phase_attempts[task["id"]] = attempts
-        session.results.append(result)
+    attempts = session.phase_attempts.get(task["id"], 0) + 1
+    passed = result.score >= pass_score
+    advanced = passed or attempts >= PHASE_MAX_ATTEMPTS
+    if advanced:
+        session.task_progress[task["id"]] = idx + 1
+        session.phase_attempts[task["id"]] = 0
+        if session.task_progress[task["id"]] >= len(parts):
+            session.asked_task_ids.add(task["id"])
+            session.index += 1
     else:
-        session.asked_task_ids.add(req.task_id)
-        session.results.append(result)
-        session.index += 1
+        session.phase_attempts[task["id"]] = attempts
+    session.results.append(result)
 
     insert_step(
         session_id,
@@ -651,10 +624,10 @@ def redo_step(
     req: RedoRequest,
     user: Optional[dict] = Depends(get_current_user),
 ):
-    from coach.judge import LLMJudge, score_targets
+    from coach.judge import LLMJudge
     from coach.score import effective_score
     from coach.selection import pick_next_task
-    from coach.session import Session
+    from coach.session import Session, effective_parts
     from coach.shares import get_share
     from coach.steps import insert_step
 
@@ -700,33 +673,27 @@ def redo_step(
         )
 
     task = steps[k].get("task_snapshot") or {}
-    phased = (task.get("delivery") or "block") == "phased" and bool(task.get("parts"))
-    previous_code = None
-    if phased:
-        stored_parts = (steps[k].get("result") or {}).get("parts") or []
-        stored_key = stored_parts[0].get("key") if stored_parts else None
-        active = next(
-            (p for p in task["parts"] if p.get("key") == stored_key),
-            task["parts"][0],
-        )
-        judge_task = {
-            **task,
-            "parts": [active],
-            "max_score": int(active.get("max_score") or 5),
-            "difficulty": int(active.get("difficulty") or task.get("difficulty") or 2),
-        }
-        targets = [active]
-        global_difficulty = int(active.get("difficulty") or task.get("difficulty") or 2)
-        try:
-            from coach.steps import answer_for_task
+    task_parts = effective_parts(task)
+    stored_parts = (steps[k].get("result") or {}).get("parts") or []
+    stored_key = stored_parts[0].get("key") if stored_parts else None
+    active = next(
+        (p for p in task_parts if p.get("key") == stored_key),
+        task_parts[0],
+    )
+    judge_task = {
+        **task,
+        "parts": [active],
+        "max_score": int(active.get("max_score") or 5),
+        "difficulty": int(active.get("difficulty") or task.get("difficulty") or 2),
+    }
+    targets = [active]
+    global_difficulty = int(active.get("difficulty") or task.get("difficulty") or 2)
+    try:
+        from coach.steps import answer_for_task
 
-            previous_code = answer_for_task(session_id, task.get("id"))
-        except Exception:
-            previous_code = None
-    else:
-        judge_task = task
-        targets = score_targets(task)
-        global_difficulty = task.get("difficulty", 1)
+        previous_code = answer_for_task(session_id, task.get("id"))
+    except Exception:
+        previous_code = None
 
     result, coach = LLMJudge().evaluate(judge_task, req.answer, previous_code=previous_code)
 
@@ -758,9 +725,8 @@ def redo_step(
     _persist_beliefs(session, new_score, new_variance, new_questions)
 
     session.asked_task_ids.add(task.get("id"))
-    if phased:
-        session.task_progress[task.get("id")] = len(task.get("parts") or [])
-        session.phase_attempts[task.get("id")] = 0
+    session.task_progress[task.get("id")] = len(task_parts)
+    session.phase_attempts[task.get("id")] = 0
     session.index = max(session.index, k + 1)
     session.results = [r for r in session.results if r.task_id != task.get("id")]
     session.results.append(result)

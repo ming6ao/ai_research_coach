@@ -11,8 +11,8 @@ and no skill tags — every task is eligible for every candidate.
 A task may be a **code block**: a task-level ``scaffold`` covering a set of
 related functions (``parts_json``). A part is
 ``{key, prompt, tags, max_score, difficulty}``; parts carry no scaffold and no
-hints, except that a ``delivery='phased'`` task may give each part its own
-``scaffold`` and ``pass_score``.
+hints, except that every task is delivered step-by-step, so each part may
+carry its own ``scaffold`` and ``pass_score``.
 
 Visibility: a candidate sees their own rows and every public row. There is no
 system-owned bucket — every task has a user owner. Guests create public rows
@@ -43,7 +43,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from coach.db import Base, learner_session
-from coach.config import DELIVERIES, default_pass_score
+from coach.config import default_pass_score
 
 
 def _utcnow_naive() -> datetime:
@@ -70,7 +70,7 @@ class TaskModel(Base):
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     parent_task_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     target_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    delivery: Mapped[str] = mapped_column(String(16), nullable=False, default="block")
+    delivery: Mapped[str] = mapped_column(String(16), nullable=False, default="phased")
     is_public: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
@@ -279,6 +279,17 @@ def derive_block_tags(parts: list[dict]) -> dict | None:
     return {"primary": primary, "secondary": secondary[:2]}
 
 
+def _step_key(prompt: str) -> str:
+    """Best-effort step key for a single implicit step.
+
+    Prefer the function name named in the prompt, else ``solution``.
+    """
+    import re
+
+    m = re.search(r"def\s+([A-Za-z_]\w*)\s*\(", prompt or "")
+    return m.group(1) if m else "solution"
+
+
 def task_to_dict(model: TaskModel) -> dict:
     d: dict[str, Any] = {
         "id": model.id,
@@ -292,7 +303,7 @@ def task_to_dict(model: TaskModel) -> dict:
         "source": model.source,
         "is_public": bool(model.is_public),
         "owner": model.owner,
-        "delivery": (getattr(model, "delivery", "") or "block"),
+        "delivery": (getattr(model, "delivery", "") or "phased"),
     }
     parts = parse_parts(getattr(model, "parts_json", "") or "[]")
     if parts:
@@ -325,16 +336,16 @@ def create_task(
     task_type: str = "implement",
     language: Optional[str] = None,
     parts: Optional[list] = None,
-    delivery: str = "block",
 ) -> dict:
     """Persist a task row and return its dict form.
 
     ``tags`` and each part's ``tags`` are validated against the closed
     vocabulary (``coach.taxonomy.validate``); invalid or missing tags raise
-    ``ValueError`` — every task must be categorized. A code block may carry
-    ``parts``; when ``tags`` is omitted for a block they are auto-derived from
-    the parts. ``max_score`` and ``difficulty`` default to the parts'
-    aggregates when omitted.
+    ``ValueError`` — every task must be categorized. A task without ``parts``
+    is wrapped into a single implicit step from its prompt, so every task is
+    delivered step-by-step. When ``tags`` is omitted for a multi-step task
+    they are auto-derived from the steps. ``max_score`` and ``difficulty``
+    default to the steps' aggregates when omitted.
     """
     from coach.db import create_schema
 
@@ -343,9 +354,6 @@ def create_task(
 
     if task_type not in TASK_TYPES:
         raise ValueError(f"Unknown task_type: {task_type!r}.")
-    delivery = str(delivery or "block").strip().lower() or "block"
-    if delivery not in DELIVERIES:
-        raise ValueError(f"Unknown delivery: {delivery!r}. Expected one of: {', '.join(DELIVERIES)}.")
     parts = validate_parts(parts)
     tid = task_id or f"task_{uuid.uuid4().hex[:10]}"
 
@@ -358,11 +366,23 @@ def create_task(
         )
     tags = validate_tags(tags)
 
-    if parts:
-        if difficulty is None:
-            difficulty = max(p["difficulty"] for p in parts)
-        if max_score is None:
-            max_score = sum(p["max_score"] for p in parts)
+    if not parts:
+        # Single-step task: wrap the task-level prompt into one step.
+        part: dict[str, Any] = {
+            "key": _step_key(prompt),
+            "prompt": prompt,
+            "tags": tags,
+            "max_score": max(1, int(max_score or 5)),
+            "difficulty": max(1, min(5, int(difficulty or 2))),
+        }
+        if scaffold:
+            part["scaffold"] = scaffold
+        parts = validate_parts([part])
+
+    if difficulty is None:
+        difficulty = max(p["difficulty"] for p in parts)
+    if max_score is None:
+        max_score = sum(p["max_score"] for p in parts)
     difficulty = max(1, min(5, int(difficulty or 2)))
     max_score = max(1, int(max_score or 5))
 
@@ -383,7 +403,7 @@ def create_task(
             source=source,
             parent_task_id=parent_task_id,
             target_text=target_text,
-            delivery=delivery,
+            delivery="phased",
             is_public=1 if is_public else 0,
             created_at=_utcnow_naive(),
         )
@@ -399,8 +419,9 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
 
     Allowed: prompt, scaffold, difficulty (1-5), max_score (>=1),
     parts (validated list), is_public (bool), context_notes (<=2000 chars),
-    tags (validated against the vocabulary), task_type, language, owner,
-    delivery.
+    tags (validated against the vocabulary), task_type, language, owner.
+    When ``parts`` is updated without ``difficulty``/``max_score``, the
+    task-level aggregates are re-derived from the steps.
     Returns the updated dict, or None when the task does not exist.
     """
     from coach.db import create_schema
@@ -408,7 +429,7 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
     allowed = {
         "prompt", "scaffold", "difficulty", "max_score", "parts",
         "is_public", "context_notes", "tags", "task_type", "language",
-        "owner", "delivery",
+        "owner",
     }
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if "prompt" in updates and not str(updates["prompt"]).strip():
@@ -424,12 +445,11 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
         updates["parts"] = validate_parts(updates["parts"])
     if "task_type" in updates and updates["task_type"] not in TASK_TYPES:
         raise ValueError(f"Unknown task_type: {updates['task_type']!r}.")
-    if "delivery" in updates:
-        updates["delivery"] = str(updates["delivery"] or "block").strip().lower() or "block"
-        if updates["delivery"] not in DELIVERIES:
-            raise ValueError(
-                f"Unknown delivery: {updates['delivery']!r}. Expected one of: {', '.join(DELIVERIES)}."
-            )
+    if "parts" in updates:
+        if "difficulty" not in updates:
+            updates["difficulty"] = max(p["difficulty"] for p in updates["parts"])
+        if "max_score" not in updates:
+            updates["max_score"] = sum(p["max_score"] for p in updates["parts"])
     session = learner_session()
     try:
         model = session.get(TaskModel, task_id)
@@ -453,8 +473,6 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
             model.tags_json = serialize_tags(updates["tags"])
         if "task_type" in updates:
             model.task_type = updates["task_type"]
-        if "delivery" in updates:
-            model.delivery = updates["delivery"]
         if "language" in updates:
             model.language = normalize_language(updates["language"])
         if "owner" in updates:

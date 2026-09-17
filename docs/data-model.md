@@ -120,22 +120,26 @@ Cross-session ability/mastery aggregates are *not* stored here — they live in
 The question bank, authored directly in the DB via `POST /api/v1/tasks` or the
 curator UI. Each task
 carries tags (1 primary leaf skill + 0–2 secondary) and a `task_type`.
+Delivery is always **step-by-step**: `parts` are shown one at a time
+(pass-gated, code carried forward); a partless task is one implicit step.
+Task-level `difficulty`/`max_score` are derived from the steps when omitted.
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | VARCHAR(64) | PK (`task_<hex>`) |
 | `owner` | VARCHAR(255) | NOT NULL — candidate email or guest id (every task has a user owner) |
 | `prompt` | TEXT | NOT NULL |
-| `scaffold` | TEXT | nullable — starter code for scaffold tasks |
+| `scaffold` | TEXT | nullable — legacy/single-step starter code (step scaffolds live in `parts_json`) |
 | `difficulty` | INTEGER | NOT NULL, 1–5 |
 | `max_score` | INTEGER | NOT NULL, default 5 |
-| `parts_json` | TEXT | NOT NULL — code-block parts `[{key, prompt, tags, max_score, difficulty}]` |
+| `parts_json` | TEXT | NOT NULL — step list `[{key, prompt, tags, max_score, difficulty, pass_score?, scaffold?}]` |
 | `context_notes` | TEXT | 2–4 plain-English sentences, generated once at creation |
 | `tags_json` | TEXT | `{"primary": <leaf skill>, "secondary": [<leaf skill>…]}` (closed vocabulary from `coach/taxonomy.py`) |
 | `task_type` | TEXT | `implement | apply | debug | design | analyze` |
 | `source` | VARCHAR(32) | NOT NULL — `user`/`generated` |
 | `parent_task_id` | VARCHAR(64) | nullable — root task for generated follow-ups |
 | `target_text` | TEXT | nullable — judge's misconception/gap text for generated drills |
+| `delivery` | VARCHAR(16) | NOT NULL — always `'phased'`; legacy `'block'` rows are normalized by `python -m coach.migrate delivery --apply` |
 | `is_public` | INTEGER | NOT NULL — visibility flag (public rows are visible to everyone; guests create public rows, signed-in default private) |
 | `created_at` | DATETIME | NOT NULL |
 

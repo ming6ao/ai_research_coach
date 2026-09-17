@@ -92,8 +92,6 @@ def create_task(
         prompt=req.prompt.strip(),
         owner=candidate,
         scaffold=req.scaffold,
-        difficulty=req.difficulty,
-        max_score=req.max_score,
         parts=req.parts,
         source="user",
         is_public=bool(req.is_public or is_guest),
@@ -103,7 +101,6 @@ def create_task(
         tags=tags,
         task_type=req.task_type or "implement",
         language=req.language,
-        delivery=req.delivery or "block",
     )
     return {"data": task}
 
