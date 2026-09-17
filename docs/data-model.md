@@ -90,24 +90,22 @@ transitions) lives in `session_steps`:
     "candidate": "user@example.com | guest-<id>",
     "tasks": [ Task, ... ],
     "index": 3,
-    "ability": { "score": 0.62, "variance": 0.09, "confidence": 0.66, "questions_answered": 3, "evidence": [...], "hints_used": [...] },
+    "ability": { "score": 0.62, "variance": 0.09, "confidence": 0.66, "questions_answered": 3, "evidence": [...] },
     "asked_task_ids": ["task_ab12cd34ef"],
-    "viewed_hints": { "task_ab12cd34ef": ["hint-1"] },
     "generated_task_ids": ["task_ab12cd34ef"]
   }
 }
 ```
 
 - `Task` — the task dict (see `task_to_dict`, `coach/tasks.py`): `id`, `prompt`,
-  `difficulty` (1–5), `max_score`, `hints` (`[{id, text, weight,
-  reveal_threshold}]`), `context_notes`, `tags` (`{primary, secondary[]}`),
-  `task_type`, `source`, `is_public`, `owner`, plus optional `scaffold`,
-  `parent_task_id`, `target_text`. Generated follow-ups/challenges add
-  in-session-only keys: `generated: true`, `generated_kind`
+  `difficulty` (1–5), `max_score`, `parts` (`[{key, prompt, tags, max_score,
+  difficulty}]`, empty for a single-question task), `context_notes`, `tags`
+  (`{primary, secondary[]}`), `task_type`, `source`, `is_public`, `owner`, plus
+  optional `scaffold`, `parent_task_id`, `target_text`. Generated follow-ups/
+  challenges add in-session-only keys: `generated: true`, `generated_kind`
   (`remediate|escalate|pivot|challenge`), `root_task_id`, `root_difficulty`.
 - `ability` — Gaussian `SkillState` (`coach/session.py`): `score` (posterior
-  mean), `variance`, `confidence`, `questions_answered`, `evidence[]`,
-  `hints_used[]`.
+  mean), `variance`, `confidence`, `questions_answered`, `evidence[]`.
 - `index` — number of tasks submitted so far; incremented per answer and used as
   `remaining = len(tasks) - index`.
 
@@ -163,8 +161,7 @@ export is a plain `SELECT ... ORDER BY session_id, step_index`.
 | `role` | VARCHAR(32) | NOT NULL — `bank \| remediate \| escalate \| pivot \| challenge \| redo` |
 | `user_answer` | TEXT | NOT NULL — the action |
 | `score` / `max_score` / `fraction` | FLOAT | judge output |
-| `reward` | FLOAT | NOT NULL — hint-adjusted fraction ∈ [0, 1] |
-| `hints_used_json` | TEXT | NOT NULL — hint ids viewed |
+| `reward` | FLOAT | NOT NULL — effective fraction ∈ [0, 1] |
 | `state_before_json` | TEXT | NOT NULL — `s_t` (`{global, families, tags}` belief snapshot) |
 | `state_after_json` | TEXT | NOT NULL — `s_{t+1}` |
 | `result_json` | TEXT | NOT NULL — judge result (rationale) |

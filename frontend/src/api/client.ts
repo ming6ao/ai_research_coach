@@ -262,73 +262,10 @@ async function v1<T>(path: string, body?: unknown, method?: string): Promise<T> 
   return res.data;
 }
 
-export interface AdminTableColumn {
-  name: string;
-  kind: 'text' | 'number' | 'bool' | 'datetime' | 'json';
-  searchable: boolean;
-  editable: boolean;
-  sensitive?: boolean;
-}
-
-export interface AdminTableMeta {
-  name: string;
-  pk: string;
-  default_sort: string;
-  columns: AdminTableColumn[];
-  count: number;
-}
-
-export interface AdminTablePage {
-  rows: Record<string, unknown>[];
-  total: number;
-  page: number;
-  page_size: number;
-}
-
-export interface AdminWhoami {
-  user: AuthUser;
-  is_admin: boolean;
-}
-
-export interface AdminResetResult {
-  ok: boolean;
-  preview: boolean;
-  wiped: Record<string, number>;
-  total_deleted: number;
-  preserved: string[];
-}
-
-export interface AdminTableQuery {
-  page?: number;
-  page_size?: number;
-  q?: string;
-  sort?: string;
-  order?: 'asc' | 'desc';
-  candidate?: string;
-  owner?: string;
-  task_id?: string;
-  email?: string;
-  user_id?: string;
-}
-
 export interface AdminTaxonomy {
   families: string[];
   tags: Record<string, string[]>;
   task_types: string[];
-}
-
-export interface AdminSeedCreate {
-  prompt: string;
-  scaffold?: string;
-  difficulty: number;
-  max_score: number;
-  parts?: TaskPart[];
-  tags?: { primary: string; secondary: string[] };
-  task_type?: string;
-  context_notes?: string;
-  version_index?: number;
-  depends_on_task_id?: string;
-  version_root_id?: string;
 }
 
 /** Curator-owned task record: full serialized task (owner + attempt stats). */
@@ -357,26 +294,6 @@ export interface TaskCreateBody {
 }
 
 export type TaskPatchBody = Partial<TaskCreateBody>;
-
-const ADMIN_BASE = '/admin';
-
-async function adminApi<T>(path: string, body?: unknown, method?: string): Promise<T> {
-  return request<T>(ADMIN_BASE, path, body, method);
-}
-
-export function buildAdminTableQuery(query: AdminTableQuery): string {
-  const params = new URLSearchParams();
-  if (query.page) params.set('page', String(query.page));
-  if (query.page_size) params.set('page_size', String(query.page_size));
-  if (query.q?.trim()) params.set('q', query.q.trim());
-  if (query.sort) params.set('sort', query.sort);
-  if (query.order) params.set('order', query.order);
-  for (const key of ['candidate', 'owner', 'task_id', 'email', 'user_id'] as const) {
-    if (query[key]?.trim()) params.set(key, query[key].trim());
-  }
-  const s = params.toString();
-  return s ? `?${s}` : '';
-}
 
 export const apiClient = {
   start: (initial_question?: string, opts?: { randomFirst?: boolean; family?: string }) =>
@@ -467,39 +384,4 @@ export const apiClient = {
 
   taxonomy: () =>
     v1<AdminTaxonomy>('/taxonomy', undefined, 'GET'),
-
-  // Admin endpoints (served under /admin, not /api)
-  adminWhoami: () =>
-    adminApi<AdminWhoami>('/whoami', undefined, 'GET'),
-
-  adminTables: () =>
-    adminApi<{ tables: AdminTableMeta[] }>('/tables', undefined, 'GET'),
-
-  adminTableRows: (table: string, query: AdminTableQuery = {}) =>
-    adminApi<AdminTablePage>(`/table/${encodeURIComponent(table)}${buildAdminTableQuery(query)}`, undefined, 'GET'),
-
-  adminTableRow: (table: string, rowId: string) =>
-    adminApi<{ row: Record<string, unknown> }>(`/table/${encodeURIComponent(table)}/${encodeURIComponent(rowId)}`, undefined, 'GET'),
-
-  adminUpdateRow: (table: string, rowId: string, fields: Record<string, unknown>) =>
-    adminApi<{ ok: boolean; row: Record<string, unknown> }>(
-      `/table/${encodeURIComponent(table)}/${encodeURIComponent(rowId)}`, fields, 'PATCH',
-    ),
-
-  adminDeleteRow: (table: string, rowId: string) =>
-    adminApi<{ ok: boolean; deleted: number }>(
-      `/table/${encodeURIComponent(table)}/${encodeURIComponent(rowId)}`, undefined, 'DELETE',
-    ),
-
-  adminResetPreview: () =>
-    adminApi<AdminResetResult>('/reset/preview', undefined, 'GET'),
-
-  adminReset: () =>
-    adminApi<AdminResetResult>('/reset', undefined, 'POST'),
-
-  adminTaxonomy: () =>
-    adminApi<AdminTaxonomy>('/taxonomy', undefined, 'GET'),
-
-  adminCreateSeed: (body: AdminSeedCreate) =>
-    adminApi<{ data: Task }>('/seeds', body, 'POST').then((r) => r.data),
 };

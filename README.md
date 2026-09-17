@@ -45,7 +45,7 @@ ai_research_coach/
 │   ├── main.py            # FastAPI app
 │   ├── v1/                # canonical REST API (/api/v1/*): sessions, tasks, users
 │   ├── auth_routes.py     # /api/auth/* endpoints (Google OAuth)
-│   ├── admin_routes.py    # /admin/* endpoints (table browser + candidate wipe)
+│   ├── admin_routes.py    # /admin/* endpoints (seed authoring, reset, candidate wipe)
 │   ├── auth.py            # session tokens (Bearer header or HttpOnly cookie)
 │   ├── csrf.py            # Origin check for cookie-authenticated writes
 │   └── google_auth.py     # Google OAuth (stdlib only, DB-backed state)
@@ -134,7 +134,7 @@ All v1 resources return a `{data}` envelope; list endpoints add
 | `GET /api/v1/me/sessions` | My sessions with a `done` flag (paginated) |
 | `DELETE /api/v1/me/data` | Delete my sessions + attempts + beliefs + owned tasks |
 | `/api/auth/*` | Google login / me / logout |
-| `/admin/*` | Admin table browser (`/tables`, `/table/{name}`) + owner-or-admin candidate wipe (`/candidate/{candidate}`, `/candidate/{candidate}/summary`) |
+| `/admin/*` | Admin seed authoring (`/seeds`, `/taxonomy`) + activity reset (`/reset`, `/reset/preview`) + owner-or-admin candidate wipe (`/candidate/{candidate}`, `/candidate/{candidate}/summary`) |
 
 ## Persistence
 

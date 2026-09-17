@@ -1,37 +1,14 @@
-import { useEffect, useState } from 'react';
 import { useAssessmentStore } from '../../stores/assessmentStore';
 import { useAuthStore } from '../../stores/authStore';
-import { apiClient } from '../../api/client';
 
 interface Props {
   onOpenAuth: (tab: 'login' | 'signup') => void;
-  onOpenAdmin: () => void;
   onOpenCurator: () => void;
 }
 
-export function Header({ onOpenAuth, onOpenAdmin, onOpenCurator }: Props) {
+export function Header({ onOpenAuth, onOpenCurator }: Props) {
   const { sessionId, taskIndex, completeSession, loading, reset } = useAssessmentStore();
   const { user, logout } = useAuthStore();
-  const [isAdmin, setIsAdmin] = useState(false);
-
-  useEffect(() => {
-    if (!user) {
-      setIsAdmin(false);
-      return;
-    }
-    let cancelled = false;
-    apiClient.adminWhoami().then(
-      (who) => {
-        if (!cancelled) setIsAdmin(who.is_admin);
-      },
-      () => {
-        if (!cancelled) setIsAdmin(false);
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
 
   const handleLogout = () => {
     logout();
@@ -72,14 +49,6 @@ export function Header({ onOpenAuth, onOpenAdmin, onOpenCurator }: Props) {
             >
               My questions
             </button>
-            {isAdmin && (
-              <button
-                onClick={onOpenAdmin}
-                className="text-xs text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
-              >
-                Admin
-              </button>
-            )}
             <span className="hidden text-sm text-[var(--color-text-secondary)] sm:block">
               {user.display_name || user.email.split('@')[0]}
             </span>

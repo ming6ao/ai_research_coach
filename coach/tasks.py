@@ -670,15 +670,6 @@ def _list_tasks(
         session.close()
 
 
-def list_tasks_for_admin(
-    owner: Optional[str] = None,
-    q: Optional[str] = None,
-    limit: int = 200,
-) -> list[dict]:
-    """List tasks for the admin UI, newest last, with per-task attempt counts."""
-    return _list_tasks(owner=owner, q=q, limit=limit)
-
-
 def list_tasks_for_owner(
     owner: str,
     q: Optional[str] = None,
