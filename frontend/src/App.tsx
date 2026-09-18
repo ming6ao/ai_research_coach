@@ -3,8 +3,8 @@ import { useAssessmentStore } from './stores/assessmentStore';
 import { useAuthStore } from './stores/authStore';
 import { setAuthToken } from './api/client';
 import { Header } from './components/Header/Header';
-import { ChatView } from './components/Chat/ChatView';
 import { HomeView } from './components/Home/HomeView';
+import { SessionLayout } from './components/Session/SessionLayout';
 import { AuthModal } from './components/Auth/AuthModal';
 import { CuratorView } from './components/Curator/CuratorView';
 
@@ -79,7 +79,7 @@ export default function App() {
       {curatorOpen ? (
         <CuratorView onClose={() => setCuratorOpen(false)} />
       ) : sessionId ? (
-        <ChatView />
+        <SessionLayout />
       ) : (
         <HomeView />
       )}

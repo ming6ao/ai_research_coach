@@ -53,5 +53,22 @@ class TaskPatchRequest(BaseModel):
     owner: Optional[str] = Field(default=None, max_length=255)
 
 
+class ExplainCreateRequest(BaseModel):
+    """A highlighted passage the learner asked to have explained.
+
+    ``selected_text`` is capped at 4000 chars and ``context`` at 800 (the
+    enclosing paragraph); both are enforced client-side too. ``question`` is
+    set for a follow-up on an existing explanation (``parent_id``).
+    """
+
+    task_id: str = Field(min_length=1, max_length=128)
+    step_key: Optional[str] = Field(default=None, max_length=64)
+    selected_text: str = Field(min_length=1, max_length=4000)
+    context: Optional[str] = Field(default=None, max_length=800)
+    source_kind: str = Field(default="other", max_length=16)
+    question: Optional[str] = Field(default=None, max_length=1000)
+    parent_id: Optional[str] = Field(default=None, max_length=36)
+
+
 # (AdminSeedCreateRequest removed: no system-owned seed tasks; author via
 # POST /api/v1/tasks with is_public=true.)

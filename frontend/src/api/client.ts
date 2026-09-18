@@ -155,6 +155,37 @@ export interface UnifiedSession {
   updated_at: string;
 }
 
+/** A selection-driven explanation shown in the right-hand panel. */
+export interface Explanation {
+  id: string;
+  session_id?: string;
+  task_id?: string | null;
+  step_key?: string | null;
+  phase_index?: number | null;
+  source_kind: string;
+  selected_text: string;
+  context?: string;
+  question?: string | null;
+  parent_id?: string | null;
+  title?: string;
+  explanation?: string;
+  related_terms?: string[];
+  model?: string;
+  cached?: boolean;
+  status?: string;
+  created_at?: string;
+}
+
+export interface ExplainBody {
+  task_id: string;
+  step_key?: string;
+  selected_text: string;
+  context?: string;
+  source_kind: 'question' | 'coaching' | 'context' | 'code' | 'other';
+  question?: string;
+  parent_id?: string;
+}
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -319,6 +350,12 @@ export const apiClient = {
 
   overview: () =>
     v1<OverviewResponse>('/me/overview', undefined, 'GET'),
+
+  explain: (session_id: string, body: ExplainBody) =>
+    v1<Explanation>(`/sessions/${encodeURIComponent(session_id)}/explanations`, body),
+
+  listExplanations: (session_id: string) =>
+    v1<Explanation[]>(`/sessions/${encodeURIComponent(session_id)}/explanations`, undefined, 'GET'),
 
   listSessions: async () => {
     const res = await request<{ data: UnifiedSession[]; meta: { total: number } }>(

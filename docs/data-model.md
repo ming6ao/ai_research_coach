@@ -6,12 +6,12 @@ Persistence: single SQLite file `data/coach.db` (gitignored, created on first ru
 
 ## Overview
 
-Seven tables split between two access layers that share one file:
+Eight tables split between two access layers that share one file:
 
 | Layer | Module | Tables |
 |-------|--------|--------|
 | Raw `sqlite3` (hand-written SQL) | `coach/db.py` (`sqlite_conn`), `backend/auth.py`, `backend/dependencies.py`, `backend/google_auth.py` | `users`, `auth_tokens`, `active_sessions`, `oauth_states` |
-| SQLAlchemy ORM (`coach.db.Base`) | `coach/tasks.py`, `coach/steps.py` | `tasks`, `session_steps`, `user_skill_beliefs` |
+| SQLAlchemy ORM (`coach.db.Base`) | `coach/tasks.py`, `coach/steps.py`, `coach/explanations.py` | `tasks`, `session_steps`, `user_skill_beliefs`, `explanations` |
 
 `create_schema()` (called at startup and lazily from the task/step CRUD paths) is
 idempotent: it creates all tables, drops removed knowledge-graph/learner tables,
@@ -212,6 +212,40 @@ exactly one skill row, plus its area and domain rows, plus the global row.
 Reported mastery is folded at read time from own evidence toward the parent
 (empirical-Bayes shrinkage, `eta=2.0`).
 
+### `explanations`
+Selection-driven explanations ("Explain this"): one row per highlighted
+passage the learner asked about (`coach/explanations.py`, routes in
+`backend/v1/explanations.py`). These are **not** scored transitions — they never
+enter `session_steps` and never update `user_skill_beliefs`. They back the
+right-hand explanation panel (restored on resume/review), cache identical
+requests per session (`request_hash`), and record follow-up threads
+(`parent_id`). Deleted with their session by `SessionState.delete`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | VARCHAR(36) | PK (uuid) |
+| `session_id` | VARCHAR(64) | NOT NULL → `active_sessions.session_id` |
+| `candidate` | VARCHAR(255) | NOT NULL — denormalized for curation/analytics |
+| `task_id` | VARCHAR(64) | nullable — the task the passage came from |
+| `step_key` | VARCHAR(64) | nullable — the active step's key |
+| `phase_index` | INTEGER | nullable — 0-based step position |
+| `source_kind` | VARCHAR(16) | `question \| coaching \| context \| code \| other` |
+| `selected_text` | TEXT | NOT NULL — the highlighted passage (≤4000 chars) |
+| `context_text` | TEXT | NOT NULL default `''` — enclosing paragraph (≤800) |
+| `question` | TEXT | nullable — follow-up question |
+| `parent_id` | VARCHAR(36) | nullable — self-reference for follow-up threads |
+| `request_hash` | VARCHAR(64) | NOT NULL — sha256 for per-session dedup |
+| `title` | TEXT | NOT NULL default `''` — short concept title |
+| `explanation` | TEXT | NOT NULL default `''` — markdown (KaTeX + code) |
+| `related_terms_json` | TEXT | NOT NULL default `'[]'` |
+| `model` | VARCHAR(64) | NOT NULL default `''` |
+| `status` | VARCHAR(16) | NOT NULL — `ok` (only successes are stored) |
+| `created_at` | DATETIME | NOT NULL |
+
+Indexes: `ix_explanations_session (session_id)`,
+`ix_explanations_candidate (candidate)`, `ix_explanations_task (task_id)`,
+`ix_explanations_hash (session_id, request_hash)`.
+
 ## Candidate identity
 
 The learner key used by `candidate` columns is resolved by
@@ -226,7 +260,7 @@ The learner key used by `candidate` columns is resolved by
 
 `coach/db.py:create_schema()` runs idempotently (guarded per DB file):
 
-1. `Base.metadata.create_all` — creates `tasks`, `session_steps`, `user_skill_beliefs`.
+1. `Base.metadata.create_all` — creates `tasks`, `session_steps`, `user_skill_beliefs`, `explanations`.
 2. Drops removed knowledge-graph/learner tables (`knowledge_nodes`,
    `knowledge_edges`, `learners`, `learner_knowledge_states`, `evidence`,
    `learner_misconceptions`, `learner_frontier`, `assessment_targets`,

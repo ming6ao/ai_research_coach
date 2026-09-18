@@ -118,9 +118,11 @@ class SessionState:
             )
 
     def delete(self, session_id: str):
+        from coach.explanations import delete_session_explanations
         from coach.steps import delete_session_data
 
         delete_session_data(session_id)
+        delete_session_explanations(session_id)
         with _connect() as conn:
             conn.execute("DELETE FROM active_sessions WHERE session_id = ?", (session_id,))
 

@@ -58,7 +58,7 @@ function InlineMath({ latex, display }: { latex: string; display: boolean }) {
   if (html === null) {
     return <>{latex}</>;
   }
-  return <span dangerouslySetInnerHTML={{ __html: html }} />;
+  return <span data-latex={latex} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 export function MathText({ text }: { text: string }) {

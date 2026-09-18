@@ -281,6 +281,7 @@ def create_schema():
     """Create all tables (idempotent) and drop removed ones. Returns engine."""
     from coach import tasks as _tasks  # noqa: F401  (register task tables)
     from coach import steps as _steps  # noqa: F401  (register session_steps)
+    from coach import explanations as _explanations  # noqa: F401  (register explanations)
 
     url = learner_db_url()
     key = f"orm:{url}"

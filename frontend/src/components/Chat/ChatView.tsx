@@ -206,23 +206,44 @@ export function ChatView() {
 
           {results.map((r, i) => (
             <Fragment key={`res-${i}`}>
-              <QuestionBubble
-                parts={r.parts}
-                phaseIndex={r.phase_index}
-                phaseTotal={r.phase_total}
-              />
+              <div
+                data-selectable
+                data-source-kind="question"
+                data-task-id={r.task_id}
+                data-step-key={r.parts?.[0]?.key}
+              >
+                <QuestionBubble
+                  parts={r.parts}
+                  phaseIndex={r.phase_index}
+                  phaseTotal={r.phase_total}
+                />
+              </div>
               <UserCodeBubble answer={r.userAnswer} language={r.language} />
-              <CoachingBubble r={r} />
+              <div
+                data-selectable
+                data-source-kind="coaching"
+                data-task-id={r.task_id}
+                data-step-key={r.parts?.[0]?.key}
+              >
+                <CoachingBubble r={r} />
+              </div>
             </Fragment>
           ))}
 
           {showTask && currentTask && (
-            <QuestionBubble
-              parts={currentTask.parts}
-              remediation={currentTask.remediation}
-              phaseIndex={currentTask.phase_index}
-              phaseTotal={currentTask.phase_total}
-            />
+            <div
+              data-selectable
+              data-source-kind="question"
+              data-task-id={currentTask.id}
+              data-step-key={currentTask.parts?.[0]?.key}
+            >
+              <QuestionBubble
+                parts={currentTask.parts}
+                remediation={currentTask.remediation}
+                phaseIndex={currentTask.phase_index}
+                phaseTotal={currentTask.phase_total}
+              />
+            </div>
           )}
 
           {showTask && currentTask && (
