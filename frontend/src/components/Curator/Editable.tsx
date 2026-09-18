@@ -3,8 +3,7 @@ import type { Taxonomy } from '../../api/client';
 import { Markdown } from '../Markdown/Markdown';
 
 const inputCls =
-  'w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)]';
-const labelCls = 'mb-0.5 block text-xs text-[var(--color-text-muted)]';
+  'w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-2 py-1 text-xs text-[var(--color-text-primary)]';
 
 /** Grouped taxonomy options (`domain / area` optgroups), optionally filtered. */
 export function TaxonomyOptions({
@@ -75,11 +74,27 @@ export function TagEditor({
 }) {
   const chosen = [primary, ...secondary].filter(Boolean);
   return (
-    <div className="space-y-1.5">
-      <label className="block">
-        <span className={labelCls}>{primaryLabel}</span>
-        <TagSelect taxonomy={taxonomy} value={primary} onChange={onPrimary} exclude={secondary} />
-      </label>
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="shrink-0 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
+          {primaryLabel}
+        </span>
+        <div className="min-w-[10rem] flex-1">
+          <TagSelect taxonomy={taxonomy} value={primary} onChange={onPrimary} exclude={secondary} />
+        </div>
+        {secondary.length < 2 && (
+          <select
+            value=""
+            onChange={(e) => {
+              if (e.target.value) onSecondary([...secondary, e.target.value]);
+            }}
+            className={`${inputCls} min-w-[9rem] flex-1 text-[var(--color-text-muted)]`}
+          >
+            <option value="">+ secondary tag…</option>
+            <TaxonomyOptions taxonomy={taxonomy} exclude={chosen} />
+          </select>
+        )}
+      </div>
       {secondary.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {secondary.map((tag) => (
@@ -99,18 +114,6 @@ export function TagEditor({
             </span>
           ))}
         </div>
-      )}
-      {secondary.length < 2 && (
-        <select
-          value=""
-          onChange={(e) => {
-            if (e.target.value) onSecondary([...secondary, e.target.value]);
-          }}
-          className={`${inputCls} text-[var(--color-text-muted)]`}
-        >
-          <option value="">+ add secondary tag (optional)…</option>
-          <TaxonomyOptions taxonomy={taxonomy} exclude={chosen} />
-        </select>
       )}
     </div>
   );

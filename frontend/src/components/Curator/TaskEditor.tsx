@@ -37,9 +37,9 @@ interface Props {
 
 const LANGUAGES = ['python', 'cpp', 'c', 'javascript', 'typescript', 'java', 'go', 'rust'];
 
-const labelCls = 'mb-0.5 block text-xs text-[var(--color-text-muted)]';
+const labelCls = 'mb-0.5 block text-[10px] text-[var(--color-text-muted)]';
 const fieldCls =
-  'w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)]';
+  'w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-2 py-1 text-xs text-[var(--color-text-primary)]';
 
 function blankPart(primary = ''): PartDraft {
   return {
@@ -82,8 +82,6 @@ function autoPassScore(maxScore: number): number {
 export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props) {
   const [taxonomy, setTaxonomy] = useState<Taxonomy | null>(null);
   const [language, setLanguage] = useState(task?.language ?? 'python');
-  const [primary, setPrimary] = useState(task?.tags?.primary ?? '');
-  const [secondary, setSecondary] = useState<string[]>(task?.tags?.secondary ?? []);
   const [taskType, setTaskType] = useState(task?.task_type ?? 'implement');
   const [isPublic, setIsPublic] = useState(task ? task.is_public : true);
   const [parts, setParts] = useState<PartDraft[]>(() => {
@@ -97,22 +95,16 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
   useEffect(() => {
     apiClient
       .taxonomy()
-      .then((t) => {
-        setTaxonomy(t);
-        if (!task) {
-          const firstSkill = t.skills[0];
-          if (firstSkill) setPrimary((prev) => prev || firstSkill);
-        }
-      })
+      .then(setTaxonomy)
       .catch((e) => onError(e instanceof Error ? e.message : String(e)));
-  }, [task, onError]);
+  }, [onError]);
 
   const updatePart = (idx: number, patch: Partial<PartDraft>) => {
     setParts((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)));
   };
 
   const addStep = () => {
-    setParts((prev) => [...prev, blankPart(primary)]);
+    setParts((prev) => [...prev, blankPart(prev[activeStep]?.primary ?? '')]);
     setActiveStep(parts.length);
   };
 
@@ -140,12 +132,6 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
   /** Validate + build the create/update body; returns null on invalid input. */
   const buildBody = (): TaskCreateBody | null => {
     setFormError(null);
-    if (!primary) {
-      const msg = 'Select a primary skill.';
-      setFormError(msg);
-      onError(msg);
-      return null;
-    }
     const cleaned: TaskPart[] = [];
     const seen = new Set<string>();
     for (const p of parts) {
@@ -192,7 +178,6 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
     }
     const body: TaskCreateBody = {
       parts: cleaned,
-      tags: { primary, secondary: secondary.slice(0, 2) },
       task_type: taskType,
       language,
       is_public: isPublic,
@@ -247,11 +232,6 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
     active.pass_score.trim() !== ''
       ? Math.max(0, Math.min(activeMax, Number(active.pass_score) || 0))
       : autoPassScore(activeMax);
-  const derivedDifficulty = parts.reduce(
-    (m, p) => Math.max(m, clamp1to5(Number(p.difficulty)) || 2),
-    1,
-  );
-  const derivedMaxScore = parts.reduce((s, p) => s + (clamp1to100(Number(p.max_score)) || 5), 0);
   const activeScaffoldIssues = scaffoldHygieneIssues(active.scaffold);
 
   const activeTaskPart: TaskPart = {
@@ -265,7 +245,7 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-2xl space-y-5 px-4 py-6 lg:max-w-4xl">
+        <div className="mx-auto max-w-2xl space-y-3 px-4 py-4 lg:max-w-4xl">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="truncate text-sm font-semibold text-[var(--color-text-primary)]">
               {task ? 'Edit question' : 'New question'}
@@ -278,11 +258,11 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
           </div>
 
           {/* Curator-only settings. */}
-          <section className="space-y-3 rounded-xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-3">
+          <section className="space-y-2 rounded-xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-2.5">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
               Question settings — hidden from learners
             </p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <label className="block">
                 <span className={labelCls}>language</span>
                 <select
@@ -311,28 +291,18 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
                   ))}
                 </select>
               </label>
+              <label className="col-span-2 flex items-center gap-2 self-end pb-1">
+                <input
+                  type="checkbox"
+                  checked={isPublic}
+                  onChange={(e) => setIsPublic(e.target.checked)}
+                  className="h-3.5 w-3.5"
+                />
+                <span className="text-[11px] text-[var(--color-text-secondary)]">
+                  Public in the question bank (visible to all learners)
+                </span>
+              </label>
             </div>
-            <TagEditor
-              taxonomy={taxonomy}
-              primary={primary}
-              secondary={secondary}
-              onPrimary={setPrimary}
-              onSecondary={setSecondary}
-            />
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={isPublic}
-                onChange={(e) => setIsPublic(e.target.checked)}
-                className="h-3.5 w-3.5"
-              />
-              <span className="text-xs text-[var(--color-text-secondary)]">
-                Public in the question bank (visible to all learners)
-              </span>
-            </label>
-            <p className="text-[10px] text-[var(--color-text-muted)]">
-              Derived from steps: difficulty {derivedDifficulty} · max_score {derivedMaxScore}
-            </p>
           </section>
 
           {/* Step tabs mirror the learner advancing one step at a time. */}
@@ -375,22 +345,54 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
           />
 
           {/* Curator-only step details. */}
-          <section className="space-y-3 rounded-xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-              Step {activeStep + 1} details — hidden from learners
-            </p>
-            <label className="block">
-              <span className={labelCls}>step key (internal id, not shown to learners)</span>
-              <EditableText
-                value={active.key}
-                onCommit={(v) => updatePart(activeStep, { key: v })}
-                placeholder="step_key"
-                ariaLabel="Step key"
-                mono
-                className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-xs"
-              />
-            </label>
-            <div className="grid grid-cols-3 gap-2">
+          <section className="space-y-2 rounded-xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-2.5">
+            <div className="flex items-center gap-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+                Step {activeStep + 1} details — hidden from learners
+              </p>
+              <div className="ml-auto flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => moveStep(activeStep, -1)}
+                  disabled={activeStep === 0}
+                  aria-label="Move step up"
+                  title="Move step up"
+                  className="rounded-md border border-[var(--color-border-default)] px-1.5 py-0.5 text-[11px] leading-4 disabled:opacity-30"
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moveStep(activeStep, 1)}
+                  disabled={activeStep === parts.length - 1}
+                  aria-label="Move step down"
+                  title="Move step down"
+                  className="rounded-md border border-[var(--color-border-default)] px-1.5 py-0.5 text-[11px] leading-4 disabled:opacity-30"
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeStep(activeStep)}
+                  disabled={parts.length <= 1}
+                  className="rounded-md border border-[var(--color-error)]/40 px-1.5 py-0.5 text-[11px] leading-4 text-[var(--color-error)] disabled:opacity-30"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-6">
+              <label className="col-span-2 block sm:col-span-3">
+                <span className={labelCls}>step key (internal)</span>
+                <EditableText
+                  value={active.key}
+                  onCommit={(v) => updatePart(activeStep, { key: v })}
+                  placeholder="step_key"
+                  ariaLabel="Step key"
+                  mono
+                  className={fieldCls}
+                />
+              </label>
               <label className="block">
                 <span className={labelCls}>max_score</span>
                 <EditableNumber
@@ -399,16 +401,18 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
                   max={100}
                   onCommit={(v) => updatePart(activeStep, { max_score: String(v) })}
                   ariaLabel="Max score"
+                  className={fieldCls}
                 />
               </label>
               <label className="block">
-                <span className={labelCls}>difficulty (1–5)</span>
+                <span className={labelCls}>difficulty</span>
                 <EditableNumber
                   value={clamp1to5(Number(active.difficulty)) || 2}
                   min={1}
                   max={5}
                   onCommit={(v) => updatePart(activeStep, { difficulty: String(v) })}
                   ariaLabel="Difficulty"
+                  className={fieldCls}
                 />
               </label>
               <label className="block">
@@ -419,6 +423,7 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
                   max={activeMax}
                   onCommit={(v) => updatePart(activeStep, { pass_score: String(v) })}
                   ariaLabel="Pass score"
+                  className={fieldCls}
                 />
               </label>
             </div>
@@ -428,34 +433,8 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
               secondary={active.secondary}
               onPrimary={(t) => updatePart(activeStep, { primary: t })}
               onSecondary={(tags) => updatePart(activeStep, { secondary: tags })}
-              primaryLabel="step primary tag *"
+              primaryLabel="step primary *"
             />
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => moveStep(activeStep, -1)}
-                disabled={activeStep === 0}
-                className="rounded-lg border border-[var(--color-border-default)] px-2 py-1 text-xs disabled:opacity-30"
-              >
-                ↑ Move up
-              </button>
-              <button
-                type="button"
-                onClick={() => moveStep(activeStep, 1)}
-                disabled={activeStep === parts.length - 1}
-                className="rounded-lg border border-[var(--color-border-default)] px-2 py-1 text-xs disabled:opacity-30"
-              >
-                ↓ Move down
-              </button>
-              <button
-                type="button"
-                onClick={() => removeStep(activeStep)}
-                disabled={parts.length <= 1}
-                className="rounded-lg border border-[var(--color-error)]/40 px-2 py-1 text-xs text-[var(--color-error)] disabled:opacity-30"
-              >
-                Remove step
-              </button>
-            </div>
           </section>
 
           {/* Starter code for the active step. */}

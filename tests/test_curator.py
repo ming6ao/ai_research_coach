@@ -68,6 +68,45 @@ def _create_owned(client, token, prompt, owner_email, is_public=True):
     return task
 
 
+def test_create_task_derives_task_tags_from_steps(client):
+    """The curator UI omits task-level tags: they come from the steps."""
+    token = _login("derive@x.com")
+    res = client.post(
+        "/api/v1/tasks",
+        json={
+            "parts": [
+                {"key": "a", "prompt": "First.", "tags": {"primary": "testing"},
+                 "max_score": 5, "difficulty": 2},
+                {"key": "b", "prompt": "Second.", "tags": {"primary": "caching"},
+                 "max_score": 7, "difficulty": 3},
+            ],
+        },
+        headers=_h(token),
+    )
+    assert res.status_code == 201, res.text
+    task = res.json()["data"]
+    assert task["tags"] == {"primary": "testing", "secondary": ["caching"]}
+    assert task["difficulty"] == 3  # max step difficulty
+    assert task["max_score"] == 12  # sum of step max scores
+
+
+def test_patch_parts_re_derives_task_tags(client):
+    alice = _login("alice-derive@x.com")
+    task = _create_owned(client, alice, "Original", "alice-derive@x.com")
+    res = client.patch(
+        f"/api/v1/tasks/{task['id']}",
+        json={
+            "parts": [
+                {"key": "a", "prompt": "Reworked.", "tags": {"primary": "caching"},
+                 "max_score": 5, "difficulty": 2},
+            ],
+        },
+        headers=_h(alice),
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["data"]["tags"]["primary"] == "caching"
+
+
 def test_taxonomy_is_public(client):
     res = client.get("/api/v1/taxonomy")
     assert res.status_code == 200

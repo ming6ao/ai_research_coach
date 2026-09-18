@@ -450,6 +450,12 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
         updates["tags"] = validate_tags(updates["tags"])
     if "parts" in updates:
         updates["parts"] = validate_parts(updates["parts"])
+        # Task-level tags are a summary of the steps: re-derive them when the
+        # author edits the steps without explicitly overriding the tags.
+        if "tags" not in updates:
+            derived = derive_step_tags(updates["parts"])
+            if derived is not None:
+                updates["tags"] = derived
     if "task_type" in updates and updates["task_type"] not in TASK_TYPES:
         raise ValueError(f"Unknown task_type: {updates['task_type']!r}.")
     if "parts" in updates:

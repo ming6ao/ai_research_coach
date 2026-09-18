@@ -83,10 +83,14 @@ def create_task(
         raise HTTPException(
             status_code=422, detail="At least one part is required."
         )
-    try:
-        tags = validate_tags(req.tags)
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+    # Task-level tags are optional: when omitted, ``create_task`` derives them
+    # from the steps' own tags (each step is already required to be tagged).
+    tags = None
+    if req.tags is not None:
+        try:
+            tags = validate_tags(req.tags)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
     candidate = resolve_candidate(user, request)
     is_guest = candidate.startswith("guest-")
     # Context notes describe the first thing the learner sees: the first step.
