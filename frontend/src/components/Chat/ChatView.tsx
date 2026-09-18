@@ -40,7 +40,7 @@ function UserCodeBubble({ answer, language }: { answer: string; language?: strin
   const { code, note } = splitNote(answer);
   return (
     <div className="space-y-2">
-      <CodeEditor code={code} language={language} readOnly />
+      <CodeEditor code={code} language={language} readOnly fitContent />
       {note && <UserTextBubble text={note} />}
     </div>
   );
@@ -164,6 +164,7 @@ export function ChatView() {
     completeSession,
   } = useAssessmentStore();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const [code, setCode] = useState('');
 
@@ -181,9 +182,18 @@ export function ChatView() {
     useAssessmentStore.getState().submitAnswer(currentTask.id, answer);
   };
 
+  // A new task/step starts at the top so the question is visible before the
+  // (potentially very tall) editor.
   useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [taskId, phaseIndex]);
+
+  // After a submission, bring the coaching into view. Skipped on the first
+  // render so an empty session does not jump past the question.
+  useEffect(() => {
+    if (results.length === 0) return;
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [results.length, currentTask?.id, pendingTask?.phase_index, loading]);
+  }, [results.length, loading]);
 
   const hasHistory = results.length > 0;
   const showTask = !!currentTask && !pendingTask;
@@ -199,8 +209,9 @@ export function ChatView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Single scrollable page: question → parts → editor → composer in one flow */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* Single scrollable page: question → parts → editor in one flow. The
+          submit controls live in the pinned footer below. */}
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-2xl space-y-5 px-4 py-6 lg:max-w-4xl xl:max-w-6xl">
           {initialQuestion && !hasHistory && <UserTextBubble text={initialQuestion} />}
 
@@ -253,42 +264,8 @@ export function ChatView() {
               language={currentTask.language}
               onChange={setCode}
               readOnly={loading}
+              fitContent
             />
-          )}
-
-          {showTask && currentTask && (
-            <div className="space-y-2">
-              <Composer
-                placeholder="Add a note (optional) and submit…"
-                onSubmit={handleSubmit}
-                disabled={loading}
-                allowEmpty
-              />
-              {results.length > 0 && (
-                <p className="text-center">
-                  <button
-                    onClick={completeSession}
-                    disabled={loading}
-                    className="text-xs text-[var(--color-text-muted)] underline-offset-2 transition-colors hover:text-[var(--color-text-secondary)] hover:underline disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    Finish session and view progress
-                  </button>
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Teaching pause: hold the next task until the candidate continues. */}
-          {pendingTask && (
-            <div className="flex justify-center pt-1">
-              <button
-                onClick={advance}
-                disabled={loading}
-                className="rounded-lg bg-[var(--color-accent)] px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {nextLabel}
-              </button>
-            </div>
           )}
 
           {finished && <DoneBubble key="done" />}
@@ -302,6 +279,52 @@ export function ChatView() {
           <div ref={bottomRef} />
         </div>
       </div>
+
+      {/*
+       * Pinned footer: the editor grows to fit long files with no inner scroll,
+       * so the submit/continue controls live outside the scroll container and
+       * stay reachable however tall the code gets.
+       */}
+      {((showTask && currentTask) || pendingTask) && (
+        <div className="shrink-0 border-t border-[var(--color-border-default)] bg-[var(--color-bg-primary)]">
+          <div className="mx-auto max-w-2xl space-y-2 px-4 py-3 lg:max-w-4xl xl:max-w-6xl">
+            {showTask && currentTask && (
+              <>
+                <Composer
+                  placeholder="Add a note (optional) and submit…"
+                  onSubmit={handleSubmit}
+                  disabled={loading}
+                  allowEmpty
+                />
+                {results.length > 0 && (
+                  <p className="text-center">
+                    <button
+                      onClick={completeSession}
+                      disabled={loading}
+                      className="text-xs text-[var(--color-text-muted)] underline-offset-2 transition-colors hover:text-[var(--color-text-secondary)] hover:underline disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Finish session and view progress
+                    </button>
+                  </p>
+                )}
+              </>
+            )}
+
+            {/* Teaching pause: hold the next task until the candidate continues. */}
+            {pendingTask && (
+              <div className="flex justify-center">
+                <button
+                  onClick={advance}
+                  disabled={loading}
+                  className="rounded-lg bg-[var(--color-accent)] px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {nextLabel}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
