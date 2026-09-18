@@ -156,7 +156,9 @@ def expected_time(task: dict) -> float:
         + TIME_PER_DIFFICULTY * task.get("difficulty", 1)
         + TIME_PER_100_WORDS * prompt_words / 100.0
     )
-    if not task.get("scaffold"):
+    if not task.get("scaffold") and not any(
+        p.get("scaffold") for p in (task.get("parts") or [])
+    ):
         minutes += TIME_NO_SCAFFOLD_EXTRA
     parts = task.get("parts") or []
     if parts:

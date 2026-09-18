@@ -242,23 +242,34 @@ class Session:
 
 
 def _compose_step_scaffold(task: dict) -> str | None:
-    """Compose a scaffold from step prompts when none is stored.
+    """Compose a best-effort stub from step prompts when none is stored.
 
-    One stub per step: ``def name(...)`` parsed from the step's prompt, or
-    ``def {key}(*args): ...`` as a fallback.
+    Preference order per step:
+
+    1. a literal ``def name(params)`` written in the prompt;
+    2. a backticked call, e.g. ``Implement `dequantize_int8(qvalues, scale)```;
+    3. a neutral TODO comment with no synthetic function name.
+
+    The last resort deliberately avoids naming a function after the internal
+    step key or a backticked data name (``def bp_step(*args)`` / ``def x(...)``
+    read as a real API and mislead the candidate). Authored per-step scaffolds
+    take precedence over this helper via :func:`_phase_scaffold`.
     """
     parts = task.get("parts") or []
     if not parts:
         return None
     stubs: list[str] = []
     for part in parts:
-        m = re.search(r"def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)", part.get("prompt", ""))
+        prompt = part.get("prompt", "") or ""
+        m = re.search(r"def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)", prompt)
+        if not m:
+            # Backticked call form, e.g. `ttest(sample, mu0=0.0)`.
+            m = re.search(r"`([A-Za-z_]\w*)\s*\(([^)]*)\)`", prompt)
         if m:
             name, params = m.group(1), m.group(2)
             stubs.append(f"def {name}({params}):\n    # TODO: implement {name}\n    pass\n")
-        else:
-            key = str(part.get("key") or "f")
-            stubs.append(f"def {key}(*args):\n    # TODO: implement {key}\n    pass\n")
+            continue
+        stubs.append("# TODO: implement the step described above\n")
     return "\n\n".join(stubs)
 
 

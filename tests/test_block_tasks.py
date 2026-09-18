@@ -111,7 +111,30 @@ def test_scaffold_auto_composition():
     }
     stub = build_code_stub(task)
     assert "def f(x, y):" in stub
-    assert "def g(*args):" in stub  # fallback for parts without a signature
+    # No signature in the prompt: emit a neutral TODO, never a function named
+    # after the internal step key (``def g(*args)`` reads as a real API).
+    assert "def g(*args):" not in stub
+    assert stub.count("# TODO") == 2
+
+
+def test_scaffold_auto_composition_prefers_prompt_reference():
+    from coach.session import build_code_stub
+
+    task = {
+        "id": "x", "prompt": "A block.",
+        "parts": [
+            {"key": "q", "prompt": "Implement `quantize_int8(values, scale)`."},
+            {"key": "r", "prompt": "Implement `dequantize_int8`."},
+            {"key": "s", "prompt": "Given `x` and `W1`, return the result."},
+        ],
+    }
+    stub = build_code_stub(task)
+    assert "def quantize_int8(values, scale):" in stub
+    # Backticked data names (``x``, ``W1``) must not become function names, and
+    # a bare ``Implement `name``` without params falls back to a neutral TODO.
+    assert "def x(" not in stub and "def W1(" not in stub
+    assert "def dequantize_int8(" not in stub
+    assert stub.count("# TODO") == 3
 
 
 def test_score_targets():

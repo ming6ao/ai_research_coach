@@ -143,6 +143,36 @@ _COMBINED_SCHEMA = types.Schema(
     required=["context_notes", "primary_tag", "secondary_tag"],
 )
 
+_SCAFFOLD_SYSTEM_PROMPT = """\
+You are a curriculum engineer writing the starter code a learner sees before \
+attempting ONE coding step. The starter code must make the required entry \
+point obvious without doing any of the work for the learner.
+
+Return JSON with exactly two keys:
+  "signature": the entry-point signature as a single line, e.g.
+    "def zero_optimizer_step(grads, m, v, t, lr=1e-3):".
+  "scaffold": the starter code: any needed imports, then that function with \
+    the exact signature, ONE short comment naming what to implement, and a \
+    `pass` body (Python) or an equivalent empty body.
+
+Rules:
+  - Never include the solution, a formula implementation, a return value, or \
+    any computation. The function body is only a comment plus `pass`.
+  - Never add helper functions that implement part of the answer.
+  - Infer parameter names from the step prompt; use the step key as the \
+    function name when the prompt does not name one.
+  - Keep the whole scaffold under 15 lines.
+  - Match the requested language."""
+
+_SCAFFOLD_SCHEMA = types.Schema(
+    type=types.Type.OBJECT,
+    properties={
+        "signature": types.Schema(type=types.Type.STRING),
+        "scaffold": types.Schema(type=types.Type.STRING),
+    },
+    required=["scaffold"],
+)
+
 def _scaffold_for(prompt: str, original_task: dict | None) -> str | None:
     """Derive a fill-in stub when the model omits ``scaffold``.
 
@@ -241,6 +271,76 @@ class TaskDecomposer:
         except Exception:
             logger.warning("[categorize] categorization failed (%s)", raw[:200])
             return {"context_notes": "", "tags": None}
+
+    # -- starter-code generation -----------------------------------------
+
+    def generate_scaffold(
+        self,
+        prompt: str,
+        *,
+        language: str = "python",
+        step_key: str = "",
+        context_notes: str = "",
+        exemplar: str = "",
+        feedback: str = "",
+    ) -> dict:
+        """Propose starter code (signature + stub) for one step.
+
+        Returns ``{"signature": str, "scaffold": str}``. Raises
+        ``RuntimeError`` when the API key is missing or the call fails; the
+        caller validates the stub and may re-call with ``feedback`` naming
+        what was rejected (e.g. an answer-revealing body).
+        """
+        import os
+
+        if not os.getenv("GOOGLE_API_KEY"):
+            raise RuntimeError("scaffold generation failed: missing GOOGLE_API_KEY")
+        body = f"Language: {language}\nStep key: {step_key}\n"
+        if context_notes.strip():
+            body += f"Task background: {context_notes.strip()[:600]}\n"
+        body += f"\nStep prompt:\n{(prompt or '').strip()[:4000]}\n"
+        if exemplar.strip():
+            body += (
+                "\nExemplar scaffold from another step of the same task "
+                f"(match this style, do not reuse its function):\n{exemplar.strip()[:1500]}\n"
+            )
+        if feedback.strip():
+            body += (
+                f"\nYour previous attempt was rejected: {feedback.strip()[:600]}. "
+                "Return a corrected starter code JSON.\n"
+            )
+        body += "\nReturn the starter code JSON."
+        raw = ""
+        try:
+            client = self._client()
+            resp = client.models.generate_content(
+                model=self._model,
+                contents=body,
+                config={
+                    "system_instruction": _SCAFFOLD_SYSTEM_PROMPT,
+                    "response_mime_type": "application/json",
+                    "response_schema": _SCAFFOLD_SCHEMA,
+                },
+            )
+            raw = getattr(resp, "text", "") or ""
+            payload = json.loads(raw)
+            scaffold = str(payload.get("scaffold") or "").strip()
+            if not scaffold:
+                raise ValueError(f"empty scaffold in response: {raw[:1000]!r}")
+            return {
+                "signature": str(payload.get("signature") or "").strip(),
+                "scaffold": scaffold,
+            }
+        except Exception as exc:
+            logger.exception(
+                "[scaffold] LLM generation failed (%s: %s) for step=%r",
+                type(exc).__name__, exc, step_key,
+            )
+            logger.error("[scaffold] raw model response: %r", raw[:2000])
+            raise RuntimeError(
+                f"scaffold generation failed: {type(exc).__name__}: {exc}; "
+                f"raw response: {raw[:2000]!r}"
+            ) from exc
 
     # -- judge-driven follow-up generation -------------------------------
 
