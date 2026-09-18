@@ -33,7 +33,8 @@ def test_create_and_list_tasks_endpoint():
     client = TestClient(app)
     res = client.post("/api/v1/tasks", json={
         "parts": [{"key": "solution", "prompt": "My own question?",
-                   "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+                   "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+                   "scaffold": "def solution():\n    # TODO\n    pass\n"}],
         "tags": {"primary": "testing", "secondary": []},
     })
     assert res.status_code == 201
@@ -53,9 +54,11 @@ def test_private_by_default_shared_when_public(tmp_path, monkeypatch):
     from coach.tasks import create_task, list_visible_tasks, single_part
 
     own = create_task(owner="a@x.com", is_public=False, tags={"primary": "testing"},
-                      parts=[single_part("private q", tags={"primary": "testing"})])
+                      parts=[single_part("private q", tags={"primary": "testing"},
+                                         scaffold="def private_q():\n    # TODO\n    pass\n")])
     pub = create_task(owner="b@x.com", is_public=True, tags={"primary": "caching"},
-                      parts=[single_part("public q", tags={"primary": "caching"})])
+                      parts=[single_part("public q", tags={"primary": "caching"},
+                                         scaffold="def public_q():\n    # TODO\n    pass\n")])
     assert any(t["id"] == own["id"] for t in list_visible_tasks("a@x.com"))
     assert not any(t["id"] == own["id"] for t in list_visible_tasks("b@x.com"))
     assert any(t["id"] == pub["id"] for t in list_visible_tasks("a@x.com"))
@@ -68,12 +71,14 @@ def test_generated_tasks_excluded_from_bank(tmp_path, monkeypatch):
 
     bank = create_task(
         owner="a@x.com", is_public=True, tags={"primary": "testing"},
-        parts=[single_part("bank q", tags={"primary": "testing"})],
+        parts=[single_part("bank q", tags={"primary": "testing"},
+                           scaffold="def bank_q():\n    # TODO\n    pass\n")],
     )
     generated = create_task(
         owner="a@x.com", source="generated", is_public=False,
         tags={"primary": "ablations"},
-        parts=[single_part("generated q", tags={"primary": "ablations"})],
+        parts=[single_part("generated q", tags={"primary": "ablations"},
+                           scaffold="def generated_q():\n    # TODO\n    pass\n")],
     )
     visible = list_visible_tasks("a@x.com")
     assert any(t["id"] == bank["id"] for t in visible)
@@ -119,7 +124,8 @@ def test_context_notes_round_trip(tmp_path, monkeypatch):
     task = create_task(
         owner="a@x.com",
         parts=[{"key": "solution", "prompt": "Explain caching.",
-                "tags": {"primary": "caching"}, "max_score": 5, "difficulty": 2}],
+                "tags": {"primary": "caching"}, "max_score": 5, "difficulty": 2,
+                "scaffold": "def solution():\n    # TODO\n    pass\n"}],
         context_notes="Eviction is a prerequisite of caching, often confused with invalidation.",
         tags={"primary": "caching"},
     )

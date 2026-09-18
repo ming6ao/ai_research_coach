@@ -204,8 +204,8 @@ def validate_parts(parts) -> list[dict]:
     """Validate a parts list; returns the normalized list. Raises ValueError.
 
     Every part needs a unique ``key``, a non-empty ``prompt``,
-    taxonomy-validated ``tags``, a ``max_score`` in 1..100 and a
-    ``difficulty`` in 1..5.
+    taxonomy-validated ``tags``, a ``max_score`` in 1..100, a
+    ``difficulty`` in 1..5, and its own ``scaffold`` (starter code).
     """
     from coach.taxonomy import validate as validate_tags
 
@@ -240,6 +240,8 @@ def validate_parts(parts) -> list[dict]:
         scaffold = str(item.get("scaffold") or "").strip()
         if len(scaffold) > 16000:
             raise ValueError(f"Part {key!r} scaffold must be at most 16000 characters.")
+        if not scaffold:
+            raise ValueError(f"Part {key!r} needs a scaffold (starter code).")
         try:
             pass_score = int(item.get("pass_score"))
         except (TypeError, ValueError):
@@ -252,9 +254,8 @@ def validate_parts(parts) -> list[dict]:
             "max_score": max_score,
             "difficulty": difficulty,
             "pass_score": pass_score,
+            "scaffold": scaffold,
         }
-        if scaffold:
-            part["scaffold"] = scaffold
         out.append(part)
     return out
 

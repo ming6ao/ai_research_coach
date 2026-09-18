@@ -8,8 +8,8 @@ overall ability belief and shows the candidate's progress as overall mastery % p
 the judge's gap notes on answered questions.
 
 It is a single FastAPI + Vite app (no ADK agent). Questions live in the
-`tasks` DB table (not a YAML file) — users enter their own via
-`POST /api/v1/tasks` or the `initial_question` field on `POST /api/v1/sessions`.
+`tasks` DB table (not a YAML file) — users author their own via
+`POST /api/v1/tasks` (or the curator UI's quick-authoring assistant).
 
 ## Architecture
 
@@ -87,9 +87,9 @@ python check_env.py          # verify env + model connectivity
 
 ## How it works
 
-1. **Start** — `POST /api/v1/sessions` (optionally with a custom `initial_question`)
-   creates a session. The candidate is derived from the bearer token (email) or
-   a fresh `guest-<hex>` id. The first task is picked by `pick_next_task`.
+1. **Start** — `POST /api/v1/sessions` creates a session. The candidate is
+   derived from the bearer token (email) or a fresh `guest-<hex>` id. The first
+task is picked by `pick_next_task`.
 2. **Task loop** — the candidate writes code; the LLM judge returns a score, a rationale, and a
    **coaching response** (misconception + step-by-step walkthrough with code). Every task is
    step-by-step: its steps are delivered one at a time and the candidate's code is carried
@@ -127,12 +127,12 @@ All v1 resources return a `{data}` envelope; list endpoints add
 
 | Endpoint | Purpose |
 |----------|---------|
-| `POST /api/v1/sessions` `{initial_question?, task_ids?}` | New session → `{id, candidate, total_tasks, task_index, current_task}` (201) |
+| `POST /api/v1/sessions` `{task_ids?}` | New session → `{id, candidate, total_tasks, task_index, current_task}` (201) |
 | `GET /api/v1/sessions/{id}` | Resume a session → `{current_task, results, ability}` |
 | `POST /api/v1/sessions/{id}/answers` `{task_id, answer}` | Score + coach + `next_task` + `ability_update` (+ `already_answered` on replay) |
 | `POST /api/v1/sessions/{id}/completion` | Progress snapshot `{done, ability, mastery}` |
 | `DELETE /api/v1/sessions/{id}` | Delete a session (204, ownership-guarded) |
-| `POST /api/v1/tasks` `{prompt, tags, scaffold?, difficulty?, max_score?, parts?, task_type?, language?, is_public?, context_notes?}` | Create a user question (201; `tags` required) |
+| `POST /api/v1/tasks` `{parts, tags, task_type?, language?, is_public?, context_notes?}` | Create a user question (201; `tags` required; every step needs `prompt`/`tags`/`max_score`/`difficulty`/`scaffold`) |
 | `GET /api/v1/tasks?q=&page=&page_size=` | List visible tasks (paginated) |
 | `GET /api/v1/tasks/{id}` | Task detail |
 | `PATCH /api/v1/tasks/{id}` | Edit a question (owner or admin) |
@@ -157,10 +157,12 @@ per-skill beliefs so old databases converge). Per-step data lives in
 
 ## How to extend (no code changes)
 
-- **Add a question**: `POST /api/v1/tasks` with `prompt` and optional
-  `scaffold`/`difficulty`/`max_score`/`parts`/`context_notes`. User rows are
-  private by default (guests create public rows); generated follow-ups link via
-  `parent_task_id`/`target_text`.
+- **Add a question**: `POST /api/v1/tasks` with `parts` (one or more steps,
+each requiring `prompt`/`tags`/`max_score`/`difficulty`/`scaffold`) and optional
+`task_type`/`language`/`is_public`/`context_notes`. User rows are private by
+default (guests create public rows); generated follow-ups link via
+`parent_task_id`/`target_text`. The curator UI's AI assistant can draft the
+whole body from step prompts via `POST /api/v1/tasks/draft`.
 - **Change the model**: set `EVAL_MODEL` in `.env` (e.g. `gemini-3.5-flash-lite`).
 
 ## Environment variables

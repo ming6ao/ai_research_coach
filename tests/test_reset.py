@@ -41,7 +41,8 @@ def _add_app_data():
     task = create_task(
         owner="alice@example.com", tags={"primary": "testing"},
         parts=[{"key": "solution", "prompt": "Custom user task?",
-                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+                "scaffold": "def solution():\n    # TODO: implement\n    pass\n"}],
     )
     with db.sqlite_conn() as conn:
         conn.execute(

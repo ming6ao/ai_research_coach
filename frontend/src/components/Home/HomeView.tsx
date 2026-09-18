@@ -76,7 +76,7 @@ export function HomeView() {
 
   const handleStartNode = (node: string) => {
     if (loading) return;
-    startAssessment(undefined, { node });
+    startAssessment({ node });
   };
 
   const handleOpen = (s: UnifiedSession) => {

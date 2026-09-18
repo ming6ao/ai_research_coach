@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from backend.auth import get_current_user, is_admin
 from backend.dependencies import resolve_candidate
 from backend.v1.pagination import PageParams, paginate
-from backend.v1.schemas import TaskCreateRequest, TaskPatchRequest
+from backend.v1.schemas import TaskCreateRequest, TaskDraftRequest, TaskPatchRequest
 
 # Reused session helper (LLM context notes).
 from backend.v1.sessions import _describe_context
@@ -110,6 +110,47 @@ def create_task(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return {"data": task}
+
+
+@router.post("/draft", summary="Draft a task body from step prompts (curator)")
+def draft_task(
+    req: TaskDraftRequest,
+    user: Optional[dict] = Depends(get_current_user),
+):
+    """Turn curator step prompts (or a refinement instruction) into a draft.
+
+    Returns a task body in the ``POST /api/v1/tasks`` shape for review; it is
+    never persisted. Signed-in curators only.
+    """
+    from coach.task_decomposer import TaskDecomposer
+
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    has_steps = bool(req.steps)
+    has_refine = bool(req.draft) and bool((req.instruction or "").strip())
+    if not has_steps and not has_refine:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Provide steps (initial draft) or draft + instruction "
+                "(refinement)."
+            ),
+        )
+    try:
+        data = TaskDecomposer().draft_task(
+            req.steps,
+            draft=req.draft,
+            instruction=req.instruction or "",
+            language=req.language or "python",
+            task_type=req.task_type or "",
+            difficulty=req.difficulty,
+            context=req.context or "",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:  # noqa: BLE001 - surface LLM failure as 502
+        raise HTTPException(status_code=502, detail=f"Draft generation failed: {e}")
+    return {"data": data}
 
 
 @router.get("/{task_id}", summary="Get task by id")

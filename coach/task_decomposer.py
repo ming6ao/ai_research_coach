@@ -13,14 +13,15 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from typing import Optional
 
 from google import genai
 from google.genai import types
 
-from coach.config import MODEL, http_retry_options
-from coach.taxonomy import format_vocabulary
+from coach.config import MODEL, default_pass_score, http_retry_options
+from coach.taxonomy import TASK_TYPES, format_vocabulary, is_leaf, normalize_tag
 
 logger = logging.getLogger(__name__)
 
@@ -236,6 +237,285 @@ def _fallback_session_title_summary(task: dict) -> dict:
     return {"title": title or "Practice session", "summary": summary}
 
 
+# ---------------------------------------------------------------------------
+# Curator quick task authoring (draft from step prompts)
+# ---------------------------------------------------------------------------
+
+# A task may have at most this many steps (product decision).
+_DRAFT_MAX_STEPS = 5
+
+_DRAFT_STEP_SCHEMA = types.Schema(
+    type=types.Type.OBJECT,
+    properties={
+        "key": types.Schema(type=types.Type.STRING),
+        "prompt": types.Schema(type=types.Type.STRING),
+        "difficulty": types.Schema(type=types.Type.INTEGER),
+        "max_score": types.Schema(type=types.Type.INTEGER),
+        "pass_score": types.Schema(type=types.Type.INTEGER),
+        "primary_tag": types.Schema(type=types.Type.STRING),
+        "secondary_tag": types.Schema(
+            type=types.Type.ARRAY, items=types.Schema(type=types.Type.STRING)
+        ),
+        "scaffold": types.Schema(type=types.Type.STRING),
+    },
+    required=["prompt"],
+)
+
+_DRAFT_SCHEMA = types.Schema(
+    type=types.Type.OBJECT,
+    properties={
+        "context_notes": types.Schema(type=types.Type.STRING),
+        "task_type": types.Schema(type=types.Type.STRING),
+        "steps": types.Schema(type=types.Type.ARRAY, items=_DRAFT_STEP_SCHEMA),
+    },
+    required=["steps"],
+)
+
+_DRAFT_STEP_FIELDS = (
+    '"key" (unique snake_case entry-point id), "prompt" (cleaned up and '
+    'self-contained natural language describing what to implement; do NOT '
+    'repeat the entry-point function signature or any code — the scaffold '
+    'already shows it), "difficulty" '
+    '[1-5], "max_score" [2-10], "pass_score" [1..max_score], "primary_tag" '
+    '(ONE leaf skill), "secondary_tag" (0-2 leaf skills), and "scaffold" '
+    '(imports + the entry-point function with the exact signature, ONE short '
+    'comment and a `pass`/empty body — never the solution).'
+)
+
+_DRAFT_SYSTEM_PROMPT = f"""\
+You are a curriculum engineer turning a curator's step prompts into a \
+step-by-step coding task for a tutor. Each input step becomes exactly one task \
+step, delivered in order; later steps may build on earlier ones because the \
+learner's code is carried forward.
+
+Return JSON with exactly three keys:
+  "context_notes": 2-4 plain English sentences describing the prerequisites, \
+    what builds on what, and common confusions for the WHOLE task.
+  "task_type": one of {', '.join(sorted(TASK_TYPES))}.
+  "steps": a JSON array with EXACTLY the same number of entries as the input \
+    steps, in the same order. Each entry has {_DRAFT_STEP_FIELDS}
+
+Never reveal the answer: the scaffold must not contain a formula, a return \
+value, or any computation. The `prompt` is prose only — never put the \
+function signature, a `def` line, or any code block in it; the learner sees \
+the signature in the scaffold. Use only leaf skills from the vocabulary below.
+
+Vocabulary (domain -> area -> skills):
+{format_vocabulary()}"""
+
+_REFINE_SYSTEM_PROMPT = f"""\
+You are a curriculum engineer revising an existing step-by-step coding task. \
+Apply ONLY the curator's instruction; keep the step count, the step order and \
+every unrelated field exactly as they are. Never reveal the answer.
+
+Return JSON with exactly three keys:
+  "context_notes": the revised task description (keep the existing text \
+    unless the instruction concerns it).
+  "task_type": one of {', '.join(sorted(TASK_TYPES))}.
+  "steps": a JSON array with exactly the same number of entries and the same \
+    order as the current task. Each entry keeps the current task's step keys \
+    and has {_DRAFT_STEP_FIELDS}
+
+Vocabulary (domain -> area -> skills):
+{format_vocabulary()}"""
+
+
+def _clamp_int(value, low: int, high: int, default: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(low, min(high, number))
+
+
+_DEF_IN_PROMPT = re.compile(r"def\s+([A-Za-z_]\w*)\s*\(")
+_CALL_IN_PROMPT = re.compile(r"`([A-Za-z_]\w*)\s*\(")
+def _strip_duplicate_signature(prompt: str, scaffold: str) -> str:
+    """Remove the scaffold's entry-point signature from the question text.
+
+    The starter code already declares the function, so any ``def name(...)``
+    or ``name(...)`` in the prompt is reduced to the bare name. Everything
+    else is left untouched.
+    """
+    text = (prompt or "").strip()
+    entry = re.search(r"def\s+([A-Za-z_]\w*)\s*\(", scaffold or "")
+    if not text or not entry:
+        return text
+    name = entry.group(1)
+    return re.sub(rf"`?\b(?:def\s+)?{re.escape(name)}\s*\([^)]*\)`?", name, text)
+
+
+def _derive_step_key(prompt: str, index: int) -> str:
+    """A stable key from the prompt's entry point, else ``step_N``."""
+    match = _DEF_IN_PROMPT.search(prompt or "") or _CALL_IN_PROMPT.search(prompt or "")
+    return match.group(1) if match else f"step_{index + 1}"
+
+
+def _sanitize_step_tags(entry: dict) -> dict:
+    """Drop tags the model invented; an invalid primary stays empty."""
+    primary = normalize_tag(entry.get("primary_tag"))
+    if not is_leaf(primary):
+        primary = ""
+    secondary: list[str] = []
+    raw_secondary = entry.get("secondary_tag") or []
+    if not isinstance(raw_secondary, list):
+        raw_secondary = []
+    for raw in raw_secondary:
+        canon = normalize_tag(raw)
+        if is_leaf(canon) and canon != primary and canon not in secondary:
+            secondary.append(canon)
+    return {"primary": primary or "", "secondary": secondary[:2]}
+
+
+def _dedupe_keys(parts: list[dict]) -> list[dict]:
+    """Make step keys unique, preserving order."""
+    seen: set[str] = set()
+    out: list[dict] = []
+    for index, part in enumerate(parts):
+        key = str(part.get("key") or "").strip() or f"step_{index + 1}"
+        base, suffix = key, 2
+        while key in seen:
+            key = f"{base}_{suffix}"
+            suffix += 1
+        seen.add(key)
+        out.append({**part, "key": key})
+    return out
+
+
+def _base_draft_parts(seeds, draft, difficulty, language) -> list[dict]:
+    """Seed parts from the prompts (and any existing draft), pre-LLM."""
+    existing = list((draft or {}).get("parts") or [])
+    out: list[dict] = []
+    for index, seed in enumerate(seeds):
+        base = (
+            existing[index]
+            if index < len(existing) and isinstance(existing[index], dict)
+            else {}
+        )
+        base_tags = base.get("tags") or {}
+        max_score = _clamp_int(base.get("max_score"), 1, 100, 5)
+        part = {
+            "key": str(base.get("key") or "").strip() or _derive_step_key(seed, index),
+            "prompt": str(base.get("prompt") or seed).strip() or seed,
+            "tags": _sanitize_step_tags(
+                {
+                    "primary_tag": base_tags.get("primary"),
+                    "secondary_tag": base_tags.get("secondary") or [],
+                }
+            ),
+            "max_score": max_score,
+            "difficulty": _clamp_int(
+                base.get("difficulty"), 1, 5, _clamp_int(difficulty, 1, 5, 2)
+            ),
+            "pass_score": _clamp_int(
+                base.get("pass_score"), 0, max_score, default_pass_score(max_score)
+            ),
+        }
+        scaffold = str(base.get("scaffold") or "").strip()
+        if scaffold:
+            part["scaffold"] = scaffold
+        out.append(part)
+    return _dedupe_keys(out)
+
+
+def _draft_result(parts, task_type, language, context_notes) -> dict:
+    """Package parts in the ``POST /api/v1/tasks`` body shape."""
+    from coach.tasks import derive_step_tags
+
+    task_type = str(task_type or "").strip().lower()
+    if task_type not in TASK_TYPES:
+        task_type = "implement"
+    return {
+        "parts": parts,
+        "language": language,
+        "task_type": task_type,
+        "context_notes": (context_notes or "").strip()[:2000],
+        "tags": derive_step_tags(parts) or {"primary": "", "secondary": []},
+    }
+
+
+def _draft_body(
+    seeds, draft, language, task_type, difficulty, context, instruction
+) -> str:
+    """The user-turn contents for a draft or refinement call."""
+    if draft:
+        current = {
+            "language": language,
+            "task_type": str(draft.get("task_type") or task_type or ""),
+            "context_notes": str(draft.get("context_notes") or ""),
+            "parts": draft.get("parts") or [],
+        }
+        return (
+            "Current task JSON:\n"
+            + json.dumps(current, ensure_ascii=False)[:8000]
+            + f"\n\nCurator instruction:\n{(instruction or '').strip()[:2000]}\n"
+            + "\nReturn the revised task JSON."
+        )
+    lines = [f"Language: {language}"]
+    if task_type:
+        lines.append(f"Preferred task_type: {task_type}")
+    if difficulty:
+        lines.append(f"Preferred step difficulty (1-5): {difficulty}")
+    if (context or "").strip():
+        lines.append(f"Extra curation context: {context.strip()[:1000]}")
+    lines.append("\nStep prompts (one per step, in order):")
+    for index, seed in enumerate(seeds, 1):
+        lines.append(f"{index}. {seed}")
+    lines.append("\nCreate the task JSON per the system instruction.")
+    return "\n".join(lines)
+
+
+def _assemble_draft(
+    payload: dict, base_parts: list[dict], language: str
+) -> tuple[list[dict], list[str]]:
+    """Merge model output onto the seed parts; returns ``(parts, problems)``."""
+    from coach.scaffold_backfill import validate_scaffold
+
+    entries = payload.get("steps")
+    if not isinstance(entries, list) or len(entries) != len(base_parts):
+        raise ValueError("the model returned the wrong number of steps")
+    parts: list[dict] = []
+    problems: list[str] = []
+    for index, (base, entry) in enumerate(zip(base_parts, entries)):
+        if not isinstance(entry, dict):
+            raise ValueError("a step was not a JSON object")
+        prompt = str(entry.get("prompt") or "").strip() or base["prompt"]
+        max_score = _clamp_int(entry.get("max_score"), 1, 100, base["max_score"])
+        difficulty = _clamp_int(entry.get("difficulty"), 1, 5, base["difficulty"])
+        pass_score = _clamp_int(
+            entry.get("pass_score"), 0, max_score, default_pass_score(max_score)
+        )
+        tags = _sanitize_step_tags(entry)
+        if not tags["primary"]:
+            problems.append(f"step {index + 1} has no valid primary_tag")
+        scaffold = str(entry.get("scaffold") or "").strip()
+        if scaffold:
+            issues = validate_scaffold(scaffold, language=language)
+            if issues:
+                problems.append(f"step {index + 1} scaffold: {', '.join(issues)}")
+                scaffold = ""
+        if not scaffold and base.get("scaffold"):
+            scaffold = base["scaffold"]
+        if not scaffold:
+            # Never synthesize starter code: a missing LLM scaffold must stay
+            # visible so the curator editor can block creation.
+            problems.append(f"step {index + 1} has no scaffold")
+        if scaffold:
+            prompt = _strip_duplicate_signature(prompt, scaffold)
+        part = {
+            "key": str(entry.get("key") or "").strip() or base["key"],
+            "prompt": prompt,
+            "tags": tags,
+            "max_score": max_score,
+            "difficulty": difficulty,
+            "pass_score": pass_score,
+        }
+        if scaffold:
+            part["scaffold"] = scaffold
+        parts.append(part)
+    return _dedupe_keys(parts), problems
+
+
 class TaskDecomposer:
     """LLM helpers for context notes + judge-driven follow-up tasks."""
 
@@ -421,6 +701,133 @@ class TaskDecomposer:
                 f"scaffold generation failed: {type(exc).__name__}: {exc}; "
                 f"raw response: {raw[:2000]!r}"
             ) from exc
+
+    # -- curator quick task authoring ------------------------------------
+
+    def draft_task(
+        self,
+        steps: list[str] | None = None,
+        *,
+        draft: dict | None = None,
+        instruction: str = "",
+        language: str = "python",
+        task_type: str = "",
+        difficulty: int | None = None,
+        context: str = "",
+        retries: int = 2,
+    ) -> dict:
+        """Draft (or revise) a task body from curator step prompts.
+
+        Two modes, one LLM call each:
+
+        * **initial draft** — ``steps`` are the curator's per-step prompts; the
+          model fills in keys, scores, difficulty, tags, scaffolds and
+          ``context_notes``.
+        * **refinement** — ``draft`` is a current task body and ``instruction``
+          a plain-English edit ("make step 2 harder"); the model returns the
+          revised body, preserving the step count and order.
+
+        Returns ``{parts, language, task_type, context_notes, tags}`` in the
+        shape ``POST /api/v1/tasks`` accepts. Never persists anything. Without
+        ``GOOGLE_API_KEY`` (or on repeated failure) returns a deterministic
+        fallback that keeps the curator's prompts and leaves tags empty for
+        manual selection.
+
+        Raises:
+            ValueError: no steps / no draft steps, or more than
+                ``_DRAFT_MAX_STEPS`` steps.
+        """
+        import os
+
+        from coach.tasks import normalize_language
+
+        language = normalize_language(language)
+        refine = bool(draft) and bool((instruction or "").strip())
+        if refine:
+            raw_parts = [p for p in (draft.get("parts") or []) if isinstance(p, dict)]
+            if not raw_parts:
+                raise ValueError("The draft has no steps to refine.")
+            if len(raw_parts) > _DRAFT_MAX_STEPS:
+                raise ValueError(f"A task may have at most {_DRAFT_MAX_STEPS} steps.")
+            seeds = [str(p.get("prompt") or "") for p in raw_parts]
+        else:
+            seeds = [str(s).strip() for s in (steps or []) if str(s or "").strip()]
+            if not seeds:
+                raise ValueError("At least one step prompt is required.")
+            if len(seeds) > _DRAFT_MAX_STEPS:
+                raise ValueError(f"A task may have at most {_DRAFT_MAX_STEPS} steps.")
+
+        base_parts = _base_draft_parts(
+            seeds, draft if refine else None, difficulty, language
+        )
+        baseline_task_type = task_type or str((draft or {}).get("task_type") or "")
+        baseline_notes = str((draft or {}).get("context_notes") or "")
+        if not os.getenv("GOOGLE_API_KEY"):
+            return _draft_result(
+                base_parts, baseline_task_type, language, baseline_notes
+            )
+
+        body = _draft_body(
+            seeds,
+            draft if refine else None,
+            language,
+            task_type,
+            difficulty,
+            context,
+            instruction,
+        )
+        best_parts = base_parts
+        best_notes = baseline_notes
+        best_task_type = baseline_task_type
+        feedback = ""
+        for _attempt in range(max(1, retries) + 1):
+            try:
+                payload = self._generate_draft_payload(
+                    body, refine=refine, feedback=feedback
+                )
+            except Exception as exc:  # noqa: BLE001 - degrade to the fallback
+                logger.warning(
+                    "[draft] generation failed (%s: %s)", type(exc).__name__, exc
+                )
+                break
+            try:
+                parts, problems = _assemble_draft(payload, base_parts, language)
+            except ValueError as exc:
+                feedback = (
+                    f"Your previous response was rejected: {exc}. "
+                    "Return corrected JSON only."
+                )
+                continue
+            best_parts = parts
+            best_notes = str(payload.get("context_notes") or best_notes)[:2000]
+            best_task_type = str(payload.get("task_type") or best_task_type)
+            if not problems:
+                return _draft_result(parts, best_task_type, language, best_notes)
+            feedback = (
+                "Your previous response had these problems: "
+                + "; ".join(problems)
+                + ". Return corrected JSON only."
+            )
+        return _draft_result(best_parts, best_task_type, language, best_notes)
+
+    def _generate_draft_payload(
+        self, body: str, *, refine: bool, feedback: str = ""
+    ) -> dict:
+        """One structured draft call (separated so tests can patch it)."""
+        contents = body if not (feedback or "").strip() else f"{body}\n\n{feedback.strip()}"
+        client = self._client()
+        resp = client.models.generate_content(
+            model=self._model,
+            contents=contents,
+            config={
+                "system_instruction": (
+                    _REFINE_SYSTEM_PROMPT if refine else _DRAFT_SYSTEM_PROMPT
+                ),
+                "response_mime_type": "application/json",
+                "response_schema": _DRAFT_SCHEMA,
+            },
+        )
+        return json.loads(getattr(resp, "text", "") or "{}")
 
     # -- judge-driven follow-up generation -------------------------------
 

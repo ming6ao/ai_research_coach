@@ -29,7 +29,8 @@ def client(tmp_path, monkeypatch):
         tags={"primary": "testing"},
         task_id="seed_auth_01",
         parts=[{"key": "solution", "prompt": "Seed task for auth tests. Signature: def f():",
-                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+                "scaffold": "def f():\n    # TODO\n    pass\n"}],
     )
     from backend.main import app
     return TestClient(app)

@@ -33,9 +33,8 @@ interface AssessmentState {
   overviewLoading: boolean;
   loading: boolean;
   error: string | null;
-  initialQuestion: string | null;
 
-  startAssessment: (initialQuestion?: string, opts?: { randomFirst?: boolean; node?: string }) => Promise<void>;
+  startAssessment: (opts?: { randomFirst?: boolean; node?: string }) => Promise<void>;
   resumeSession: (response: ResumeResponse) => void;
   submitAnswer: (taskId: string, answer: string) => Promise<void>;
   advance: () => void;
@@ -78,7 +77,6 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
   overviewLoading: false,
   loading: false,
   error: null,
-  initialQuestion: null,
 
   resumeSession: (res: ResumeResponse) => {
     const results = res.results.map(toResultWithFeedback);
@@ -96,10 +94,10 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
     storage.set(SESSION_KEY, res.id);
   },
 
-  startAssessment: async (initialQuestion, opts) => {
+  startAssessment: async (opts) => {
     set({ loading: true, error: null });
     try {
-      const res = await apiClient.start(initialQuestion, opts);
+      const res = await apiClient.start(opts);
       storage.set(SESSION_KEY, res.id);
       set({
         sessionId: res.id,
@@ -111,7 +109,6 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         results: [],
         ability: null,
         mastery: null,
-        initialQuestion: initialQuestion?.trim() || null,
       });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -220,7 +217,6 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       ability: null,
       mastery: null,
       error: null,
-      initialQuestion: null,
     });
   },
 }));

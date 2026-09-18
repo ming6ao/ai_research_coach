@@ -68,7 +68,8 @@ def ctx(tmp_path, monkeypatch):
         is_public=True,
         task_id="plain_01",
         parts=[{"key": "plain", "prompt": "Plain task. Signature: def plain(x):",
-                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+                "scaffold": "def plain(x):\n    # TODO\n    pass\n"}],
     )
     from backend.main import app
 

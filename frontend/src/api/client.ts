@@ -333,12 +333,24 @@ export interface TaskCreateBody {
 
 export type TaskPatchBody = Partial<TaskCreateBody>;
 
+/** Curator quick authoring: draft a task body, or refine an existing one. */
+export interface TaskDraftBody {
+  /** One step prompt per entry (initial draft); omit when refining. */
+  steps?: string[];
+  /** Current task body to revise (send together with `instruction`). */
+  draft?: Partial<TaskCreateBody>;
+  instruction?: string;
+  language?: string;
+  task_type?: string;
+  difficulty?: number;
+  context?: string;
+}
+
 export const apiClient = {
-  start: (initial_question?: string, opts?: { randomFirst?: boolean; node?: string }) =>
+  start: (opts?: { randomFirst?: boolean; node?: string }) =>
     v1<StartResponse>(
       '/sessions',
       {
-        initial_question,
         random_first: opts?.randomFirst ?? undefined,
         node: opts?.node ?? undefined,
       },
@@ -402,6 +414,9 @@ export const apiClient = {
 
   createTask: (body: TaskCreateBody) =>
     v1<Task>('/tasks', body, 'POST'),
+
+  draftTask: (body: TaskDraftBody) =>
+    v1<TaskCreateBody>('/tasks/draft', body, 'POST'),
 
   updateTask: (id: string, body: TaskPatchBody) =>
     v1<Task>(`/tasks/${encodeURIComponent(id)}`, body, 'PATCH'),

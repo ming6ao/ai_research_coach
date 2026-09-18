@@ -16,7 +16,6 @@ class PageMeta(BaseModel):
 
 
 class SessionCreateRequest(BaseModel):
-    initial_question: Optional[str] = Field(default=None, max_length=8000)
     task_ids: Optional[list[str]] = Field(default=None, max_length=100)
     random_first: bool = Field(default=False)
     node: Optional[str] = Field(default=None, max_length=64)
@@ -38,6 +37,23 @@ class TaskCreateRequest(BaseModel):
     tags: Optional[dict[str, Any]] = None
     task_type: Optional[str] = Field(default=None, max_length=32)
     language: Optional[str] = Field(default=None, max_length=32)
+
+
+class TaskDraftRequest(BaseModel):
+    """Quick authoring: draft a task body from step prompts, or refine one.
+
+    Provide either ``steps`` (initial draft) or ``draft`` + ``instruction``
+    (refinement). The response is a task body in the ``POST /tasks`` shape;
+    nothing is persisted.
+    """
+
+    steps: Optional[list[str]] = Field(default=None, min_length=1, max_length=5)
+    draft: Optional[dict[str, Any]] = None
+    instruction: Optional[str] = Field(default=None, max_length=2000)
+    language: Optional[str] = Field(default=None, max_length=32)
+    task_type: Optional[str] = Field(default=None, max_length=32)
+    difficulty: Optional[int] = Field(default=None, ge=1, le=5)
+    context: Optional[str] = Field(default=None, max_length=2000)
 
 
 class TaskPatchRequest(BaseModel):

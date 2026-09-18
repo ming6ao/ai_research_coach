@@ -168,7 +168,8 @@ def test_only_primary_tag_updates_the_estimator():
         tags={"primary": "flash_attention", "secondary": ["continuous_batching"]},
         parts=[{"key": "solution", "prompt": "Implement flash attention.",
                 "tags": {"primary": "flash_attention", "secondary": ["continuous_batching"]},
-                "max_score": 5, "difficulty": 2}],
+                "max_score": 5, "difficulty": 2,
+                "scaffold": "def flash_attention():\n    # TODO: implement\n    pass\n"}],
     )
     client = TestClient(app)
     res = client.post("/api/v1/sessions", json={"task_ids": [task["id"]]})

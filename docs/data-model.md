@@ -98,7 +98,7 @@ transitions) lives in `session_steps`:
 - `Task` — the task dict (see `task_to_dict`, `coach/tasks.py`): `id`,
   `prompt` (derived from the first step), `difficulty` (1–5), `max_score`,
   `parts` (one or more steps:
-  `[{key, prompt, tags, max_score, difficulty, pass_score?, scaffold?}]`),
+  `[{key, prompt, tags, max_score, difficulty, scaffold, pass_score?}]`),
   `context_notes`, `tags` (`{primary, secondary[]}`), `task_type`, `language`,
   `source`, `is_public`, `owner`, plus optional `scaffold`, `parent_task_id`,
   `target_text`. Generated follow-ups/challenges add in-session-only keys:
@@ -139,7 +139,7 @@ into a single part before removing it.
 | `scaffold` | TEXT | nullable — legacy/single-step starter code (step scaffolds live in `parts_json`) |
 | `difficulty` | INTEGER | NOT NULL, 1–5 |
 | `max_score` | INTEGER | NOT NULL, default 5 |
-| `parts_json` | TEXT | NOT NULL — step list `[{key, prompt, tags, max_score, difficulty, pass_score?, scaffold?}]` |
+| `parts_json` | TEXT | NOT NULL — step list `[{key, prompt, tags, max_score, difficulty, scaffold, pass_score?}]` (per-step `scaffold` is required) |
 | `context_notes` | TEXT | 2–4 plain-English sentences, generated once at creation |
 | `tags_json` | TEXT | `{"primary": <leaf skill>, "secondary": [<leaf skill>…]}` (closed vocabulary from `coach/taxonomy.py`) |
 | `task_type` | TEXT | `implement | apply | debug | design | analyze` |

@@ -56,7 +56,8 @@ def _create_owned(client, token, prompt, owner_email, is_public=True):
         "/api/v1/tasks",
         json={
             "parts": [{"key": "solution", "prompt": prompt,
-                       "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+                       "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+                       "scaffold": "def solution():\n    # TODO\n    pass\n"}],
             "is_public": is_public,
             "tags": {"primary": "testing", "secondary": []},
         },
@@ -76,9 +77,11 @@ def test_create_task_derives_task_tags_from_steps(client):
         json={
             "parts": [
                 {"key": "a", "prompt": "First.", "tags": {"primary": "testing"},
-                 "max_score": 5, "difficulty": 2},
+                 "max_score": 5, "difficulty": 2,
+                 "scaffold": "def a():\n    # TODO\n    pass\n"},
                 {"key": "b", "prompt": "Second.", "tags": {"primary": "caching"},
-                 "max_score": 7, "difficulty": 3},
+                 "max_score": 7, "difficulty": 3,
+                 "scaffold": "def b():\n    # TODO\n    pass\n"},
             ],
         },
         headers=_h(token),
@@ -98,7 +101,8 @@ def test_patch_parts_re_derives_task_tags(client):
         json={
             "parts": [
                 {"key": "a", "prompt": "Reworked.", "tags": {"primary": "caching"},
-                 "max_score": 5, "difficulty": 2},
+                 "max_score": 5, "difficulty": 2,
+                 "scaffold": "def a():\n    # TODO\n    pass\n"},
             ],
         },
         headers=_h(alice),
@@ -162,7 +166,8 @@ def test_curator_can_edit_and_delete_own(client):
         f"/api/v1/tasks/{task['id']}",
         json={
             "parts": [{"key": "solution", "prompt": "After",
-                       "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 4}],
+                       "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 4,
+                       "scaffold": "def solution():\n    # TODO\n    pass\n"}],
             "is_public": False,
         },
         headers=_h(token),

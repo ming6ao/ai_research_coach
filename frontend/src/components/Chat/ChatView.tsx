@@ -160,7 +160,6 @@ export function ChatView() {
     pendingTask,
     loading,
     error,
-    initialQuestion,
     advance,
     completeSession,
   } = useAssessmentStore();
@@ -196,7 +195,6 @@ export function ChatView() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [results.length, loading]);
 
-  const hasHistory = results.length > 0;
   const showTask = !!currentTask && !pendingTask;
   const finished = !currentTask && results.length > 0 && !loading;
 
@@ -214,8 +212,6 @@ export function ChatView() {
           submit controls live in the pinned footer below. */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-2xl space-y-5 px-4 py-6 lg:max-w-4xl xl:max-w-6xl">
-          {initialQuestion && !hasHistory && <UserTextBubble text={initialQuestion} />}
-
           {results.map((r, i) => (
             <Fragment key={`res-${i}`}>
               <div

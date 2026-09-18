@@ -54,6 +54,7 @@ def ctx(tmp_path, monkeypatch):
                 "tags": {"primary": "vision_encoders"},
                 "max_score": 5,
                 "difficulty": 2,
+                "scaffold": "def p1(x):\n    # TODO\n    pass\n",
             }
         ],
     )
