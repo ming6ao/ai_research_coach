@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS active_sessions (
     session_json TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',
     meta_json TEXT DEFAULT '{}',
+    title TEXT DEFAULT '',
+    summary TEXT DEFAULT '',
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_active_sessions_candidate ON active_sessions (candidate);
@@ -438,6 +440,8 @@ def _migrate_active_sessions(conn) -> None:
     for col, ddl in (
         ("status", "ALTER TABLE active_sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"),
         ("meta_json", "ALTER TABLE active_sessions ADD COLUMN meta_json TEXT DEFAULT '{}'"),
+        ("title", "ALTER TABLE active_sessions ADD COLUMN title TEXT DEFAULT ''"),
+        ("summary", "ALTER TABLE active_sessions ADD COLUMN summary TEXT DEFAULT ''"),
     ):
         if col not in cols:
             try:

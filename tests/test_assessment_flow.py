@@ -314,8 +314,43 @@ def test_guest_id_keeps_candidate_stable(client):
 
     second = client.post("/api/v1/sessions", json={}, headers=headers)
     assert second.status_code == 201
+    second_task = second.json()["data"]["current_task"]
+    _answer(client, second.json()["data"]["id"], second_task["id"], headers=headers)
 
     overview = client.get("/api/v1/me/overview", headers=headers).json()["data"]
     assert overview["candidate"] == "guest-browser-guest-0001"
-    assert overview["ability"]["questions_answered"] == 1
+    assert overview["ability"]["questions_answered"] == 2
     assert len(overview["sessions"]) == 2
+
+
+def test_unanswered_session_is_not_stored(client):
+    """Starting a session and never answering leaves no row / Recent entry."""
+    headers = {"X-Guest-Id": "empty-session-guest-01"}
+    started = client.post("/api/v1/sessions", json={}, headers=headers)
+    assert started.status_code == 201
+    sid = started.json()["data"]["id"]
+
+    # The draft still opens in-process (resume/explain before answering)...
+    assert client.get(f"/api/v1/sessions/{sid}", headers=headers).status_code == 200
+
+    # ...but nothing was persisted and it never appears in Recent sessions.
+    from coach.db import sqlite_conn
+
+    with sqlite_conn() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM active_sessions").fetchone()[0]
+    assert count == 0
+    overview = client.get("/api/v1/me/overview", headers=headers).json()["data"]
+    assert overview["sessions"] == []
+
+
+def test_session_gets_title_and_summary_on_first_answer(client):
+    """The first scored answer mints a title + summary for the session."""
+    headers = {"X-Guest-Id": "title-summary-guest-01"}
+    started = client.post("/api/v1/sessions", json={}, headers=headers).json()["data"]
+    task = started["current_task"]
+    _answer(client, started["id"], task["id"], headers=headers)
+
+    overview = client.get("/api/v1/me/overview", headers=headers).json()["data"]
+    row = next(s for s in overview["sessions"] if s["id"] == started["id"])
+    assert row["title"]
+    assert row["summary"]

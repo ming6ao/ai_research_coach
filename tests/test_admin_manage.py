@@ -58,7 +58,7 @@ def _seed_candidate(candidate):
 
     store = get_store()
     sid = store.create(candidate)
-    store.save(sid, {"session": {"candidate": candidate}})
+    store.save(sid, {"session": {"candidate": candidate}}, persist=True)
 
     task = create_task(
         owner=candidate, tags={"primary": "testing"},

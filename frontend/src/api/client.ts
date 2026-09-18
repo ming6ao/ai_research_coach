@@ -151,6 +151,8 @@ export interface FeedbackEntry {
 export interface UnifiedSession {
   id: string;
   candidate: string;
+  title?: string | null;
+  summary?: string | null;
   done: boolean;
   updated_at: string;
 }

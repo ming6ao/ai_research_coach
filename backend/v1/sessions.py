@@ -496,7 +496,27 @@ def submit_answer(
         nxt = next_task_bank(session)
         next_task = task_view(nxt, session) if nxt else None
 
-    store.save(session_id, {"session": session.to_dict()})
+    # First persisted answer: mint an LLM title + summary so the home page can
+    # label the session and preview it on hover. Draft sessions (no answer yet)
+    # are staged in memory and never reach the database.
+    title = summary = None
+    if not store.is_persisted(session_id):
+        try:
+            from coach.task_decomposer import TaskDecomposer
+
+            info = TaskDecomposer().describe_session(task, req.answer)
+            title = info.get("title") or ""
+            summary = info.get("summary") or ""
+        except Exception:
+            title = summary = ""
+
+    store.save(
+        session_id,
+        {"session": session.to_dict()},
+        persist=True,
+        title=title,
+        summary=summary,
+    )
 
     return {
         "data": {

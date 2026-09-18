@@ -143,6 +143,26 @@ _COMBINED_SCHEMA = types.Schema(
     required=["context_notes", "primary_tag", "secondary_tag"],
 )
 
+_SESSION_SYSTEM_PROMPT = """\
+You are naming a practice session in a coding tutor. Given the first question \
+the learner attempted (and optionally their answer), write a short title and a \
+concise summary describing what the session covers. Do NOT reveal or discuss \
+the solution.
+
+Return JSON with exactly two keys:
+  "title": 3-6 words, no trailing period, e.g. "Gradient checkpointing basics".
+  "summary": 1-2 sentences (max ~200 characters) describing the topics and \
+    skills practiced in this session."""
+
+_SESSION_SCHEMA = types.Schema(
+    type=types.Type.OBJECT,
+    properties={
+        "title": types.Schema(type=types.Type.STRING),
+        "summary": types.Schema(type=types.Type.STRING),
+    },
+    required=["title", "summary"],
+)
+
 _SCAFFOLD_SYSTEM_PROMPT = """\
 You are a curriculum engineer writing the starter code a learner sees before \
 attempting ONE coding step. The starter code must make the required entry \
@@ -194,6 +214,26 @@ def _scaffold_for(prompt: str, original_task: dict | None) -> str | None:
         name, params = m2.group(1), m2.group(2)
         return f"def {name}({params}):\n    # TODO: implement {name}\n    pass\n"
     return None
+
+
+def _fallback_session_title_summary(task: dict) -> dict:
+    """Deterministic title/summary when the LLM is unavailable.
+
+    Title comes from the primary skill label; the summary falls back to the
+    task's generated context notes, then the first step's prompt.
+    """
+    tags = task.get("tags") or {}
+    primary = tags.get("primary")
+    parts = task.get("parts") or []
+    prompt = (parts[0].get("prompt") if parts else task.get("prompt", "")) or ""
+    if primary:
+        title = str(primary).replace("_", " ").strip().title()[:60]
+    else:
+        title = (prompt.split(".")[0] or "Practice session").strip()[:60]
+    summary = str(task.get("context_notes") or "").strip()[:240] or prompt.strip()[:240]
+    if not summary:
+        summary = "A practice session on this question."
+    return {"title": title or "Practice session", "summary": summary}
 
 
 class TaskDecomposer:
@@ -271,6 +311,46 @@ class TaskDecomposer:
         except Exception:
             logger.warning("[categorize] categorization failed (%s)", raw[:200])
             return {"context_notes": "", "tags": None}
+
+    def describe_session(self, task: dict, answer: str = "") -> dict:
+        """LLM title + summary for a session, with a deterministic fallback.
+
+        Called once when a draft session is first persisted. Returns
+        ``{"title": str, "summary": str}`` and never raises: without an API
+        key or on any failure the fallback derives a title/summary from the
+        task so persistence can proceed.
+        """
+        import os
+
+        fallback = _fallback_session_title_summary(task)
+        if not os.getenv("GOOGLE_API_KEY"):
+            return fallback
+        parts = task.get("parts") or []
+        prompt = (parts[0].get("prompt") if parts else task.get("prompt", "")) or ""
+        body = f"Question:\n{prompt[:4000]}\n"
+        if task.get("context_notes"):
+            body += f"\nBackground: {str(task['context_notes'])[:800]}\n"
+        if answer.strip():
+            body += f"\nLearner's first answer (context only):\n{answer.strip()[:1500]}\n"
+        body += "\nReturn the session title and summary JSON."
+        try:
+            client = self._client()
+            resp = client.models.generate_content(
+                model=self._model,
+                contents=body,
+                config={
+                    "system_instruction": _SESSION_SYSTEM_PROMPT,
+                    "response_mime_type": "application/json",
+                    "response_schema": _SESSION_SCHEMA,
+                },
+            )
+            payload = json.loads(getattr(resp, "text", "") or "{}")
+            title = str(payload.get("title") or "").strip()[:80] or fallback["title"]
+            summary = str(payload.get("summary") or "").strip()[:300] or fallback["summary"]
+            return {"title": title, "summary": summary}
+        except Exception:
+            logger.warning("[session-summary] generation failed; using fallback")
+            return fallback
 
     # -- starter-code generation -----------------------------------------
 
