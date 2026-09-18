@@ -25,6 +25,7 @@ python check_env.py
 | Reset activity/progress (keeps users/auth + task bank; `POST /admin/reset`; add `?wipe_tasks=true` to also drop the bank) | via the API — no CLI |
 | Migrate the retired taxonomy in place (dry-run by default; `--apply` backs up first) | `python -m coach.migrate [--apply]` |
 | Normalize tasks to step-by-step delivery (dry-run; `--apply` backs up first) | `python -m coach.migrate delivery [--apply]` |
+| Reformat stored task prompts as Markdown (dry-run; `--apply` backs up first) | `python -m coach.reformat_prompts [--apply]` |
 | Bank coverage per leaf skill | `python -m coach.migrate coverage` |
 | Audit bank scaffold hygiene (read-only) | `python -m coach.migrate hygiene` |
 | Lint frontend | `cd frontend && npm run lint` |
