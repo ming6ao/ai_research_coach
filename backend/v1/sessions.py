@@ -518,8 +518,9 @@ def complete_session(session_id: str, user: Optional[dict] = Depends(get_current
     store = get_store()
     session, _state = _load_session(store, session_id)
     _check_owner(session, user)
-    # The row stays in active_sessions for history/resume; "done" is derived
-    # from the session JSON (pick_next_task returns None).
+    # Mark the session finished so the home page can show it as done without
+    # re-running the picker. The row stays in active_sessions for review/resume.
+    store.set_status(session_id, "done")
     return {
         "data": {
             "done": True,

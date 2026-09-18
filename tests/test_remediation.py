@@ -101,6 +101,66 @@ class TestPickNextTask:
         assert picked["id"] == "remed_pending"
         assert picked["remediation"]["focus"] == "confused eviction with invalidation"
 
+    def test_stray_generated_task_is_not_pending(self):
+        """A persisted generated task must not shadow the bank in a session."""
+        from coach.selection import pick_next_task
+
+        session = _session(tasks=[_base_task()])
+        session.tasks.append(
+            {
+                "id": "remed_stray",
+                "type": "code",
+                "difficulty": 2,
+                "prompt": "Old leftover drill.",
+                "max_score": 5,
+                "generated": True,
+                "target_text": "leftover",
+                "tags": {"primary": "ablations", "secondary": []},
+            }
+        )
+        picked = pick_next_task(session.candidate, session)
+        assert picked is not None
+        assert picked["id"] == "mi_sys_cache"
+
+    def test_challenge_respects_requested_node(self, monkeypatch):
+        """When the bank has no task for a node, the minted challenge stays
+        inside that node's subtree (it used to ignore the node entirely)."""
+        import coach.remediation as remediation
+        from coach.selection import pick_next_task
+        from coach.taxonomy import area_of
+
+        captured: dict = {}
+
+        def fake_plan_challenge(session, planner=None, prefer_node=""):
+            captured["prefer_node"] = prefer_node
+            return {
+                "id": "remed_challenge",
+                "type": "code",
+                "difficulty": 2,
+                "prompt": "Challenge.",
+                "max_score": 5,
+                "parts": [
+                    {
+                        "key": "solution",
+                        "prompt": "Challenge.",
+                        "tags": {"primary": prefer_node or "tool_use"},
+                        "max_score": 5,
+                        "difficulty": 2,
+                    }
+                ],
+                "generated": True,
+                "generated_kind": "challenge",
+                "target_text": "",
+                "tags": {"primary": prefer_node or "tool_use", "secondary": []},
+            }
+
+        monkeypatch.setattr(remediation, "plan_challenge", fake_plan_challenge)
+        session = _session()
+        session.tasks = []
+        picked = pick_next_task(session.candidate, session, node="agents")
+        assert picked is not None
+        assert area_of(captured["prefer_node"]) == "agents"
+
     def test_bank_picker_fallback(self):
         from coach.selection import pick_next_task
 

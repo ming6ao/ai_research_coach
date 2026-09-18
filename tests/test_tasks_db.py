@@ -61,6 +61,25 @@ def test_private_by_default_shared_when_public(tmp_path, monkeypatch):
     assert any(t["id"] == pub["id"] for t in list_visible_tasks("a@x.com"))
 
 
+def test_generated_tasks_excluded_from_bank(tmp_path, monkeypatch):
+    """Generated drills/challenges are session artifacts, never bank tasks."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "gen.db")
+    from coach.tasks import create_task, list_visible_tasks, single_part
+
+    bank = create_task(
+        owner="a@x.com", is_public=True, tags={"primary": "testing"},
+        parts=[single_part("bank q", tags={"primary": "testing"})],
+    )
+    generated = create_task(
+        owner="a@x.com", source="generated", is_public=False,
+        tags={"primary": "ablations"},
+        parts=[single_part("generated q", tags={"primary": "ablations"})],
+    )
+    visible = list_visible_tasks("a@x.com")
+    assert any(t["id"] == bank["id"] for t in visible)
+    assert not any(t["id"] == generated["id"] for t in visible)
+
+
 def test_solvability_ladder_targets_80pct():
     # Higher ability -> higher P(solve); harder task -> lower P(solve).
     assert p_solve(0.9, 0.8, 0.1, 1) > p_solve(0.3, 0.3, 0.8, 5)

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssessmentStore } from '../../stores/assessmentStore';
 import { useAuthStore } from '../../stores/authStore';
 import { apiClient, type Taxonomy, type MasteryArea, type MasteryEntry, type UnifiedSession } from '../../api/client';
@@ -105,19 +105,30 @@ export function HomeView() {
   const answered = ability?.questions_answered ?? 0;
   const overallMastery = mastery?.global.score ?? ability?.score ?? null;
 
+  // Per-node visible bank task counts. An area (or skill) with no questions is
+  // not shown; `null` until the overview loads, in which case nothing is hidden.
+  const taskCounts = overview?.task_counts ?? null;
+  const hasTasks = useCallback(
+    (node: string) => (taskCounts ? (taskCounts[node] ?? 0) > 0 : true),
+    [taskCounts],
+  );
+
   const domains = useMemo(() => {
-    if (taxonomy) {
-      return taxonomy.domains.map((domain) => ({
-        domain,
-        areas: Object.keys(taxonomy.areas).filter((a) => taxonomy.tree[domain]?.[a]),
-      }));
-    }
-    // Fallback before the taxonomy loads: whatever the mastery block reports.
-    return Object.entries(mastery?.domains ?? {}).map(([domain, d]) => ({
-      domain,
-      areas: Object.keys(d.areas ?? {}),
-    }));
-  }, [taxonomy, mastery]);
+    const base = taxonomy
+      ? taxonomy.domains.map((domain) => ({
+          domain,
+          areas: Object.keys(taxonomy.areas).filter((a) => taxonomy.tree[domain]?.[a]),
+        }))
+      // Fallback before the taxonomy loads: whatever the mastery block reports.
+      : Object.entries(mastery?.domains ?? {}).map(([domain, d]) => ({
+          domain,
+          areas: Object.keys(d.areas ?? {}),
+        }));
+    if (!taskCounts) return base;
+    return base
+      .map(({ domain, areas }) => ({ domain, areas: areas.filter(hasTasks) }))
+      .filter(({ areas }) => areas.length > 0);
+  }, [taxonomy, mastery, taskCounts, hasTasks]);
 
   // Keep the selected tab valid even after the taxonomy/fallback domains change.
   const currentDomain =
@@ -153,7 +164,13 @@ export function HomeView() {
             : 'Pick a domain, area, or skill — progress is saved in this browser.'}
         </p>
 
-        {!overviewLoading && (
+        {overviewLoading && !taxonomy && (
+          <p className="mt-8 text-center text-xs text-[var(--color-text-muted)]">
+            Loading your progress…
+          </p>
+        )}
+
+        {!overviewLoading && (taxonomy || mastery) && (
           <div className="mt-8 w-full space-y-8">
             {overallMastery !== null && (
               <div className="space-y-3">
@@ -253,7 +270,7 @@ export function HomeView() {
                             {areas.map((area) => {
                               const entry: MasteryArea = mastery?.domains?.[domain]?.areas?.[area] ?? EMPTY_AREA;
                               const started = entry.questions_answered > 0;
-                              const skills = taxonomy?.tree?.[domain]?.[area] ?? [];
+                              const skills = (taxonomy?.tree?.[domain]?.[area] ?? []).filter(hasTasks);
                               return (
                                 <div
                                   key={area}
@@ -333,6 +350,11 @@ export function HomeView() {
                       </div>
                     ))}
                 </>
+              )}
+              {!currentDomain && (
+                <p className="text-sm text-[var(--color-text-muted)]">
+                  No questions are available yet. Add one from “My questions”.
+                </p>
               )}
             </div>
 

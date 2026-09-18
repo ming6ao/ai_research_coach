@@ -68,8 +68,14 @@ def candidate_summary(candidate: str) -> dict:
     }
 
 
-def clear_candidate_everything(candidate: str) -> dict:
-    """Delete all candidate-scoped rows; return per-table deleted counts."""
+def clear_candidate_everything(candidate: str, keep_authored_tasks: bool = False) -> dict:
+    """Delete candidate-scoped rows; return per-table deleted counts.
+
+    By default every task owned by the candidate is deleted (admin wipe).
+    Pass ``keep_authored_tasks=True`` for the self-service "clear my data"
+    path: it preserves the candidate's authored questions (``source='user'``)
+    and removes only their generated session artifacts (``source='generated'``).
+    """
     create_schema()
     deleted: dict[str, int] = {
         "active_sessions": 0,
@@ -99,9 +105,14 @@ def clear_candidate_everything(candidate: str) -> dict:
             .filter(SkillBeliefModel.candidate == candidate)
             .delete(synchronize_session=False)
         )
+        task_filter = [TaskModel.owner == candidate]
+        if keep_authored_tasks:
+            # Authored questions are candidate-owned too, so `source` — not
+            # owner — is what distinguishes them from generated artifacts.
+            task_filter.append(TaskModel.source == "generated")
         deleted["owned_tasks"] = (
             session.query(TaskModel)
-            .filter(TaskModel.owner == candidate)
+            .filter(*task_filter)
             .delete(synchronize_session=False)
         )
         session.commit()

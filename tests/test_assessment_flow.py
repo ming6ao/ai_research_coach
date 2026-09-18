@@ -205,6 +205,70 @@ def test_get_and_delete_session(client):
     assert client.get(f"/api/v1/sessions/{started['id']}").status_code == 404
 
 
+def test_overview_marks_completed_sessions_done(client):
+    """Finishing a session persists its status; overview reflects it cheaply."""
+    headers = {"X-Guest-Id": "overview-done-guest-0001"}
+    started = _start(client, headers=headers)
+    task = started["current_task"]
+    _answer(client, started["id"], task["id"], headers=headers)
+    client.post(
+        f"/api/v1/sessions/{started['id']}/completion", json={}, headers=headers
+    )
+    res = client.get("/api/v1/me/overview", headers=headers)
+    assert res.status_code == 200
+    sessions = res.json()["data"]["sessions"]
+    assert any(s["id"] == started["id"] and s["done"] is True for s in sessions)
+
+
+def test_overview_does_not_run_the_picker(client, monkeypatch):
+    """The home-page overview must not generate tasks (it is a read)."""
+    headers = {"X-Guest-Id": "overview-nopick-guest-01"}
+    _start(client, headers=headers)
+    import coach.selection as selection
+
+    calls = {"n": 0}
+    real = selection.pick_next_task
+
+    def spy(*args, **kwargs):
+        calls["n"] += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(selection, "pick_next_task", spy)
+    res = client.get("/api/v1/me/overview", headers=headers)
+    assert res.status_code == 200
+    assert calls["n"] == 0
+
+
+def test_overview_task_counts_by_node(client):
+    """Visible bank task counts per node; empty nodes absent, generated ignored."""
+    headers = {"X-Guest-Id": "overview-counts-guest-01"}
+    res = client.get("/api/v1/me/overview", headers=headers)
+    assert res.status_code == 200
+    counts = res.json()["data"]["task_counts"]
+    # The fixture seeds one experiment_design and one collectives_and_overlap
+    # public task; each counts at its skill, area, and domain.
+    assert counts.get("experiment_design") == 1
+    assert counts.get("research_method") == 1
+    assert counts.get("research") == 1
+    assert counts.get("collectives_and_overlap") == 1
+    assert counts.get("distributed_training") == 1
+    assert counts.get("systems") == 1
+    assert counts.get("agents", 0) == 0
+
+    # A generated (session artifact) task must not inflate any node's count.
+    from coach.tasks import create_task, single_part
+
+    create_task(
+        owner="guest-overview-counts-guest-01",
+        source="generated",
+        tags={"primary": "ablations"},
+        parts=[single_part("generated q", tags={"primary": "ablations"})],
+    )
+    after = client.get("/api/v1/me/overview", headers=headers).json()["data"]["task_counts"]
+    assert after.get("ablations", 0) == 0
+    assert after.get("research_method") == counts.get("research_method")
+
+
 def test_start_session_with_node_seed(client):
     """POST /sessions {node} seeds with a random question in that area."""
     from coach.taxonomy import area_of

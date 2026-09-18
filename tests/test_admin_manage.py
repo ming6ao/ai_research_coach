@@ -136,6 +136,48 @@ def test_admin_can_wipe_other_candidate_and_shared_task(client):
     assert get_task(shared_task["id"]) is None
 
 
+def test_self_wipe_keeps_authored_tasks(client):
+    """DELETE /me/data keeps authored questions, drops generated artifacts."""
+    from coach.tasks import create_task, get_task
+
+    token = _login("frank@x.com")
+    authored = create_task(
+        owner="frank@x.com", source="user", tags={"primary": "testing"},
+        parts=[{"key": "solution", "prompt": "Frank's question?",
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+    )
+    generated = create_task(
+        owner="frank@x.com", source="generated", tags={"primary": "ablations"},
+        parts=[{"key": "solution", "prompt": "Frank's drill?",
+                "tags": {"primary": "ablations"}, "max_score": 5, "difficulty": 2}],
+    )
+    res = client.delete("/api/v1/me/data", headers=_h(token))
+    assert res.status_code == 200
+    assert get_task(authored["id"]) is not None
+    assert get_task(generated["id"]) is None
+
+
+def test_my_tasks_hides_generated(client):
+    """The curator list shows authored questions, not generated drills."""
+    from coach.tasks import create_task
+
+    token = _login("gina@x.com")
+    authored = create_task(
+        owner="gina@x.com", tags={"primary": "testing"},
+        parts=[{"key": "solution", "prompt": "Gina's question?",
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+    )
+    generated = create_task(
+        owner="gina@x.com", source="generated", tags={"primary": "ablations"},
+        parts=[{"key": "solution", "prompt": "Gina's drill?",
+                "tags": {"primary": "ablations"}, "max_score": 5, "difficulty": 2}],
+    )
+    listed = client.get("/api/v1/me/tasks", headers=_h(token)).json()["data"]
+    ids = {t["id"] for t in listed}
+    assert authored["id"] in ids
+    assert generated["id"] not in ids
+
+
 def test_task_owner_delete_cascades_attempts(client):
     from coach.tasks import create_task, get_task
 

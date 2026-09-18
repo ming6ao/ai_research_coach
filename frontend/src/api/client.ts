@@ -117,6 +117,8 @@ export interface OverviewResponse {
   candidate: string;
   ability: AbilityState | null;
   mastery: MasteryBlock | null;
+  /** Visible bank task counts per taxonomy node (skill/area/domain). */
+  task_counts?: Record<string, number>;
   sessions: UnifiedSession[];
 }
 

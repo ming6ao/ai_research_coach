@@ -13,12 +13,16 @@ def _load_bank_tasks(candidate: str) -> list:
 
     Tasks live in the ``tasks`` table (the DB is the source of truth; there
     is no code-embedded bank). An empty bank is valid (the UI prompts the user
-    to enter their own question).
+    to enter their own question). Generated tasks (adaptive drills/challenges)
+    are excluded: they belong to the session that produced them and are never
+    pickable bank questions.
     """
     try:
         from coach.tasks import list_visible_tasks
 
-        return list_visible_tasks(candidate or "system")
+        return [
+            t for t in list_visible_tasks(candidate or "system") if not t.get("generated")
+        ]
     except Exception:
         return []
 

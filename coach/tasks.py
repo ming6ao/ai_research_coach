@@ -501,7 +501,12 @@ def get_task(task_id: str) -> Optional[dict]:
 
 
 def list_visible_tasks(candidate: str) -> list[dict]:
-    """Tasks visible to a candidate: their own rows plus every public row."""
+    """Tasks visible to a candidate: their own rows plus every public row.
+
+    Generated tasks (adaptive drills/challenges) are session artifacts, not
+    bank questions: they are injected into the session that created them and
+    must never resurface as pickable bank tasks in a later session.
+    """
     from coach.db import create_schema
 
     create_schema()
@@ -511,6 +516,8 @@ def list_visible_tasks(candidate: str) -> list[dict]:
         rows = session.scalars(stmt).all()
         out = []
         for m in rows:
+            if m.source == "generated":
+                continue
             if m.owner == candidate or m.is_public:
                 out.append(task_to_dict(m))
         return out
@@ -626,10 +633,14 @@ def _list_tasks(
     owner: Optional[str] = None,
     q: Optional[str] = None,
     limit: int = 200,
+    include_generated: bool = False,
 ) -> list[dict]:
     """List tasks newest last with per-task attempt counts (shared helper).
 
     Used by the admin UI (all tasks) and the curator UI (one owner's tasks).
+    Generated drills/challenges are session artifacts, not authored questions,
+    so they are excluded by default; pass ``include_generated=True`` to see
+    them.
     """
     from coach.db import create_schema
     from sqlalchemy import func
@@ -641,6 +652,8 @@ def _list_tasks(
         stmt = select(TaskModel).order_by(TaskModel.created_at)
         if owner:
             stmt = stmt.where(TaskModel.owner == owner)
+        if not include_generated:
+            stmt = stmt.where(TaskModel.source != "generated")
         if q:
             # Search the serialized steps so results always match the derived
             # task prompt (the `prompt` column is a materialized copy).

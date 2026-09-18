@@ -19,6 +19,7 @@ keep the loop finite per root cause and hermetic-friendly.
 from __future__ import annotations
 
 import logging
+import random
 from typing import Optional
 
 from coach.task_decomposer import TaskDecomposer
@@ -375,25 +376,47 @@ def plan_challenge(
         return None
 
 
-def least_covered(session) -> str:
+def least_covered(session, node: str = "") -> str:
     """Least-covered leaf skill from in-session attempt counts.
 
-    Ties are broken by domain coverage, then area coverage, then
-    lexicographic order. Used to steer skill-directed generation when the bank
-    has no eligible task.
+    When ``node`` is given (a domain, area, or leaf skill), candidates are
+    restricted to the leaves under it so skill-directed generation stays
+    inside the requested scope. Ties are broken by domain coverage, then area
+    coverage, then at random (so scope widening does not always land on the
+    same skill). Used to steer generation when the bank has no eligible task.
     """
-    from coach.taxonomy import LEAF_NODES, area_of, domain_of
+    from coach.taxonomy import (
+        LEAF_NODES,
+        NODE_LEVEL,
+        ancestors,
+        area_of,
+        domain_of,
+        resolve_node,
+    )
 
     try:
-        return min(
-            LEAF_NODES,
-            key=lambda n: (
-                session.get_node_state(domain_of(n)).questions_answered,
-                session.get_node_state(area_of(n)).questions_answered,
-                session.get_node_state(n).questions_answered,
+        target = resolve_node(node) if node else None
+        if target is None:
+            candidates = list(LEAF_NODES)
+        elif NODE_LEVEL.get(target, 0) == 3:
+            candidates = [target]
+        else:
+            candidates = [n for n in LEAF_NODES if target in ancestors(n)]
+        if not candidates:
+            candidates = list(LEAF_NODES)
+        keyed = [
+            (
+                (
+                    session.get_node_state(domain_of(n)).questions_answered,
+                    session.get_node_state(area_of(n)).questions_answered,
+                    session.get_node_state(n).questions_answered,
+                ),
                 n,
-            ),
-        )
+            )
+            for n in candidates
+        ]
+        best = min(key for key, _ in keyed)
+        return random.choice([n for key, n in keyed if key == best])
     except Exception:
         return LEAF_NODES[0]
 

@@ -89,9 +89,18 @@ def pick_next_task(
     """
     from coach.picker import next_task as next_task_bank
 
-    # 1. Pending generated follow-up first.
+    # 1. Pending generated follow-up first. Only follow-ups injected into
+    # *this* session count: a generated task that merely happens to sit in the
+    # visible bank (persisted by an earlier session) must never resurface as
+    # pending, and must never bypass the requested ``node`` scope.
     pending = next(
-        (t for t in session.tasks if t.get("generated") and t["id"] not in session.asked_task_ids),
+        (
+            t
+            for t in session.tasks
+            if t.get("generated")
+            and t["id"] in session.generated_task_ids
+            and t["id"] not in session.asked_task_ids
+        ),
         None,
     )
     if pending is not None:
@@ -131,7 +140,10 @@ def pick_next_task(
     try:
         from coach.remediation import least_covered, plan_challenge
 
-        prefer_node = least_covered(session)
+        # Stay inside the requested node: mint the challenge under the
+        # least-covered leaf in that subtree, not the globally least-covered
+        # skill (which would hand an unrelated question to a node request).
+        prefer_node = least_covered(session, node)
         challenge = plan_challenge(session, prefer_node=prefer_node)
         if challenge is not None:
             return task_view(challenge, session)

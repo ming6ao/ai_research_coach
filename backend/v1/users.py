@@ -76,21 +76,46 @@ def _progress_for_candidate(candidate: str) -> tuple[Optional[dict], Optional[di
     return ability, mastery
 
 
-def _session_rows(candidate: str) -> list[dict]:
-    from coach.selection import pick_next_task
-    from coach.session import Session
+def _task_counts(candidate: str) -> dict[str, int]:
+    """Visible bank task counts keyed by taxonomy node (skill/area/domain).
 
+    Each task is counted once against every node reachable from its primary
+    and secondary tags (the tag plus all its ancestors), so the home page can
+    hide areas/skills that have no questions. Generated session artifacts are
+    excluded by ``list_visible_tasks``.
+    """
+    from coach.tasks import list_visible_tasks
+    from coach.taxonomy import ancestors, resolve_node
+
+    counts: dict[str, int] = {}
+    for task in list_visible_tasks(candidate):
+        tags = task.get("tags") or {}
+        nodes: set[str] = set()
+        for raw in [tags.get("primary"), *(tags.get("secondary") or [])]:
+            canon = resolve_node(raw)
+            if canon is None:
+                continue
+            nodes.add(canon)
+            nodes.update(ancestors(canon))
+        for node in nodes:
+            counts[node] = counts.get(node, 0) + 1
+    return counts
+
+
+def _session_rows(candidate: str) -> list[dict]:
+    """Recent sessions for the home page.
+
+    ``done`` is read from the persisted session status, set when the learner
+    explicitly finishes (``POST /sessions/{id}/completion``). It must never be
+    derived by running the picker: ``pick_next_task`` can mint an LLM
+    challenge, which would make loading the home page slow and would generate
+    tasks as a side effect of a read request.
+    """
     store = get_store()
     rows = []
     for s in store.list_by_candidate(candidate):
         state = store.get(s["session_id"])
-        done = False
-        if state and "session" in state:
-            session = Session.from_dict(state["session"])
-            try:
-                done = pick_next_task(candidate, session) is None
-            except Exception:
-                done = session.index >= len(session.tasks)
+        done = bool(state and state.get("_status") == "done")
         rows.append({
             "id": s["session_id"],
             "candidate": s["candidate"],
@@ -125,6 +150,7 @@ def my_overview(user: Optional[dict] = Depends(get_current_user), request: Reque
             "candidate": candidate,
             "ability": ability,
             "mastery": mastery,
+            "task_counts": _task_counts(candidate),
             "sessions": sessions,
         }
     }
@@ -135,7 +161,9 @@ def delete_my_data(user: Optional[dict] = Depends(get_current_user), request: Re
     from coach.admin import clear_candidate_everything
 
     candidate = resolve_candidate(user, request)
-    result = clear_candidate_everything(candidate)
+    # Self-service wipe: keep authored questions, drop progress and generated
+    # session artifacts.
+    result = clear_candidate_everything(candidate, keep_authored_tasks=True)
     return {
         "data": {
             "deleted": result["deleted"]["total"],
