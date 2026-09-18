@@ -159,6 +159,7 @@ export function ChatView() {
     currentTask,
     pendingTask,
     loading,
+    error,
     initialQuestion,
     advance,
     completeSession,
@@ -273,6 +274,14 @@ export function ChatView() {
           {loading && (
             <CoachBubble>
               <p className="text-[11px] text-[var(--color-text-muted)]">Working…</p>
+            </CoachBubble>
+          )}
+
+          {error && !loading && (
+            <CoachBubble>
+              <p className="rounded-lg border border-[var(--color-error)]/40 bg-[var(--color-error)]/10 px-3 py-2 text-sm text-[var(--color-error)]">
+                {error}
+              </p>
             </CoachBubble>
           )}
 

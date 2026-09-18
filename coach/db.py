@@ -87,6 +87,13 @@ _DROPPED_TASK_COLUMNS = (
     "version_index", "depends_on_task_id", "version_root_id",
 )
 
+# Columns removed from ``session_steps`` (trajectory shares, hints pipeline).
+# Best-effort DROP COLUMN; failures are swallowed so startup never breaks.
+_DROPPED_STEP_COLUMNS = (
+    "inherited",
+    "hints_used_json",
+)
+
 # Tables reset_database() wipes (activity/progress) vs. preserves (identity/auth
 # and the task bank — the DB is the source of truth for tasks).
 _WIPED_TABLES = ("session_steps", "user_skill_beliefs", "active_sessions")
@@ -310,12 +317,15 @@ def create_schema():
             conn.exec_driver_sql("DROP INDEX IF EXISTS ix_tasks_skill")
         except Exception:
             pass
-        # ``session_steps.inherited`` belonged to the removed trajectory-sharing
-        # feature; drop it from legacy databases.
+        # Retired ``session_steps`` columns: ``inherited`` belonged to the
+        # removed trajectory-sharing feature, ``hints_used_json`` to the removed
+        # hints pipeline. Both are NOT NULL in legacy databases and are no
+        # longer written, so leaving either in place makes every insert fail.
         try:
             step_cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(session_steps)").fetchall()]
-            if "inherited" in step_cols:
-                conn.exec_driver_sql("ALTER TABLE session_steps DROP COLUMN inherited")
+            for col in _DROPPED_STEP_COLUMNS:
+                if col in step_cols:
+                    conn.exec_driver_sql(f"ALTER TABLE session_steps DROP COLUMN {col}")
         except Exception:
             pass
         _migrate_skill_beliefs_to_ability(conn)

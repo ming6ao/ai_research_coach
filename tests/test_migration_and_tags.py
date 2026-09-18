@@ -76,6 +76,55 @@ def test_unique_index_present_and_enforced(tmp_path, monkeypatch):
     assert len(get_area_beliefs("c")) == 1
 
 
+def test_retired_step_columns_are_dropped(tmp_path, monkeypatch):
+    """A legacy ``session_steps`` written before the hints/trajectory removals
+    has NOT NULL ``hints_used_json``/``inherited`` columns the ORM no longer
+    fills; ``create_schema`` must drop them so inserts succeed."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "steps_legacy.db")
+    conn = db.sqlite_conn()
+    conn.executescript(
+        """
+        CREATE TABLE session_steps (
+            id VARCHAR(36) PRIMARY KEY,
+            session_id VARCHAR(64) NOT NULL,
+            candidate VARCHAR(255) NOT NULL,
+            step_index INTEGER NOT NULL,
+            task_id VARCHAR(64),
+            task_snapshot_json TEXT NOT NULL,
+            role VARCHAR(32) NOT NULL,
+            user_answer TEXT NOT NULL,
+            score FLOAT NOT NULL,
+            max_score FLOAT NOT NULL,
+            fraction FLOAT NOT NULL,
+            reward FLOAT NOT NULL,
+            hints_used_json TEXT NOT NULL,
+            inherited INTEGER NOT NULL DEFAULT 0,
+            state_before_json TEXT NOT NULL,
+            state_after_json TEXT NOT NULL,
+            result_json TEXT NOT NULL,
+            coaching_json TEXT NOT NULL,
+            created_at DATETIME NOT NULL
+        );
+        """
+    )
+    conn.commit()
+
+    db.create_schema()
+
+    from coach.steps import insert_step, list_steps
+
+    insert_step(
+        "sess-1", "cand-1", 0, {"id": "t1"}, "bank", "print(1)",
+        1.0, 5.0, 0.2, 0.2, {}, {}, {"score": 1.0}, {"feedback": "ok"},
+    )
+    steps = list_steps("sess-1")
+    assert len(steps) == 1 and steps[0]["task_id"] == "t1"
+
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(session_steps)").fetchall()]
+    assert "hints_used_json" not in cols
+    assert "inherited" not in cols
+
+
 def test_tags_round_trip_create_get_patch(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "tags.db")
     from coach.tasks import create_task, get_task, update_task
