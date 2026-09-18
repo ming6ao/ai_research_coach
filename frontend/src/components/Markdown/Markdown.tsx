@@ -1,6 +1,7 @@
 import ReactMarkdown from 'react-markdown';
 import { CodeBlock } from '../CodeBlock/CodeBlock';
 import { normalizeMarkdownFences, splitMathChildren } from '../../lib/markdown';
+import { LIST_CLASSES } from '../../lib/markdown-lists';
 
 interface Props {
   text: string;
@@ -39,6 +40,12 @@ export function Markdown({ text, className = '', size = 'sm' }: Props) {
             );
           },
           p: ({ children }) => <p>{splitMathChildren(children)}</p>,
+          ul: ({ children }) => (
+            <ul className={LIST_CLASSES.ul}>{children}</ul>
+          ),
+          ol: ({ children }) => (
+            <ol className={LIST_CLASSES.ol}>{children}</ol>
+          ),
           li: ({ children }) => <li>{splitMathChildren(children)}</li>,
           h1: ({ children }) => <h1>{splitMathChildren(children)}</h1>,
           h2: ({ children }) => <h2>{splitMathChildren(children)}</h2>,

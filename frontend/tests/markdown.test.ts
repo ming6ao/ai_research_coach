@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import type { ReactNode } from 'react';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 import ReactMarkdown from 'react-markdown';
 import { normalizeMarkdownFences } from '../src/lib/markdown-fences.ts';
+import { LIST_CLASSES } from '../src/lib/markdown-lists.ts';
 
 test('inserts a newline before a fence glued to prose', () => {
   const input = 'Here is the correct implementation:```python\ndef f():\n    pass\n```';
@@ -46,4 +48,24 @@ test('glued fence renders as a code block after normalization', () => {
   assert.ok(html.includes('language-python'), 'expected a fenced code block to render');
   assert.ok(html.includes('def variance'), 'expected the code text to be present');
   assert.ok(!html.includes('```'), 'expected the fence backticks not to leak into the output');
+});
+
+test('markdown lists opt back into visible markers after the preflight reset', () => {
+  const components = {
+    ul: (props: { children?: ReactNode }) =>
+      React.createElement('ul', { className: LIST_CLASSES.ul }, props.children),
+    ol: (props: { children?: ReactNode }) =>
+      React.createElement('ol', { className: LIST_CLASSES.ol }, props.children),
+  };
+  const html = renderToString(
+    React.createElement(
+      ReactMarkdown,
+      { components },
+      '- `free(seq_id)` releases every block owned by the sequence.\n\n1. first\n2. second',
+    ),
+  );
+  // Tailwind v4 preflight sets `list-style: none`; without these utilities the
+  // bullets are in the DOM but invisible.
+  assert.match(html, /<ul class="[^"]*list-disc[^"]*"/);
+  assert.match(html, /<ol class="[^"]*list-decimal[^"]*"/);
 });
