@@ -58,7 +58,6 @@ export function HomeView() {
   const { user } = useAuthStore();
   const { startAssessment, loading, overview, overviewLoading, loadOverview } = useAssessmentStore();
   const [showSessions, setShowSessions] = useState(false);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [taxonomy, setTaxonomy] = useState<Taxonomy | null>(null);
   const [activeDomain, setActiveDomain] = useState<string | null>(null);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -232,7 +231,7 @@ export function HomeView() {
                                 : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]'
                             }`}
                           >
-                            {started ? `${Math.round(entry.score * 100)}%` : 'New'}
+                            {started ? `${Math.round(entry.score * 100)}%` : 'Not started'}
                           </span>
                         </button>
                       );
@@ -250,10 +249,7 @@ export function HomeView() {
                         tabIndex={0}
                         className="space-y-3 focus:outline-none"
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs text-[var(--color-text-muted)]">
-                            {areas.length} area{areas.length === 1 ? '' : 's'}
-                          </span>
+                        <div className="flex items-center justify-end">
                           <button
                             type="button"
                             onClick={() => handleStartNode(domain)}
@@ -296,42 +292,18 @@ export function HomeView() {
                                       {label(area)}
                                     </span>
                                     <span className="shrink-0 text-sm font-bold text-[var(--color-text-primary)]">
-                                      {started ? `${Math.round(entry.score * 100)}%` : 'New'}
+                                      {started ? `${Math.round(entry.score * 100)}%` : 'Not started'}
                                     </span>
                                   </div>
                                   <div className="mt-2">
                                     <MasteryBar value={started ? entry.score : 0} tone={masteryTone(entry.score)} />
                                   </div>
-                                  <div className="mt-1 flex items-center justify-between">
-                                    <span className="text-[10px] text-[var(--color-text-muted)]">
-                                      {started ? `${entry.questions_answered} asked` : 'Not started'}
-                                    </span>
-                                    {skills.length > 0 && (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setExpanded((s) => ({ ...s, [area]: !s[area] }));
-                                        }}
-                                        aria-expanded={!!expanded[area]}
-                                        className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
-                                      >
-                                        {expanded[area] ? 'Hide' : 'Skills'}
-                                        <svg
-                                          viewBox="0 0 20 20"
-                                          fill="currentColor"
-                                          className={`h-3 w-3 transition-transform ${expanded[area] ? 'rotate-180' : ''}`}
-                                        >
-                                          <path
-                                            fillRule="evenodd"
-                                            d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
-                                            clipRule="evenodd"
-                                          />
-                                        </svg>
-                                      </button>
-                                    )}
-                                  </div>
-                                  {expanded[area] && skills.length > 0 && (
+                                  {started && (
+                                    <div className="mt-1 text-[10px] text-[var(--color-text-muted)]">
+                                      {entry.questions_answered} asked
+                                    </div>
+                                  )}
+                                  {skills.length > 0 && (
                                     <div className="mt-2 flex flex-wrap gap-1.5">
                                       {skills.map((skill) => (
                                         <SkillChip
