@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, memo, useEffect, useRef, useState } from 'react';
 import { useAssessmentStore, type ResultWithFeedback } from '../../stores/assessmentStore';
 import { CodeEditor } from '../TaskPanel/CodeEditor';
 import { Markdown } from '../Markdown/Markdown';
@@ -153,7 +153,7 @@ function DoneBubble() {
   );
 }
 
-export function ChatView() {
+function ChatViewInner() {
   const {
     results,
     currentTask,
@@ -333,3 +333,10 @@ export function ChatView() {
     </div>
   );
 }
+
+/**
+ * Memoized so the selection popover / explanation panel toggling in
+ * `SessionLayout` cannot re-render (and therefore remount) the transcript —
+ * which would collapse a live text selection mid-copy.
+ */
+export const ChatView = memo(ChatViewInner);
