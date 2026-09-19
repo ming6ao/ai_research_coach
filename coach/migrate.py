@@ -9,6 +9,7 @@ taken first unless ``--no-backup``).
     python -m coach.migrate coverage             # per-skill bank coverage
     python -m coach.migrate hygiene              # read-only prompt/scaffold audit
     python -m coach.migrate delivery [--apply]   # normalize to step-by-step
+    python -m coach.migrate sessions [--apply]   # drop sessions with no answer
 
 In-place migration rewrites, in order: task tags (block + parts), per-node
 belief rows, active-session snapshots, and session-step snapshots/states.
@@ -349,26 +350,57 @@ def migrate_beliefs(apply: bool) -> dict:
     return counts
 
 
-def migrate_sessions(apply: bool, mode: str, fallback: Optional[str], drop_empty: bool) -> dict:
+def drop_empty_sessions(apply: bool) -> dict:
+    """Delete sessions that never received a scored answer.
+
+    "Empty" means zero ``session_steps`` rows — a started-but-abandoned
+    session. The session's separately-stored explanations are removed too, so
+    no orphan rows remain. Dry-run by default; returns counters.
+    """
     from coach.db import create_schema, sqlite_conn
 
     create_schema()
-    counts = {"seen": 0, "updated": 0, "dropped_empty": 0, "tasks_removed": 0}
-
+    counts = {"seen": 0, "empty": 0, "dropped": 0, "explanations_removed": 0}
     with sqlite_conn() as conn:
-        rows = conn.execute("SELECT session_id, session_json FROM active_sessions").fetchall()
         step_counts = dict(
             conn.execute(
                 "SELECT session_id, COUNT(*) FROM session_steps GROUP BY session_id"
             ).fetchall()
         )
+        rows = conn.execute("SELECT session_id FROM active_sessions").fetchall()
+        for (sid,) in rows:
+            counts["seen"] += 1
+            if step_counts.get(sid):
+                continue
+            counts["empty"] += 1
+            if apply:
+                # Delete on the *same* connection: opening a second
+                # (ORM) connection while this one holds a transaction
+                # deadlocks SQLite ("database is locked").
+                cur = conn.execute(
+                    "DELETE FROM explanations WHERE session_id = ?", (sid,)
+                )
+                counts["explanations_removed"] += cur.rowcount or 0
+                conn.execute("DELETE FROM active_sessions WHERE session_id = ?", (sid,))
+                counts["dropped"] += 1
+        if apply:
+            conn.commit()
+    return counts
+
+
+def migrate_sessions(apply: bool, mode: str, fallback: Optional[str], drop_empty: bool) -> dict:
+    from coach.db import create_schema, sqlite_conn
+
+    create_schema()
+    dropped_empty = 0
+    if drop_empty:
+        dropped_empty = drop_empty_sessions(apply)["empty"]
+    counts = {"seen": 0, "updated": 0, "dropped_empty": dropped_empty, "tasks_removed": 0}
+
+    with sqlite_conn() as conn:
+        rows = conn.execute("SELECT session_id, session_json FROM active_sessions").fetchall()
         for sid, raw in rows:
             counts["seen"] += 1
-            if drop_empty and not step_counts.get(sid):
-                counts["dropped_empty"] += 1
-                if apply:
-                    conn.execute("DELETE FROM active_sessions WHERE session_id = ?", (sid,))
-                continue
             try:
                 parsed = json.loads(raw or "{}")
             except Exception:
@@ -476,8 +508,8 @@ def _normalize_task_delivery(task: dict) -> bool:
 
     Legacy migration only: a stored *snapshot* task with no ``parts`` is
     wrapped into a single part built from its task-level
-    prompt/tags/max_score/difficulty/scaffold. Live DB rows are wrapped by
-    ``coach.db.create_schema`` before the ``prompt`` column is dropped.
+    prompt/tags/max_score/difficulty. Live DB rows are wrapped by
+    ``coach.db.create_schema`` before the legacy columns are dropped.
     ``delivery`` is forced to ``'phased'``.
     """
     changed = False
@@ -493,8 +525,6 @@ def _normalize_task_delivery(task: dict) -> bool:
             "max_score": int(task.get("max_score") or 5),
             "difficulty": int(task.get("difficulty") or 2),
         }
-        if task.get("scaffold"):
-            part["scaffold"] = task["scaffold"]
         task["parts"] = [part]
         changed = True
     if task.get("delivery") != "phased":
@@ -537,7 +567,6 @@ def migrate_delivery(apply: bool) -> dict:
                 # Legacy partless rows still carry their prompt column so the
                 # wrap below can build an implicit step from it.
                 "prompt": getattr(m, "prompt", "") or "",
-                "scaffold": m.scaffold,
                 "max_score": m.max_score,
                 "difficulty": m.difficulty,
                 "tags": parse_tags(m.tags_json),
@@ -656,9 +685,9 @@ def coverage_report() -> dict:
 def hygiene_report() -> dict:
     """Audit the task bank for learner-facing scaffold hygiene.
 
-    Flags starter code that gives the answer away by declaring private members
-    or instance state. Read-only, like ``coverage``: it never rewrites author
-    text.
+    Flags steps with no starter code and starter code that gives the answer
+    away by declaring private members or instance state. Read-only, like
+    ``coverage``: it never rewrites author text.
     """
     from sqlalchemy import select
 
@@ -680,6 +709,7 @@ def hygiene_report() -> dict:
     counts = {
         "scaffold_leaks_internals": 0,
         "scaffold_missing_comments": 0,
+        "scaffold_missing": 0,
     }
     findings: list[dict] = []
     for model in models:
@@ -688,6 +718,16 @@ def hygiene_report() -> dict:
         for part in parts:
             scaffold = part.get("scaffold") or ""
             if not scaffold.strip():
+                counts["scaffold_missing"] += 1
+                findings.append(
+                    {
+                        "task_id": task["id"],
+                        "owner": task.get("owner"),
+                        "issue": "scaffold_missing",
+                        "part_key": part.get("key"),
+                        "detail": "Step has no starter code.",
+                    }
+                )
                 continue
             leaks: list[str] = []
             if private_section.search(scaffold):
@@ -736,8 +776,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         "command",
         nargs="?",
         default="migrate",
-        choices=["migrate", "coverage", "delivery", "hygiene"],
-        help="migrate (default) | coverage | delivery | hygiene",
+        choices=["migrate", "coverage", "delivery", "hygiene", "sessions"],
+        help="migrate (default) | coverage | delivery | hygiene | sessions",
     )
     parser.add_argument("--apply", action="store_true", help="write changes (default: dry run)")
     parser.add_argument(
@@ -771,6 +811,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         if args.apply and not args.no_backup:
             report["backup"] = backup_database()
         report["delivery"] = migrate_delivery(args.apply)
+        _print(report)
+        return 0
+
+    if args.command == "sessions":
+        report = {"apply": args.apply}
+        if args.apply and not args.no_backup:
+            report["backup"] = backup_database()
+        report["sessions"] = drop_empty_sessions(args.apply)
         _print(report)
         return 0
 

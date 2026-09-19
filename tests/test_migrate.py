@@ -187,6 +187,36 @@ def test_sessions_drop_empty_and_remap_stepful(tmp_path, monkeypatch):
     assert tags["primary"] == "attention_variants"
 
 
+def test_drop_empty_sessions_command(tmp_path, monkeypatch):
+    """`coach.migrate sessions` drops un-answered sessions (and explanations)."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "empty_sessions.db")
+    from coach.db import create_schema, sqlite_conn
+    from coach.explanations import insert_explanation, list_explanations
+    from coach.migrate import drop_empty_sessions
+    from coach.steps import insert_step
+
+    create_schema()
+    _insert_session("kept", {"session": {"candidate": "c@x.com", "tasks": []}})
+    _insert_session("empty", {"session": {"candidate": "c@x.com", "tasks": []}})
+    insert_step("kept", "c@x.com", 0, {"id": "t1"}, "bank", "code", 5, 5, 1.0, 1.0,
+                None, None, {}, None)
+    insert_explanation("empty", "c@x.com", selected_text="x", explanation="y")
+
+    dry = drop_empty_sessions(apply=False)
+    assert dry["empty"] == 1
+    assert dry["dropped"] == 0
+    with sqlite_conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM active_sessions").fetchone()[0] == 2
+
+    report = drop_empty_sessions(apply=True)
+    assert report["dropped"] == 1
+    assert report["explanations_removed"] == 1
+    with sqlite_conn() as conn:
+        remaining = {r[0] for r in conn.execute("SELECT session_id FROM active_sessions").fetchall()}
+    assert remaining == {"kept"}
+    assert list_explanations("empty") == []
+
+
 def test_coverage_report_counts_task_tags(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "coverage.db")
     from coach.migrate import coverage_report
@@ -282,10 +312,29 @@ def test_hygiene_ignores_none_hygiene_issues(tmp_path, monkeypatch):
         {"primary": "testing", "secondary": []},
         parts=[
             {"key": "solution", "prompt": "Implement f.",
-             "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2},
+             "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+             "scaffold": "def f():\n    # TODO: implement\n    pass\n"},
         ],
     )
     assert hygiene_report()["findings"] == []
+
+
+def test_hygiene_flags_missing_scaffold(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "hygiene_missing.db")
+    from coach.migrate import hygiene_report
+
+    _insert_task(
+        "hyg_missing",
+        {"primary": "testing", "secondary": []},
+        parts=[
+            {"key": "p1", "prompt": "Implement f.",
+             "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2},
+        ],
+    )
+    report = hygiene_report()
+    issues = {(f["task_id"], f["issue"], f["part_key"]) for f in report["findings"]}
+    assert ("hyg_missing", "scaffold_missing", "p1") in issues
+    assert report["counts"]["scaffold_missing"] == 1
 
 
 def test_hygiene_passes_api_only_scaffold(tmp_path, monkeypatch):

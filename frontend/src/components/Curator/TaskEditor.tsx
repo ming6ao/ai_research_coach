@@ -7,6 +7,7 @@ import {
   type TaskPart,
 } from '../../api/client';
 import { scaffoldHygieneIssues } from '../../lib/task-hygiene';
+import { findStepDraftError, splitStepPrompts } from '../../lib/task-draft';
 import { CodeEditor } from '../TaskPanel/CodeEditor';
 import { QuestionBubble } from '../Task/QuestionBubble';
 import {
@@ -67,6 +68,26 @@ function partsToDrafts(parts?: TaskPart[]): PartDraft[] {
   }));
 }
 
+function draftsToParts(drafts: PartDraft[]): TaskPart[] {
+  const out: TaskPart[] = [];
+  for (const p of drafts) {
+    if (!p.prompt.trim()) continue;
+    const part: TaskPart = {
+      key: p.key.trim() || `step_${out.length + 1}`,
+      prompt: p.prompt.trim(),
+      max_score: clamp1to100(Number(p.max_score)) || 5,
+      difficulty: clamp1to5(Number(p.difficulty)) || 2,
+      tags: { primary: p.primary, secondary: p.secondary.slice(0, 2) },
+    };
+    if (p.scaffold.trim()) part.scaffold = p.scaffold;
+    if (p.pass_score.trim() !== '') {
+      part.pass_score = Math.max(0, Math.min(part.max_score, Number(p.pass_score) || 0));
+    }
+    out.push(part);
+  }
+  return out;
+}
+
 /** Mirrors the backend's `default_pass_score` (round(0.7 * max), min 1). */
 function autoPassScore(maxScore: number): number {
   return Math.max(1, Math.round(0.7 * Math.max(1, maxScore)));
@@ -91,6 +112,12 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
   const [activeStep, setActiveStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [contextNotes, setContextNotes] = useState(task?.context_notes ?? '');
+  const [assistantOpen, setAssistantOpen] = useState(!task);
+  const [quickText, setQuickText] = useState('');
+  const [quickInstruction, setQuickInstruction] = useState('');
+  const [assistantBusy, setAssistantBusy] = useState(false);
+  const [assistantError, setAssistantError] = useState<string | null>(null);
 
   useEffect(() => {
     apiClient
@@ -129,47 +156,103 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
     setActiveStep(to);
   };
 
+  /**
+   * Report anything the assistant could not fill in (e.g. a scaffold it
+   * omitted or produced invalid). The draft still hydrates the form so the
+   * curator keeps the rest, but Create stays blocked until they fix it.
+   */
+  const reportDraftProblems = (problems?: string[]) => {
+    if (!problems || problems.length === 0) return;
+    setAssistantError(
+      `The AI assistant couldn't fill everything in: ${problems.join('; ')}. ` +
+        'Add the missing details by hand.',
+    );
+  };
+
+  /** Replace the form state with an AI-drafted (or refined) task body. */
+  const applyDraft = (draft: TaskCreateBody) => {
+    const next = partsToDrafts(draft.parts);
+    setParts(next.length > 0 ? next : [blankPart()]);
+    setActiveStep(0);
+    if (draft.language) setLanguage(draft.language);
+    if (draft.task_type) setTaskType(draft.task_type);
+    if (draft.context_notes != null) setContextNotes(draft.context_notes);
+  };
+
+  /** Initial draft: curator step prompts -> fully-populated form. */
+  const generateDraft = async () => {
+    setAssistantError(null);
+    const steps = splitStepPrompts(quickText);
+    if (steps.length === 0) {
+      setAssistantError('Enter at least one step prompt.');
+      return;
+    }
+    if (steps.length > 5) {
+      setAssistantError('A task may have at most 5 steps.');
+      return;
+    }
+    setAssistantBusy(true);
+    try {
+      const draft = await apiClient.draftTask({ steps, language, task_type: taskType });
+      applyDraft(draft);
+      reportDraftProblems(draft.problems);
+    } catch (e) {
+      setAssistantError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAssistantBusy(false);
+    }
+  };
+
+  /** Refinement: apply a plain-English instruction to the current draft. */
+  const refineDraft = async () => {
+    setAssistantError(null);
+    const instruction = quickInstruction.trim();
+    if (!instruction) return;
+    const draft: TaskCreateBody = {
+      parts: draftsToParts(parts),
+      language,
+      task_type: taskType,
+      context_notes: contextNotes,
+    };
+    setAssistantBusy(true);
+    try {
+      const revised = await apiClient.draftTask({ draft, instruction });
+      applyDraft(revised);
+      reportDraftProblems(revised.problems);
+      setQuickInstruction('');
+    } catch (e) {
+      setAssistantError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAssistantBusy(false);
+    }
+  };
+
   /** Validate + build the create/update body; returns null on invalid input. */
   const buildBody = (): TaskCreateBody | null => {
     setFormError(null);
-    const cleaned: TaskPart[] = [];
-    const seen = new Set<string>();
-    for (const p of parts) {
-      const hasKey = p.key.trim().length > 0;
-      const hasPrompt = p.prompt.trim().length > 0;
-      if (!hasKey && !hasPrompt) continue;
-      if (!hasKey || !hasPrompt) {
-        const msg = 'Every step needs both a key and a prompt.';
-        setFormError(msg);
-        onError(msg);
-        return null;
-      }
-      if (seen.has(p.key.trim())) {
-        const msg = `Duplicate step key: ${p.key.trim()}`;
-        setFormError(msg);
-        onError(msg);
-        return null;
-      }
-      if (!p.primary) {
-        const msg = `Step ${p.key.trim()} needs a primary skill.`;
-        setFormError(msg);
-        onError(msg);
-        return null;
-      }
-      seen.add(p.key.trim());
-      const part: TaskPart = {
-        key: p.key.trim(),
-        prompt: p.prompt.trim(),
-        max_score: clamp1to100(Number(p.max_score)) || 5,
-        difficulty: clamp1to5(Number(p.difficulty)) || 2,
-        tags: { primary: p.primary, secondary: p.secondary.slice(0, 2) },
-      };
-      if (p.scaffold.trim()) part.scaffold = p.scaffold;
-      if (p.pass_score.trim() !== '') {
-        part.pass_score = Math.max(0, Math.min(part.max_score, Number(p.pass_score) || 0));
-      }
-      cleaned.push(part);
+    const problem = findStepDraftError(parts);
+    if (problem) {
+      setFormError(problem.message);
+      onError(problem.message);
+      setActiveStep(problem.index);
+      return null;
     }
+    const cleaned: TaskPart[] = parts
+      .filter((p) => p.prompt.trim().length > 0)
+      .map((p) => {
+        const part: TaskPart = {
+          key: p.key.trim(),
+          prompt: p.prompt.trim(),
+          max_score: clamp1to100(Number(p.max_score)) || 5,
+          difficulty: clamp1to5(Number(p.difficulty)) || 2,
+          tags: { primary: p.primary, secondary: p.secondary.slice(0, 2) },
+        };
+        if (p.scaffold.trim()) part.scaffold = p.scaffold;
+        if (p.pass_score.trim() !== '') {
+          part.pass_score = Math.max(0, Math.min(part.max_score, Number(p.pass_score) || 0));
+        }
+        return part;
+      });
     if (cleaned.length === 0) {
       const msg = 'Every step needs both a key and a prompt.';
       setFormError(msg);
@@ -182,6 +265,7 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
       language,
       is_public: isPublic,
     };
+    if (contextNotes.trim()) body.context_notes = contextNotes.trim();
     return body;
   };
 
@@ -227,6 +311,7 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
   }
 
   const active = parts[activeStep] ?? parts[0];
+  const hasDraftContent = parts.some((p) => p.prompt.trim().length > 0);
   const activeMax = clamp1to100(Number(active.max_score)) || 5;
   const passScoreValue =
     active.pass_score.trim() !== ''
@@ -256,6 +341,73 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
               </span>
             )}
           </div>
+
+          {/* Curator-only AI assistant: draft from prompts, then refine. */}
+          <section className="space-y-2 rounded-xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-2.5">
+            <button
+              type="button"
+              onClick={() => setAssistantOpen((v) => !v)}
+              className="flex w-full items-center gap-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]"
+            >
+              <span>{assistantOpen ? '▾' : '▸'}</span>
+              AI assistant — fill or change the details
+            </button>
+            {assistantOpen && (
+              <div className="space-y-2">
+                {!task && (
+                  <>
+                    <textarea
+                      value={quickText}
+                      onChange={(e) => setQuickText(e.target.value)}
+                      rows={6}
+                      placeholder={
+                        'One step prompt per block (separate with a blank line or ---).\n\n' +
+                        'e.g. Implement scaled_dot_product_attention(Q, K, V).\n\n' +
+                        'Now add causal masking so position i cannot attend to j > i.'
+                      }
+                      className={fieldCls}
+                    />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void generateDraft()}
+                        disabled={assistantBusy}
+                        className="rounded-lg bg-[var(--color-accent)] px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-40"
+                      >
+                        {assistantBusy ? 'Working…' : 'Fill in details'}
+                      </button>
+                      <span className="text-[10px] text-[var(--color-text-muted)]">
+                        {splitStepPrompts(quickText).length} step(s) detected (max 5)
+                      </span>
+                    </div>
+                  </>
+                )}
+                {hasDraftContent && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      value={quickInstruction}
+                      onChange={(e) => setQuickInstruction(e.target.value)}
+                      placeholder="Ask for a change, e.g. “make step 2 harder”"
+                      className={`${fieldCls} flex-1`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void refineDraft()}
+                      disabled={assistantBusy || !quickInstruction.trim()}
+                      className="rounded-lg border border-[var(--color-accent)]/50 px-3 py-1 text-[11px] font-semibold text-[var(--color-accent)] disabled:opacity-40"
+                    >
+                      {assistantBusy ? 'Working…' : 'Refine'}
+                    </button>
+                  </div>
+                )}
+                {assistantError && (
+                  <p className="rounded-lg border border-[var(--color-error)]/30 bg-[var(--color-bg-primary)] px-3 py-1.5 text-[11px] text-[var(--color-error)]">
+                    {assistantError}
+                  </p>
+                )}
+              </div>
+            )}
+          </section>
 
           {/* Curator-only settings. */}
           <section className="space-y-2 rounded-xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-2.5">
@@ -303,6 +455,16 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
                 </span>
               </label>
             </div>
+            <label className="block">
+              <span className={labelCls}>context notes (background shown with the question)</span>
+              <textarea
+                value={contextNotes}
+                onChange={(e) => setContextNotes(e.target.value)}
+                rows={2}
+                placeholder="2-4 sentences of prerequisite/confusion context (the AI assistant fills this)."
+                className={fieldCls}
+              />
+            </label>
           </section>
 
           {/* Step tabs mirror the learner advancing one step at a time. */}

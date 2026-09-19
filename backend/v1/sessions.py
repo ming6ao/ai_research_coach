@@ -190,9 +190,9 @@ _COMBINED_CACHE_MAX = 1000
 def _describe_and_categorize(prompt: str) -> tuple[str, Optional[dict]]:
     """One combined context-notes + tag-categorization call per prompt.
 
-    The result is cached per request so ``_describe_context`` and
-    ``_categorize_tags`` never trigger a second LLM round-trip for the same
-    task. ``tags`` is ``None`` when categorization could not be resolved.
+    The result is cached per request so ``_describe_context`` never triggers a
+    second LLM round-trip for the same task. ``tags`` is ``None`` when
+    categorization could not be resolved.
     """
     key = (prompt or "").strip()
     if key in _COMBINED_CACHE:
@@ -219,26 +219,6 @@ def _describe_context(prompt: str, explicit: Optional[str] = None) -> str:
         return explicit.strip()[:2000]
     notes, _tags = _describe_and_categorize(prompt)
     return notes
-
-
-def _categorize_tags(prompt: str, explicit: Optional[dict] = None) -> dict:
-    """Explicit tags win; otherwise one best-effort LLM categorization.
-
-    Raises ``HTTPException(422)`` when categorization cannot determine a valid
-    primary leaf skill — an uncategorized task must not be created.
-    """
-    if explicit is not None:
-        return explicit
-    _notes, tags = _describe_and_categorize(prompt)
-    if not tags or not tags.get("primary"):
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "Could not categorize this question into the taxonomy. "
-                "Provide tags.primary (a leaf skill) explicitly, or retry."
-            ),
-        )
-    return tags
 
 
 def _session_view(session_id: str, session, current_task, feedback_list=None) -> dict:
@@ -273,11 +253,10 @@ def create_session(
     request: Request = None,
 ):
     from coach.selection import pick_next_task
-    from coach.session import Session, task_view
+    from coach.session import Session
 
     store = get_store()
     candidate = _candidate_for(user, request)
-    is_guest = candidate.startswith("guest-")
 
     node: Optional[str] = None
     raw_node = (req.node or "").strip()
@@ -301,26 +280,7 @@ def create_session(
         scoped_tasks = [t for tid in req.task_ids if (t := _get_task(tid))]
     session = Session(candidate, tasks=scoped_tasks or [])
 
-    custom_task = None
-    if req.initial_question and req.initial_question.strip():
-        from coach.tasks import create_task as _create_task
-        from coach.tasks import single_part
-
-        prompt = req.initial_question.strip()
-        tags = _categorize_tags(prompt)
-        custom_task = _create_task(
-            owner=candidate,
-            parts=[single_part(prompt, tags=tags, max_score=5, difficulty=2)],
-            source="user",
-            is_public=is_guest,
-            context_notes=_describe_context(prompt),
-            tags=tags,
-        )
-        session.tasks.insert(0, custom_task)
-
-    if custom_task:
-        first_task = task_view(custom_task, session)
-    elif node:
+    if node:
         first_task = pick_next_task(
             candidate, session, node=node, sample_top_n=RANDOM_FIRST_TOP_N
         )
@@ -496,7 +456,27 @@ def submit_answer(
         nxt = next_task_bank(session)
         next_task = task_view(nxt, session) if nxt else None
 
-    store.save(session_id, {"session": session.to_dict()})
+    # First persisted answer: mint an LLM title + summary so the home page can
+    # label the session and preview it on hover. Draft sessions (no answer yet)
+    # are staged in memory and never reach the database.
+    title = summary = None
+    if not store.is_persisted(session_id):
+        try:
+            from coach.task_decomposer import TaskDecomposer
+
+            info = TaskDecomposer().describe_session(task, req.answer)
+            title = info.get("title") or ""
+            summary = info.get("summary") or ""
+        except Exception:
+            title = summary = ""
+
+    store.save(
+        session_id,
+        {"session": session.to_dict()},
+        persist=True,
+        title=title,
+        summary=summary,
+    )
 
     return {
         "data": {

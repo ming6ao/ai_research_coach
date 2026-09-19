@@ -135,7 +135,8 @@ def test_tags_round_trip_create_get_patch(tmp_path, monkeypatch):
         task_type="implement",
         parts=[{"key": "solution", "prompt": "Implement softmax.",
                 "tags": {"primary": "normalization", "secondary": ["pretraining_objectives"]},
-                "max_score": 5, "difficulty": 2}],
+                "max_score": 5, "difficulty": 2,
+                "scaffold": "def softmax():\n    # TODO\n    pass\n"}],
     )
     assert t["tags"] == {"primary": "normalization", "secondary": ["pretraining_objectives"]}
     assert t["task_type"] == "implement"
@@ -166,7 +167,8 @@ def test_unknown_tag_rejected_on_create_and_patch_api(tmp_path, monkeypatch):
 
     good = client.post("/api/v1/tasks", json={
         "parts": [{"key": "solution", "prompt": "q",
-                   "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+                   "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+                   "scaffold": "def solution():\n    # TODO\n    pass\n"}],
         "tags": {"primary": "testing"},
     })
     assert good.status_code == 201
@@ -181,7 +183,8 @@ def test_unknown_tag_rejected_on_create_and_patch_api(tmp_path, monkeypatch):
         "/api/v1/tasks",
         json={"parts": [{"key": "solution", "prompt": "mine",
                            "tags": {"primary": "vision_encoders"},
-                           "max_score": 5, "difficulty": 2}],
+                           "max_score": 5, "difficulty": 2,
+                           "scaffold": "def solution():\n    # TODO\n    pass\n"}],
               "tags": {"primary": "vision_encoders"}},
         headers=headers,
     )
@@ -205,7 +208,7 @@ def test_task_view_emits_tags_and_task_type():
     session = Session("c", tasks=[])
     view = task_view(
         {"id": "x", "prompt": "p", "difficulty": 2, "tags": {"primary": "vision_encoders", "secondary": []},
-         "task_type": "implement", "scaffold": "def f():\n    pass\n"},
+         "task_type": "implement"},
         session,
     )
     assert view["tags"]["primary"] == "vision_encoders"
@@ -285,7 +288,8 @@ def test_task_type_validated():
         create_task(
             owner="tester@example.com", task_type="bogus",
             parts=[{"key": "a", "prompt": "q", "tags": {"primary": "testing"},
-                    "max_score": 5, "difficulty": 2}],
+                    "max_score": 5, "difficulty": 2,
+                    "scaffold": "def a():\n    # TODO\n    pass\n"}],
         )
 
 
@@ -304,6 +308,7 @@ def test_create_task_requires_tags(tmp_path, monkeypatch):
     task = create_task(
         owner="tester@example.com",
         parts=[{"key": "a", "prompt": "def a(): ...", "tags": {"primary": "grpo"},
-                "max_score": 5, "difficulty": 2}],
+                "max_score": 5, "difficulty": 2,
+                "scaffold": "def a():\n    # TODO\n    pass\n"}],
     )
     assert task["tags"]["primary"] == "grpo"

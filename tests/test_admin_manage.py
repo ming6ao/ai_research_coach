@@ -58,12 +58,13 @@ def _seed_candidate(candidate):
 
     store = get_store()
     sid = store.create(candidate)
-    store.save(sid, {"session": {"candidate": candidate}})
+    store.save(sid, {"session": {"candidate": candidate}}, persist=True)
 
     task = create_task(
         owner=candidate, tags={"primary": "testing"},
         parts=[{"key": "solution", "prompt": "Owned question?",
-                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+                "scaffold": "def solution():\n    # TODO: implement\n    pass\n"}],
     )
     _record_step(candidate, task["id"], 0.8, 4, 5)
     save_skill_belief(candidate, 0.6, 0.1, 1)
@@ -116,7 +117,8 @@ def test_admin_can_wipe_other_candidate_and_shared_task(client):
     shared_task = create_task(
         owner="bank@example.com", source="user", is_public=True, tags={"primary": "testing"},
         parts=[{"key": "solution", "prompt": "Shared bank question?",
-                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+                "scaffold": "def solution():\n    # TODO: implement\n    pass\n"}],
     )
     _record_step("alice@x.com", shared_task["id"], 0.5, 2, 5)
 
@@ -144,12 +146,14 @@ def test_self_wipe_keeps_authored_tasks(client):
     authored = create_task(
         owner="frank@x.com", source="user", tags={"primary": "testing"},
         parts=[{"key": "solution", "prompt": "Frank's question?",
-                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+                "scaffold": "def solution():\n    # TODO: implement\n    pass\n"}],
     )
     generated = create_task(
         owner="frank@x.com", source="generated", tags={"primary": "ablations"},
         parts=[{"key": "solution", "prompt": "Frank's drill?",
-                "tags": {"primary": "ablations"}, "max_score": 5, "difficulty": 2}],
+                "tags": {"primary": "ablations"}, "max_score": 5, "difficulty": 2,
+                "scaffold": "def solution():\n    # TODO: implement\n    pass\n"}],
     )
     res = client.delete("/api/v1/me/data", headers=_h(token))
     assert res.status_code == 200
@@ -165,12 +169,14 @@ def test_my_tasks_hides_generated(client):
     authored = create_task(
         owner="gina@x.com", tags={"primary": "testing"},
         parts=[{"key": "solution", "prompt": "Gina's question?",
-                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+                "scaffold": "def solution():\n    # TODO: implement\n    pass\n"}],
     )
     generated = create_task(
         owner="gina@x.com", source="generated", tags={"primary": "ablations"},
         parts=[{"key": "solution", "prompt": "Gina's drill?",
-                "tags": {"primary": "ablations"}, "max_score": 5, "difficulty": 2}],
+                "tags": {"primary": "ablations"}, "max_score": 5, "difficulty": 2,
+                "scaffold": "def solution():\n    # TODO: implement\n    pass\n"}],
     )
     listed = client.get("/api/v1/me/tasks", headers=_h(token)).json()["data"]
     ids = {t["id"] for t in listed}
@@ -185,7 +191,8 @@ def test_task_owner_delete_cascades_attempts(client):
     task = create_task(
         owner="carol@x.com", tags={"primary": "testing"},
         parts=[{"key": "solution", "prompt": "Carol's question?",
-                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+                "scaffold": "def solution():\n    # TODO: implement\n    pass\n"}],
     )
 
     _record_step("carol@x.com", task["id"], 1.0, 5, 5)
@@ -210,7 +217,8 @@ def test_task_owner_can_edit_context_notes(client):
     task = create_task(
         owner="dave@x.com", tags={"primary": "testing"},
         parts=[{"key": "solution", "prompt": "Dave's question?",
-                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+                "scaffold": "def solution():\n    # TODO: implement\n    pass\n"}],
     )
 
     res = client.patch(

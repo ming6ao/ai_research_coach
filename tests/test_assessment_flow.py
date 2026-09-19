@@ -64,7 +64,8 @@ def client(tmp_path, monkeypatch):
         task_id="seed_ml_01",
         parts=[{"key": "solution",
                 "prompt": "Implement overfitting detection from loss curves. Signature: def detect_overfitting(train_losses, val_losses):",
-                "tags": {"primary": "experiment_design"}, "max_score": 5, "difficulty": 2}],
+                "tags": {"primary": "experiment_design"}, "max_score": 5, "difficulty": 2,
+                "scaffold": "def detect_overfitting(train_losses, val_losses):\n    # TODO: detect overfitting\n    pass\n"}],
     )
     _seed_task(
         owner="bank@example.com",
@@ -74,17 +75,16 @@ def client(tmp_path, monkeypatch):
         task_id="seed_sys_01",
         parts=[{"key": "solution",
                 "prompt": "Implement top-k gradient compression. Signature: def topk_compress(grads, k):",
-                "tags": {"primary": "collectives_and_overlap"}, "max_score": 5, "difficulty": 2}],
+                "tags": {"primary": "collectives_and_overlap"}, "max_score": 5, "difficulty": 2,
+                "scaffold": "def topk_compress(grads, k):\n    # TODO: compress gradients\n    pass\n"}],
     )
     from backend.main import app
 
     return TestClient(app)
 
 
-def _start(client, initial_question=None, task_ids=None, headers=None):
+def _start(client, task_ids=None, headers=None):
     body = {}
-    if initial_question:
-        body["initial_question"] = initial_question
     if task_ids:
         body["task_ids"] = task_ids
     res = client.post("/api/v1/sessions", json=body, headers=headers or {})
@@ -114,9 +114,11 @@ def test_step_by_step_updates_per_part_beliefs(client):
         is_public=True,
         parts=[
             {"key": "mean", "prompt": "def mean(xs): ...", "tags": {"primary": "linear_algebra"},
-             "max_score": 5, "difficulty": 2},
+             "max_score": 5, "difficulty": 2,
+             "scaffold": "def mean(xs):\n    # TODO\n    pass\n"},
             {"key": "variance", "prompt": "def variance(xs): ...", "tags": {"primary": "probability_statistics"},
-             "max_score": 5, "difficulty": 2},
+             "max_score": 5, "difficulty": 2,
+             "scaffold": "def variance(xs):\n    # TODO\n    pass\n"},
         ],
         task_id="seed_block_01",
     )
@@ -174,13 +176,6 @@ def test_complete_returns_progress_snapshot(client):
     assert "learner" not in data
     assert "verdict" not in data
     assert "overall_score" not in data
-
-
-def test_custom_question_injected_as_first_task(client):
-    started = _start(client, initial_question="Explain what a cache eviction policy is.")
-    assert started["current_task"] is not None
-    assert started["current_task"]["prompt"] == "Explain what a cache eviction policy is."
-    assert started["total_tasks"] > 1
 
 
 def test_submit_is_idempotent(client):
@@ -262,7 +257,8 @@ def test_overview_task_counts_by_node(client):
         owner="guest-overview-counts-guest-01",
         source="generated",
         tags={"primary": "ablations"},
-        parts=[single_part("generated q", tags={"primary": "ablations"})],
+        parts=[single_part("generated q", tags={"primary": "ablations"},
+                           scaffold="def generated_q():\n    # TODO\n    pass\n")],
     )
     after = client.get("/api/v1/me/overview", headers=headers).json()["data"]["task_counts"]
     assert after.get("ablations", 0) == 0
@@ -314,8 +310,43 @@ def test_guest_id_keeps_candidate_stable(client):
 
     second = client.post("/api/v1/sessions", json={}, headers=headers)
     assert second.status_code == 201
+    second_task = second.json()["data"]["current_task"]
+    _answer(client, second.json()["data"]["id"], second_task["id"], headers=headers)
 
     overview = client.get("/api/v1/me/overview", headers=headers).json()["data"]
     assert overview["candidate"] == "guest-browser-guest-0001"
-    assert overview["ability"]["questions_answered"] == 1
+    assert overview["ability"]["questions_answered"] == 2
     assert len(overview["sessions"]) == 2
+
+
+def test_unanswered_session_is_not_stored(client):
+    """Starting a session and never answering leaves no row / Recent entry."""
+    headers = {"X-Guest-Id": "empty-session-guest-01"}
+    started = client.post("/api/v1/sessions", json={}, headers=headers)
+    assert started.status_code == 201
+    sid = started.json()["data"]["id"]
+
+    # The draft still opens in-process (resume/explain before answering)...
+    assert client.get(f"/api/v1/sessions/{sid}", headers=headers).status_code == 200
+
+    # ...but nothing was persisted and it never appears in Recent sessions.
+    from coach.db import sqlite_conn
+
+    with sqlite_conn() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM active_sessions").fetchone()[0]
+    assert count == 0
+    overview = client.get("/api/v1/me/overview", headers=headers).json()["data"]
+    assert overview["sessions"] == []
+
+
+def test_session_gets_title_and_summary_on_first_answer(client):
+    """The first scored answer mints a title + summary for the session."""
+    headers = {"X-Guest-Id": "title-summary-guest-01"}
+    started = client.post("/api/v1/sessions", json={}, headers=headers).json()["data"]
+    task = started["current_task"]
+    _answer(client, started["id"], task["id"], headers=headers)
+
+    overview = client.get("/api/v1/me/overview", headers=headers).json()["data"]
+    row = next(s for s in overview["sessions"] if s["id"] == started["id"])
+    assert row["title"]
+    assert row["summary"]

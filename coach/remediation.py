@@ -427,12 +427,14 @@ def _persist_generated_task(session, generated: dict, parent_task: dict | None) 
         from coach.tasks import create_task, single_part
 
         candidate = getattr(session, "candidate", None) or "unknown"
+        generated_parts = generated.get("parts") or []
+        first = generated_parts[0] if generated_parts and isinstance(generated_parts[0], dict) else {}
         part = single_part(
             generated.get("prompt", ""),
             tags=generated.get("tags"),
             max_score=generated.get("max_score", 5),
             difficulty=generated.get("difficulty", 2),
-            scaffold=generated.get("scaffold"),
+            scaffold=first.get("scaffold"),
         )
         create_task(
             owner=candidate,

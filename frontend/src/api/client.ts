@@ -151,6 +151,8 @@ export interface FeedbackEntry {
 export interface UnifiedSession {
   id: string;
   candidate: string;
+  title?: string | null;
+  summary?: string | null;
   done: boolean;
   updated_at: string;
 }
@@ -318,7 +320,6 @@ export interface CuratorTask extends Task {
 export interface TaskCreateBody {
   /** One or more steps; a single-step question is a one-part task. */
   parts: TaskPart[];
-  scaffold?: string;
   difficulty?: number;
   max_score?: number;
   is_public?: boolean;
@@ -331,12 +332,33 @@ export interface TaskCreateBody {
 
 export type TaskPatchBody = Partial<TaskCreateBody>;
 
+/**
+ * `POST /tasks/draft` result: a task body plus the assistant's unresolved
+ * problems (e.g. a step whose starter code it could not generate). Empty on a
+ * complete draft.
+ */
+export interface TaskDraftResult extends TaskCreateBody {
+  problems?: string[];
+}
+
+/** Curator quick authoring: draft a task body, or refine an existing one. */
+export interface TaskDraftBody {
+  /** One step prompt per entry (initial draft); omit when refining. */
+  steps?: string[];
+  /** Current task body to revise (send together with `instruction`). */
+  draft?: Partial<TaskCreateBody>;
+  instruction?: string;
+  language?: string;
+  task_type?: string;
+  difficulty?: number;
+  context?: string;
+}
+
 export const apiClient = {
-  start: (initial_question?: string, opts?: { randomFirst?: boolean; node?: string }) =>
+  start: (opts?: { randomFirst?: boolean; node?: string }) =>
     v1<StartResponse>(
       '/sessions',
       {
-        initial_question,
         random_first: opts?.randomFirst ?? undefined,
         node: opts?.node ?? undefined,
       },
@@ -400,6 +422,9 @@ export const apiClient = {
 
   createTask: (body: TaskCreateBody) =>
     v1<Task>('/tasks', body, 'POST'),
+
+  draftTask: (body: TaskDraftBody) =>
+    v1<TaskDraftResult>('/tasks/draft', body, 'POST'),
 
   updateTask: (id: string, body: TaskPatchBody) =>
     v1<Task>(`/tasks/${encodeURIComponent(id)}`, body, 'PATCH'),

@@ -119,6 +119,8 @@ def _session_rows(candidate: str) -> list[dict]:
         rows.append({
             "id": s["session_id"],
             "candidate": s["candidate"],
+            "title": s.get("title") or "",
+            "summary": s.get("summary") or "",
             "done": done,
             "updated_at": s["updated_at"],
         })

@@ -33,7 +33,8 @@ def test_create_and_list_tasks_endpoint():
     client = TestClient(app)
     res = client.post("/api/v1/tasks", json={
         "parts": [{"key": "solution", "prompt": "My own question?",
-                   "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+                   "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+                   "scaffold": "def solution():\n    # TODO\n    pass\n"}],
         "tags": {"primary": "testing", "secondary": []},
     })
     assert res.status_code == 201
@@ -53,9 +54,11 @@ def test_private_by_default_shared_when_public(tmp_path, monkeypatch):
     from coach.tasks import create_task, list_visible_tasks, single_part
 
     own = create_task(owner="a@x.com", is_public=False, tags={"primary": "testing"},
-                      parts=[single_part("private q", tags={"primary": "testing"})])
+                      parts=[single_part("private q", tags={"primary": "testing"},
+                                         scaffold="def private_q():\n    # TODO\n    pass\n")])
     pub = create_task(owner="b@x.com", is_public=True, tags={"primary": "caching"},
-                      parts=[single_part("public q", tags={"primary": "caching"})])
+                      parts=[single_part("public q", tags={"primary": "caching"},
+                                         scaffold="def public_q():\n    # TODO\n    pass\n")])
     assert any(t["id"] == own["id"] for t in list_visible_tasks("a@x.com"))
     assert not any(t["id"] == own["id"] for t in list_visible_tasks("b@x.com"))
     assert any(t["id"] == pub["id"] for t in list_visible_tasks("a@x.com"))
@@ -68,12 +71,14 @@ def test_generated_tasks_excluded_from_bank(tmp_path, monkeypatch):
 
     bank = create_task(
         owner="a@x.com", is_public=True, tags={"primary": "testing"},
-        parts=[single_part("bank q", tags={"primary": "testing"})],
+        parts=[single_part("bank q", tags={"primary": "testing"},
+                           scaffold="def bank_q():\n    # TODO\n    pass\n")],
     )
     generated = create_task(
         owner="a@x.com", source="generated", is_public=False,
         tags={"primary": "ablations"},
-        parts=[single_part("generated q", tags={"primary": "ablations"})],
+        parts=[single_part("generated q", tags={"primary": "ablations"},
+                           scaffold="def generated_q():\n    # TODO\n    pass\n")],
     )
     visible = list_visible_tasks("a@x.com")
     assert any(t["id"] == bank["id"] for t in visible)
@@ -119,7 +124,8 @@ def test_context_notes_round_trip(tmp_path, monkeypatch):
     task = create_task(
         owner="a@x.com",
         parts=[{"key": "solution", "prompt": "Explain caching.",
-                "tags": {"primary": "caching"}, "max_score": 5, "difficulty": 2}],
+                "tags": {"primary": "caching"}, "max_score": 5, "difficulty": 2,
+                "scaffold": "def solution():\n    # TODO\n    pass\n"}],
         context_notes="Eviction is a prerequisite of caching, often confused with invalidation.",
         tags={"primary": "caching"},
     )
@@ -131,7 +137,7 @@ def test_context_notes_round_trip(tmp_path, monkeypatch):
 
 
 def test_create_schema_wraps_legacy_partless_task(tmp_path, monkeypatch):
-    """A legacy partless row becomes a one-part task and the prompt column goes."""
+    """A legacy partless row becomes a one-part task; the prompt/scaffold columns go."""
     import json
 
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "legacy.db")
@@ -139,15 +145,17 @@ def test_create_schema_wraps_legacy_partless_task(tmp_path, monkeypatch):
     from coach.tasks import get_task
 
     create_schema()
-    # Recreate the retired schema: a task-level prompt with no steps.
+    # Recreate the retired schema: a task-level prompt + scaffold with no steps.
     with sqlite_conn() as conn:
         conn.execute("ALTER TABLE tasks ADD COLUMN prompt TEXT NOT NULL DEFAULT ''")
+        conn.execute("ALTER TABLE tasks ADD COLUMN scaffold TEXT")
         conn.execute(
             "INSERT INTO tasks (id, owner, scaffold, difficulty, max_score, source, "
             "is_public, created_at, context_notes, tags_json, task_type, parts_json, "
             "language, delivery, prompt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
-                "legacy", "b@x.com", None, 3, 7, "user", 1, "2024-01-01T00:00:00", "",
+                "legacy", "b@x.com", "def solution():\n    # TODO\n    pass\n", 3, 7, "user",
+                1, "2024-01-01T00:00:00", "",
                 json.dumps({"primary": "testing", "secondary": []}), "implement",
                 "[]", "python", "block", "Explain caching.",
             ),
@@ -162,6 +170,9 @@ def test_create_schema_wraps_legacy_partless_task(tmp_path, monkeypatch):
     assert task["prompt"] == "Explain caching."
     assert [p["key"] for p in task["parts"]] == ["solution"]
     assert task["parts"][0]["prompt"] == "Explain caching."
+    # The legacy task-level scaffold moved onto the step.
+    assert "def solution" in task["parts"][0]["scaffold"]
     with sqlite_conn() as conn:
         cols = [r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
     assert "prompt" not in cols
+    assert "scaffold" not in cols

@@ -42,6 +42,14 @@ def test_parts_validation(tmp_path, monkeypatch):
                 {"key": "a", "prompt": "p", "tags": {"primary": "bogus"}, "max_score": 5, "difficulty": 2},
             ]
         )
+    # Missing starter code rejected: every step needs its own scaffold.
+    with pytest.raises(ValueError, match="needs a scaffold"):
+        create_task(
+            owner="tester@example.com", parts=[
+                {"key": "a", "prompt": "p", "tags": {"primary": "testing"},
+                 "max_score": 5, "difficulty": 2},
+            ]
+        )
 
 
 def test_prompt_is_derived_from_first_step(tmp_path, monkeypatch):
@@ -54,9 +62,11 @@ def test_prompt_is_derived_from_first_step(tmp_path, monkeypatch):
         tags={"primary": "testing"},
         parts=[
             {"key": "a", "prompt": "Implement the allocator.",
-             "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2},
+             "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+             "scaffold": "def a():\n    # TODO\n    pass\n"},
             {"key": "b", "prompt": "Now free the blocks.",
-             "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2},
+             "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+             "scaffold": "def b():\n    # TODO\n    pass\n"},
         ],
     )
     assert t["prompt"] == "Implement the allocator."
@@ -70,7 +80,8 @@ def test_single_part_task(tmp_path, monkeypatch):
 
     t = create_task(
         owner="tester@example.com",
-        parts=[single_part("Implement def f(x): return x.", tags={"primary": "testing"})],
+        parts=[single_part("Implement def f(x): return x.", tags={"primary": "testing"},
+                           scaffold="def f(x):\n    # TODO\n    pass\n")],
     )
     parts = get_task(t["id"])["parts"]
     assert len(parts) == 1
@@ -87,9 +98,11 @@ def test_block_aggregates_and_derives_tags(tmp_path, monkeypatch):
         is_public=True,
         parts=[
             {"key": "a", "prompt": "def a(x): ...", "tags": {"primary": "vision_encoders"},
-             "max_score": 5, "difficulty": 3},
+             "max_score": 5, "difficulty": 3,
+             "scaffold": "def a(x):\n    # TODO\n    pass\n"},
             {"key": "b", "prompt": "def b(y): ...", "tags": {"primary": "state_space_models"},
-             "max_score": 5, "difficulty": 4},
+             "max_score": 5, "difficulty": 4,
+             "scaffold": "def b(y):\n    # TODO\n    pass\n"},
         ],
     )
     assert t["max_score"] == 10  # aggregate

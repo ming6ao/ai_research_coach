@@ -29,7 +29,8 @@ def client(tmp_path, monkeypatch):
         tags={"primary": "testing"},
         task_id="seed_auth_01",
         parts=[{"key": "solution", "prompt": "Seed task for auth tests. Signature: def f():",
-                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+                "scaffold": "def f():\n    # TODO\n    pass\n"}],
     )
     from backend.main import app
     return TestClient(app)
@@ -264,10 +265,16 @@ def test_authenticated_start_uses_account(client, google_env):
     assert data["candidate"] == "alice@b.co"
 
 
-def test_sessions_are_scoped_to_account(client, google_env):
+def test_sessions_are_scoped_to_account(client, google_env, fake_judge):
     user = auth.upsert_google_user("bob@b.co", "Bob")
     token = auth.create_token(user["id"])
-    client.post("/api/v1/sessions", json={}, headers=_auth_headers(token))
+    started = client.post("/api/v1/sessions", json={}, headers=_auth_headers(token)).json()["data"]
+    # Un-answered sessions are not persisted; score one answer to store it.
+    client.post(
+        f"/api/v1/sessions/{started['id']}/answers",
+        json={"task_id": started["current_task"]["id"], "answer": "def f(): pass"},
+        headers=_auth_headers(token),
+    )
 
     mine = client.get("/api/v1/me/sessions", headers=_auth_headers(token))
     assert mine.status_code == 200
@@ -301,10 +308,15 @@ def test_guest_can_reopen_own_session(client):
     assert reopen.json()["data"]["candidate"].startswith("guest-")
 
 
-def test_user_can_delete_own_data(client, google_env):
+def test_user_can_delete_own_data(client, google_env, fake_judge):
     user = auth.upsert_google_user("erin@b.co", "Erin")
     token = auth.create_token(user["id"])
-    client.post("/api/v1/sessions", json={}, headers=_auth_headers(token))
+    started = client.post("/api/v1/sessions", json={}, headers=_auth_headers(token)).json()["data"]
+    client.post(
+        f"/api/v1/sessions/{started['id']}/answers",
+        json={"task_id": started["current_task"]["id"], "answer": "def f(): pass"},
+        headers=_auth_headers(token),
+    )
 
     res = client.delete("/api/v1/me/data", headers=_auth_headers(token))
     assert res.status_code == 200

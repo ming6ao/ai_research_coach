@@ -30,7 +30,6 @@ from coach.taxonomy import (
 TIME_BASE_MIN = 4.0
 TIME_PER_DIFFICULTY = 1.2
 TIME_PER_100_WORDS = 1.0
-TIME_NO_SCAFFOLD_EXTRA = 0.5
 
 # Exploration weights (unit-consistent with EIG_global/time ~ 0.005-0.015).
 # They must stay well below the EIG term so exploration is a genuine
@@ -156,10 +155,6 @@ def expected_time(task: dict) -> float:
         + TIME_PER_DIFFICULTY * task.get("difficulty", 1)
         + TIME_PER_100_WORDS * prompt_words / 100.0
     )
-    if not task.get("scaffold") and not any(
-        p.get("scaffold") for p in (task.get("parts") or [])
-    ):
-        minutes += TIME_NO_SCAFFOLD_EXTRA
     parts = task.get("parts") or []
     if parts:
         minutes *= max(1, len(parts))

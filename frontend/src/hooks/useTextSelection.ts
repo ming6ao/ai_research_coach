@@ -9,7 +9,7 @@ export interface ActiveSelection {
   taskId: string;
   stepKey?: string;
   /** Viewport-relative anchor rect (top center of the selection). */
-  rect: { top: number; left: number; width: number };
+  rect: { top: number; left: number; width: number; height: number };
 }
 
 export interface TextSelectionState {
@@ -98,7 +98,7 @@ export function useTextSelection(): TextSelectionState {
         sourceKind,
         taskId: region.dataset.taskId ?? '',
         stepKey: region.dataset.stepKey || undefined,
-        rect: { top: rect.top, left: rect.left, width: rect.width },
+        rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
       });
     };
 
@@ -111,10 +111,29 @@ export function useTextSelection(): TextSelectionState {
       if (event.key === 'Escape') clear();
     };
 
+    // KaTeX emits a hidden MathML copy plus the visual glyphs, so a native copy
+    // of a selection containing an equation yields duplicated/garbled text.
+    // Rewrite the clipboard from the math-aware serializer only in that case;
+    // plain prose/code keeps the browser's own plain text so multi-line
+    // formatting survives a paste.
+    const onCopy = (event: ClipboardEvent) => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+      const range = sel.getRangeAt(0);
+      if (!nearestSelectable(range.commonAncestorContainer)) return;
+      const fragment = range.cloneContents();
+      if (!fragment.querySelector?.('[data-latex], .katex')) return;
+      const text = serializeRange(range);
+      if (!text) return;
+      event.clipboardData?.setData('text/plain', text);
+      event.preventDefault();
+    };
+
     document.addEventListener('mouseup', onUp);
     document.addEventListener('keyup', onUp);
     document.addEventListener('selectionchange', onSelectionChange);
     document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('copy', onCopy);
     window.addEventListener('scroll', clear, true);
     window.addEventListener('resize', clear);
     return () => {
@@ -122,6 +141,7 @@ export function useTextSelection(): TextSelectionState {
       document.removeEventListener('keyup', onUp);
       document.removeEventListener('selectionchange', onSelectionChange);
       document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('copy', onCopy);
       window.removeEventListener('scroll', clear, true);
       window.removeEventListener('resize', clear);
     };

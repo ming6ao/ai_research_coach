@@ -16,7 +16,6 @@ class PageMeta(BaseModel):
 
 
 class SessionCreateRequest(BaseModel):
-    initial_question: Optional[str] = Field(default=None, max_length=8000)
     task_ids: Optional[list[str]] = Field(default=None, max_length=100)
     random_first: bool = Field(default=False)
     node: Optional[str] = Field(default=None, max_length=64)
@@ -30,7 +29,6 @@ class AnswerSubmitRequest(BaseModel):
 class TaskCreateRequest(BaseModel):
     # A task is one or more steps; a single-step question is a one-part task.
     parts: list[dict[str, Any]] = Field(min_length=1)
-    scaffold: Optional[str] = Field(default=None, max_length=16000)
     difficulty: int = Field(default=2, ge=1, le=5)
     max_score: int = Field(default=5, ge=1, le=100)
     is_public: bool = False
@@ -40,8 +38,24 @@ class TaskCreateRequest(BaseModel):
     language: Optional[str] = Field(default=None, max_length=32)
 
 
+class TaskDraftRequest(BaseModel):
+    """Quick authoring: draft a task body from step prompts, or refine one.
+
+    Provide either ``steps`` (initial draft) or ``draft`` + ``instruction``
+    (refinement). The response is a task body in the ``POST /tasks`` shape;
+    nothing is persisted.
+    """
+
+    steps: Optional[list[str]] = Field(default=None, min_length=1, max_length=5)
+    draft: Optional[dict[str, Any]] = None
+    instruction: Optional[str] = Field(default=None, max_length=2000)
+    language: Optional[str] = Field(default=None, max_length=32)
+    task_type: Optional[str] = Field(default=None, max_length=32)
+    difficulty: Optional[int] = Field(default=None, ge=1, le=5)
+    context: Optional[str] = Field(default=None, max_length=2000)
+
+
 class TaskPatchRequest(BaseModel):
-    scaffold: Optional[str] = Field(default=None, max_length=16000)
     difficulty: Optional[int] = Field(default=None, ge=1, le=5)
     max_score: Optional[int] = Field(default=None, ge=1, le=100)
     parts: Optional[list[dict[str, Any]]] = None

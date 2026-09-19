@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS active_sessions (
     session_json TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',
     meta_json TEXT DEFAULT '{}',
+    title TEXT DEFAULT '',
+    summary TEXT DEFAULT '',
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_active_sessions_candidate ON active_sessions (candidate);
@@ -368,57 +370,69 @@ def create_schema():
 
 
 def _migrate_partless_tasks(conn) -> None:
-    """Retire the partless task: backfill a single part, then drop ``prompt``.
+    """Retire the partless task: backfill a single part, then drop the legacy
+    task-level ``prompt`` and ``scaffold`` columns.
 
-    Legacy databases stored a task-level prompt with no steps. Every task now
-    requires at least one part, so a partless row becomes a one-part task
-    (its prompt, tags, scores and scaffold move into the step). Best-effort so
-    startup never breaks.
+    Legacy databases stored a task-level prompt/scaffold with no steps. Every
+    task now requires at least one part, so a partless row becomes a one-part
+    task (its prompt, tags, scores and scaffold move into the step).
+    Best-effort so startup never breaks.
     """
     try:
         cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(tasks)").fetchall()]
     except Exception:
         return
     if "prompt" in cols:
+        # ``scaffold`` may already be gone on a partially-migrated database.
+        select_cols = ["id", "prompt", "tags_json", "max_score", "difficulty", "parts_json"]
+        if "scaffold" in cols:
+            select_cols.insert(5, "scaffold")
         try:
             rows = conn.exec_driver_sql(
-                "SELECT id, prompt, tags_json, max_score, difficulty, scaffold, parts_json "
-                "FROM tasks"
+                "SELECT " + ", ".join(select_cols) + " FROM tasks"
             ).fetchall()
         except Exception:
             rows = []
-        for task_id, prompt, tags_json, max_score, difficulty, scaffold, raw in rows:
+        for row in rows:
+            record = dict(zip(select_cols, row))
             try:
-                parts = json.loads(raw or "[]")
+                parts = json.loads(record.get("parts_json") or "[]")
             except Exception:
                 parts = []
             if isinstance(parts, list) and parts:
                 continue
-            prompt = str(prompt or "").strip()
+            prompt = str(record.get("prompt") or "").strip()
             if not prompt:
                 continue
             try:
-                tags = json.loads(tags_json) if tags_json else None
+                tags = json.loads(record["tags_json"]) if record.get("tags_json") else None
             except Exception:
                 tags = None
             part = {
                 "key": "solution",
                 "prompt": prompt,
                 "tags": tags or {"primary": None, "secondary": []},
-                "max_score": max(1, min(100, int(max_score or 5))),
-                "difficulty": max(1, min(5, int(difficulty or 1))),
+                "max_score": max(1, min(100, int(record.get("max_score") or 5))),
+                "difficulty": max(1, min(5, int(record.get("difficulty") or 1))),
             }
+            scaffold = record.get("scaffold")
             if scaffold:
                 part["scaffold"] = str(scaffold)
             try:
                 conn.exec_driver_sql(
                     "UPDATE tasks SET parts_json = ? WHERE id = ?",
-                    (json.dumps([part]), task_id),
+                    (json.dumps([part]), record.get("id")),
                 )
             except Exception:
                 pass
         try:
             conn.exec_driver_sql("ALTER TABLE tasks DROP COLUMN prompt")
+        except Exception:
+            pass
+    # Retired with the authored task-level prompt: starter code lives on the step.
+    if "scaffold" in cols:
+        try:
+            conn.exec_driver_sql("ALTER TABLE tasks DROP COLUMN scaffold")
         except Exception:
             pass
 
@@ -438,6 +452,8 @@ def _migrate_active_sessions(conn) -> None:
     for col, ddl in (
         ("status", "ALTER TABLE active_sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"),
         ("meta_json", "ALTER TABLE active_sessions ADD COLUMN meta_json TEXT DEFAULT '{}'"),
+        ("title", "ALTER TABLE active_sessions ADD COLUMN title TEXT DEFAULT ''"),
+        ("summary", "ALTER TABLE active_sessions ADD COLUMN summary TEXT DEFAULT ''"),
     ):
         if col not in cols:
             try:

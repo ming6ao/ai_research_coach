@@ -76,7 +76,7 @@ export function HomeView() {
 
   const handleStartNode = (node: string) => {
     if (loading) return;
-    startAssessment(undefined, { node });
+    startAssessment({ node });
   };
 
   const handleOpen = (s: UnifiedSession) => {
@@ -380,6 +380,7 @@ export function HomeView() {
                         key={s.id}
                         onClick={() => handleOpen(s)}
                         disabled={loading}
+                        title={s.summary || undefined}
                         className="flex w-full items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2 text-left text-sm text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-accent)]/40 disabled:opacity-40"
                       >
                         <span
@@ -391,8 +392,15 @@ export function HomeView() {
                         >
                           {s.done ? 'DONE' : 'IN PROGRESS'}
                         </span>
-                        <span className="min-w-0 flex-1 truncate">
-                          {new Date(s.updated_at).toLocaleString()}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate">
+                            {s.title || new Date(s.updated_at).toLocaleString()}
+                          </span>
+                          {s.title && (
+                            <span className="block truncate text-[11px] text-[var(--color-text-muted)]">
+                              {new Date(s.updated_at).toLocaleString()}
+                            </span>
+                          )}
                         </span>
                       </button>
                     ))}

@@ -124,9 +124,9 @@ test('startAssessment forwards the node opt to the API', async () => {
     }) as StartResponse,
   );
 
-  await useAssessmentStore.getState().startAssessment(undefined, { node: 'kernels_and_gpu' });
+  await useAssessmentStore.getState().startAssessment({ node: 'kernels_and_gpu' });
   assert.equal(start.mock.callCount(), 1);
-  assert.deepEqual(start.mock.calls[0].arguments[1], { node: 'kernels_and_gpu' });
+  assert.deepEqual(start.mock.calls[0].arguments[0], { node: 'kernels_and_gpu' });
   assert.equal(useAssessmentStore.getState().sessionId, 's1');
   mock.restoreAll();
 });

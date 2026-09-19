@@ -45,7 +45,8 @@ def test_guest_data_delete_keeps_signed_in_user(client):
         tags={"primary": "testing"},
         task_id="guest_task",
         parts=[{"key": "solution", "prompt": "Guest-owned task",
-                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+                "scaffold": "def solution():\n    # TODO: implement\n    pass\n"}],
     )
     create_task(
         owner=ADMIN,
@@ -54,7 +55,8 @@ def test_guest_data_delete_keeps_signed_in_user(client):
         tags={"primary": "testing"},
         task_id="owner_task",
         parts=[{"key": "solution", "prompt": "Signed-in owned task",
-                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2}],
+                "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+                "scaffold": "def solution():\n    # TODO: implement\n    pass\n"}],
     )
     from coach.tasks import save_skill_belief
 

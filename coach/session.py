@@ -274,14 +274,11 @@ def _compose_step_scaffold(task: dict) -> str | None:
 
 
 def build_code_stub(task: dict) -> str | None:
-    """Build an editor scaffold for a code task.
+    """Build an editor scaffold for a code task from its step prompts.
 
-    A task that already carries a `scaffold` uses it; otherwise the scaffold
-    is composed from the step prompts. Every task has at least one part, so
-    there is no task-level-prompt fallback.
+    Starter code lives on each step (there is no task-level scaffold), so this
+    composes a best-effort stub when the view has no active step.
     """
-    if task.get("scaffold"):
-        return task["scaffold"]
     return _compose_step_scaffold(task)
 
 

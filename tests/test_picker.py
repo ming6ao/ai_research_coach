@@ -50,8 +50,8 @@ def test_next_task_prefers_cheaper_task_at_equal_information():
 
 
 def test_expected_time_model():
-    base = expected_time({"difficulty": 1, "prompt": "short prompt", "scaffold": "x"})
-    hard = expected_time({"difficulty": 5, "prompt": "short prompt", "scaffold": "x"})
+    base = expected_time({"difficulty": 1, "prompt": "short prompt"})
+    hard = expected_time({"difficulty": 5, "prompt": "short prompt"})
     assert hard > base
 
 
