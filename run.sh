@@ -7,18 +7,25 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 BACKEND_PID=""
 FRONTEND_PID=""
 
+free_port() {
+  local pids
+  pids=$(lsof -ti ":$1" || true)
+  if [ -n "$pids" ]; then
+    echo "Freeing port $1..."
+    # shellcheck disable=SC2086  # word-split so every PID reaches kill
+    kill -9 $pids 2>/dev/null || true
+  fi
+}
+
 cleanup() {
   [ -n "$BACKEND_PID" ] && kill "$BACKEND_PID" 2>/dev/null || true
   [ -n "$FRONTEND_PID" ] && kill "$FRONTEND_PID" 2>/dev/null || true
+  # `uvicorn --reload` (and vite) spawn children that outlive a parent-only kill
+  free_port 8001
+  free_port 5173
 }
-trap cleanup EXIT
+trap cleanup EXIT HUP INT TERM
 
-free_port() {
-  if lsof -i ":$1" >/dev/null 2>&1; then
-    echo "Freeing port $1..."
-    kill -9 "$(lsof -ti ":$1")" 2>/dev/null || true
-  fi
-}
 free_port 8001
 free_port 5173
 
