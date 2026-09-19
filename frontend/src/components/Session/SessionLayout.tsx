@@ -23,7 +23,8 @@ export function SessionLayout() {
 
   const handleExplain = (sel: ActiveSelection) => {
     if (!sessionId || !sel.taskId) return;
-    window.getSelection()?.removeAllRanges();
+    // Keep the browser selection intact so the candidate can still copy the
+    // passage after asking about it; only the popover is dismissed.
     clear();
     void useExplainStore.getState().ask(sessionId, {
       taskId: sel.taskId,

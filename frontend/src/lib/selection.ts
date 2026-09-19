@@ -60,3 +60,34 @@ export function serializeRange(range: Range): string {
   walk(fragment);
   return normalizeSelectionText(parts.join(''));
 }
+
+/**
+ * Write `text` to the clipboard. Uses the async Clipboard API where available
+ * and falls back to a hidden textarea so the "Copy" action also works over
+ * plain http / older browsers. Returns whether the write succeeded.
+ */
+export async function copyText(text: string): Promise<boolean> {
+  if (!text) return false;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Permission denied or insecure context — fall through to the legacy path.
+  }
+  try {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.top = '-9999px';
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand('copy');
+    area.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
