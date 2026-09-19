@@ -100,7 +100,7 @@ transitions) lives in `session_steps`:
   `parts` (one or more steps:
   `[{key, prompt, tags, max_score, difficulty, scaffold, pass_score?}]`),
   `context_notes`, `tags` (`{primary, secondary[]}`), `task_type`, `language`,
-  `source`, `is_public`, `owner`, plus optional `scaffold`, `parent_task_id`,
+  `source`, `is_public`, `owner`, plus optional `parent_task_id`,
   `target_text`. Generated follow-ups/challenges add in-session-only keys:
   `generated: true`, `generated_kind` (`remediate|escalate|pivot|challenge`),
   `root_task_id`, `root_difficulty`.

@@ -137,7 +137,7 @@ def test_context_notes_round_trip(tmp_path, monkeypatch):
 
 
 def test_create_schema_wraps_legacy_partless_task(tmp_path, monkeypatch):
-    """A legacy partless row becomes a one-part task and the prompt column goes."""
+    """A legacy partless row becomes a one-part task; the prompt/scaffold columns go."""
     import json
 
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "legacy.db")
@@ -145,15 +145,17 @@ def test_create_schema_wraps_legacy_partless_task(tmp_path, monkeypatch):
     from coach.tasks import get_task
 
     create_schema()
-    # Recreate the retired schema: a task-level prompt with no steps.
+    # Recreate the retired schema: a task-level prompt + scaffold with no steps.
     with sqlite_conn() as conn:
         conn.execute("ALTER TABLE tasks ADD COLUMN prompt TEXT NOT NULL DEFAULT ''")
+        conn.execute("ALTER TABLE tasks ADD COLUMN scaffold TEXT")
         conn.execute(
             "INSERT INTO tasks (id, owner, scaffold, difficulty, max_score, source, "
             "is_public, created_at, context_notes, tags_json, task_type, parts_json, "
             "language, delivery, prompt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
-                "legacy", "b@x.com", None, 3, 7, "user", 1, "2024-01-01T00:00:00", "",
+                "legacy", "b@x.com", "def solution():\n    # TODO\n    pass\n", 3, 7, "user",
+                1, "2024-01-01T00:00:00", "",
                 json.dumps({"primary": "testing", "secondary": []}), "implement",
                 "[]", "python", "block", "Explain caching.",
             ),
@@ -168,6 +170,9 @@ def test_create_schema_wraps_legacy_partless_task(tmp_path, monkeypatch):
     assert task["prompt"] == "Explain caching."
     assert [p["key"] for p in task["parts"]] == ["solution"]
     assert task["parts"][0]["prompt"] == "Explain caching."
+    # The legacy task-level scaffold moved onto the step.
+    assert "def solution" in task["parts"][0]["scaffold"]
     with sqlite_conn() as conn:
         cols = [r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
     assert "prompt" not in cols
+    assert "scaffold" not in cols

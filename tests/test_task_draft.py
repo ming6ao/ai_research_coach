@@ -44,6 +44,8 @@ def test_draft_offline_fallback_shapes_parts(client):
     ]
     assert data["language"] == "python"
     assert data["task_type"] == "implement"
+    # The reason no starter code/tags were invented is surfaced, not swallowed.
+    assert data["problems"] and "GOOGLE_API_KEY" in data["problems"][0]
     for part in data["parts"]:
         assert part["max_score"] == 5
         assert part["difficulty"] == 2
@@ -61,7 +63,10 @@ def test_draft_does_not_synthesize_offline_scaffold(client):
     assert res.status_code == 200, res.text
     # No LLM (missing key): no starter code is invented, so the curator editor
     # can block creation until the step has a scaffold.
-    assert "scaffold" not in res.json()["data"]["parts"][0]
+    data = res.json()["data"]
+    assert "scaffold" not in data["parts"][0]
+    # No key -> the curator must be told the assistant could not fill this in.
+    assert data["problems"]
 
 
 def test_draft_rejects_empty_steps(client):
@@ -233,6 +238,22 @@ def test_draft_task_leaves_missing_scaffold_empty(monkeypatch):
     monkeypatch.setattr(decomposer, "_generate_draft_payload", fake)
     out = decomposer.draft_task(steps=["Implement foo(x, y)."], retries=1)
     assert "scaffold" not in out["parts"][0]
+    # The missing scaffold is reported so the editor can explain it.
+    assert any("step 1" in p and "scaffold" in p for p in out["problems"])
+
+
+def test_draft_task_reports_generation_failure(monkeypatch):
+    monkeypatch.setenv("GOOGLE_API_KEY", "test")
+    from coach.task_decomposer import TaskDecomposer
+
+    decomposer = TaskDecomposer()
+
+    def boom(body, *, refine, feedback=""):
+        raise RuntimeError("model exploded")
+
+    monkeypatch.setattr(decomposer, "_generate_draft_payload", boom)
+    out = decomposer.draft_task(steps=["Do foo"], retries=2)
+    assert out["problems"] and "model exploded" in out["problems"][0]
 
 
 def test_draft_task_drops_leaking_scaffold_after_retries(monkeypatch):

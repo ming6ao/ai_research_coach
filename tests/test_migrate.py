@@ -312,10 +312,29 @@ def test_hygiene_ignores_none_hygiene_issues(tmp_path, monkeypatch):
         {"primary": "testing", "secondary": []},
         parts=[
             {"key": "solution", "prompt": "Implement f.",
-             "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2},
+             "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+             "scaffold": "def f():\n    # TODO: implement\n    pass\n"},
         ],
     )
     assert hygiene_report()["findings"] == []
+
+
+def test_hygiene_flags_missing_scaffold(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "hygiene_missing.db")
+    from coach.migrate import hygiene_report
+
+    _insert_task(
+        "hyg_missing",
+        {"primary": "testing", "secondary": []},
+        parts=[
+            {"key": "p1", "prompt": "Implement f.",
+             "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2},
+        ],
+    )
+    report = hygiene_report()
+    issues = {(f["task_id"], f["issue"], f["part_key"]) for f in report["findings"]}
+    assert ("hyg_missing", "scaffold_missing", "p1") in issues
+    assert report["counts"]["scaffold_missing"] == 1
 
 
 def test_hygiene_passes_api_only_scaffold(tmp_path, monkeypatch):

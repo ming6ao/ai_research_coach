@@ -59,7 +59,6 @@ class TaskModel(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     owner: Mapped[str] = mapped_column(String(255), nullable=False)
-    scaffold: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     difficulty: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
     max_score: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     parts_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
@@ -333,8 +332,6 @@ def task_to_dict(model: TaskModel) -> dict:
     }
     if parts:
         d["parts"] = parts
-    if model.scaffold:
-        d["scaffold"] = model.scaffold
     if model.parent_task_id:
         d["parent_task_id"] = model.parent_task_id
     if model.target_text:
@@ -348,7 +345,6 @@ def task_to_dict(model: TaskModel) -> dict:
 def create_task(
     owner: str,
     parts: Optional[list] = None,
-    scaffold: Optional[str] = None,
     difficulty: Optional[int] = None,
     max_score: Optional[int] = None,
     source: str = "user",
@@ -402,7 +398,6 @@ def create_task(
         model = TaskModel(
             id=tid,
             owner=owner,
-            scaffold=scaffold,
             difficulty=difficulty,
             max_score=max_score,
             parts_json=serialize_parts(parts),
@@ -427,7 +422,7 @@ def create_task(
 def update_task(task_id: str, **fields) -> Optional[dict]:
     """Update whitelisted task columns (v1 PATCH path).
 
-    Allowed: scaffold, difficulty (1-5), max_score (>=1), parts (validated
+    Allowed: difficulty (1-5), max_score (>=1), parts (validated
     list, at least one), is_public (bool), context_notes (<=2000 chars), tags
     (validated against the vocabulary), task_type, language, owner. When
     ``parts`` is updated without ``difficulty``/``max_score``, the task-level
@@ -437,7 +432,7 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
     from coach.db import create_schema
 
     allowed = {
-        "scaffold", "difficulty", "max_score", "parts",
+        "difficulty", "max_score", "parts",
         "is_public", "context_notes", "tags", "task_type", "language",
         "owner",
     }
@@ -469,8 +464,6 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
         model = session.get(TaskModel, task_id)
         if model is None:
             return None
-        if "scaffold" in updates:
-            model.scaffold = updates["scaffold"]
         if "difficulty" in updates:
             model.difficulty = max(1, min(5, int(updates["difficulty"])))
         if "max_score" in updates:

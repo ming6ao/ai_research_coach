@@ -508,8 +508,8 @@ def _normalize_task_delivery(task: dict) -> bool:
 
     Legacy migration only: a stored *snapshot* task with no ``parts`` is
     wrapped into a single part built from its task-level
-    prompt/tags/max_score/difficulty/scaffold. Live DB rows are wrapped by
-    ``coach.db.create_schema`` before the ``prompt`` column is dropped.
+    prompt/tags/max_score/difficulty. Live DB rows are wrapped by
+    ``coach.db.create_schema`` before the legacy columns are dropped.
     ``delivery`` is forced to ``'phased'``.
     """
     changed = False
@@ -525,8 +525,6 @@ def _normalize_task_delivery(task: dict) -> bool:
             "max_score": int(task.get("max_score") or 5),
             "difficulty": int(task.get("difficulty") or 2),
         }
-        if task.get("scaffold"):
-            part["scaffold"] = task["scaffold"]
         task["parts"] = [part]
         changed = True
     if task.get("delivery") != "phased":
@@ -569,7 +567,6 @@ def migrate_delivery(apply: bool) -> dict:
                 # Legacy partless rows still carry their prompt column so the
                 # wrap below can build an implicit step from it.
                 "prompt": getattr(m, "prompt", "") or "",
-                "scaffold": m.scaffold,
                 "max_score": m.max_score,
                 "difficulty": m.difficulty,
                 "tags": parse_tags(m.tags_json),
@@ -688,9 +685,9 @@ def coverage_report() -> dict:
 def hygiene_report() -> dict:
     """Audit the task bank for learner-facing scaffold hygiene.
 
-    Flags starter code that gives the answer away by declaring private members
-    or instance state. Read-only, like ``coverage``: it never rewrites author
-    text.
+    Flags steps with no starter code and starter code that gives the answer
+    away by declaring private members or instance state. Read-only, like
+    ``coverage``: it never rewrites author text.
     """
     from sqlalchemy import select
 
@@ -712,6 +709,7 @@ def hygiene_report() -> dict:
     counts = {
         "scaffold_leaks_internals": 0,
         "scaffold_missing_comments": 0,
+        "scaffold_missing": 0,
     }
     findings: list[dict] = []
     for model in models:
@@ -720,6 +718,16 @@ def hygiene_report() -> dict:
         for part in parts:
             scaffold = part.get("scaffold") or ""
             if not scaffold.strip():
+                counts["scaffold_missing"] += 1
+                findings.append(
+                    {
+                        "task_id": task["id"],
+                        "owner": task.get("owner"),
+                        "issue": "scaffold_missing",
+                        "part_key": part.get("key"),
+                        "detail": "Step has no starter code.",
+                    }
+                )
                 continue
             leaks: list[str] = []
             if private_section.search(scaffold):

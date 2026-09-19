@@ -2,7 +2,7 @@
 
 Status: **Implemented** (all phases)
 Scope: curator UI (`frontend/src/components/Curator/`), task API (`backend/v1/tasks.py`),
-LLM helpers (`coach/task_decomposer.py`, `coach/scaffold_backfill.py`)
+LLM helpers (`coach/task_decomposer.py`, `coach/scaffold_validation.py`)
 Modules touched: `coach/task_decomposer.py`, `backend/v1/schemas.py`,
 `backend/v1/tasks.py`, `frontend/src/api/client.ts`,
 `frontend/src/components/Curator/TaskEditor.tsx`
@@ -50,9 +50,9 @@ self-contained in the app.
 | Need | Existing asset |
 |------|----------------|
 | Auto-tags (primary/secondary leaf skills) + `context_notes` | `TaskDecomposer.describe_and_categorize` (`coach/task_decomposer.py`) |
-| Per-step starter code | `TaskDecomposer.generate_scaffold` + `_SCAFFOLD_SYSTEM_PROMPT` |
-| Stub hygiene + syntax validation | `validate_scaffold` / `_validate_python_stub` (`coach/scaffold_backfill.py`) |
-| Retry-with-feedback for rejected LLM output | `plan_generate` (`coach/scaffold_backfill.py`) |
+| Per-step starter code | `_DRAFT_SCHEMA` step `scaffold` (via `TaskDecomposer.draft_task`) |
+| Stub hygiene + syntax validation | `validate_scaffold` / `_validate_python_stub` (`coach/scaffold_validation.py`) |
+| Retry-with-feedback for rejected LLM output | the `draft_task` retry loop (`coach/task_decomposer.py`) |
 | Parts / tag / score / scaffold validation | `coach.tasks.validate_parts` (scaffold required), `coach.taxonomy.validate`, `default_pass_score` |
 | Request-level LLM cache pattern | `_COMBINED_CACHE` (`backend/v1/sessions.py`) |
 
@@ -158,7 +158,7 @@ After the call:
 1. Normalize and validate with `coach.tasks.validate_parts` and
    `coach.taxonomy.validate`.
 2. Validate each scaffold with the existing hygiene/AST checker; on problems,
-   retry with feedback (the same loop as `scaffold_backfill.plan_generate`).
+   retry with feedback (the retry loop in `draft_task`).
 3. Reject a step-count mismatch between request and response.
 4. **No scaffold is ever synthesized.** A step whose scaffold the model omitted
    or produced invalid keeps an empty scaffold, and the editor then blocks
@@ -207,8 +207,8 @@ validated shape.
 
 1. **`coach/task_decomposer.py`** — add `_DRAFT_SYSTEM_PROMPT`,
    `_DRAFT_SCHEMA`, and `draft_task(...)` (initial draft and refinement
-   paths). Factor `validate_scaffold` out of `coach/scaffold_backfill.py` into
-   an importable helper rather than duplicating it.
+   paths). Reuse `validate_scaffold` from `coach/scaffold_validation.py`
+   rather than duplicating it.
 2. **`backend/v1/schemas.py` + `backend/v1/tasks.py`** — `TaskDraftRequest`
    (initial-draft and refinement modes) and `POST /api/v1/tasks/draft`.
 3. **`frontend/src/api/client.ts` + `TaskEditor.tsx`** — `draftTask`, the

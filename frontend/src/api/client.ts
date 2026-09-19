@@ -320,7 +320,6 @@ export interface CuratorTask extends Task {
 export interface TaskCreateBody {
   /** One or more steps; a single-step question is a one-part task. */
   parts: TaskPart[];
-  scaffold?: string;
   difficulty?: number;
   max_score?: number;
   is_public?: boolean;
@@ -332,6 +331,15 @@ export interface TaskCreateBody {
 }
 
 export type TaskPatchBody = Partial<TaskCreateBody>;
+
+/**
+ * `POST /tasks/draft` result: a task body plus the assistant's unresolved
+ * problems (e.g. a step whose starter code it could not generate). Empty on a
+ * complete draft.
+ */
+export interface TaskDraftResult extends TaskCreateBody {
+  problems?: string[];
+}
 
 /** Curator quick authoring: draft a task body, or refine an existing one. */
 export interface TaskDraftBody {
@@ -416,7 +424,7 @@ export const apiClient = {
     v1<Task>('/tasks', body, 'POST'),
 
   draftTask: (body: TaskDraftBody) =>
-    v1<TaskCreateBody>('/tasks/draft', body, 'POST'),
+    v1<TaskDraftResult>('/tasks/draft', body, 'POST'),
 
   updateTask: (id: string, body: TaskPatchBody) =>
     v1<Task>(`/tasks/${encodeURIComponent(id)}`, body, 'PATCH'),

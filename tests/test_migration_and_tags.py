@@ -208,7 +208,7 @@ def test_task_view_emits_tags_and_task_type():
     session = Session("c", tasks=[])
     view = task_view(
         {"id": "x", "prompt": "p", "difficulty": 2, "tags": {"primary": "vision_encoders", "secondary": []},
-         "task_type": "implement", "scaffold": "def f():\n    pass\n"},
+         "task_type": "implement"},
         session,
     )
     assert view["tags"]["primary"] == "vision_encoders"

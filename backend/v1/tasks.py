@@ -98,7 +98,6 @@ def create_task(
     try:
         task = _create_task(
             owner=candidate,
-            scaffold=req.scaffold,
             parts=req.parts,
             source="user",
             is_public=bool(req.is_public or is_guest),

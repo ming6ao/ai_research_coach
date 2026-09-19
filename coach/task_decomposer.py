@@ -164,41 +164,11 @@ _SESSION_SCHEMA = types.Schema(
     required=["title", "summary"],
 )
 
-_SCAFFOLD_SYSTEM_PROMPT = """\
-You are a curriculum engineer writing the starter code a learner sees before \
-attempting ONE coding step. The starter code must make the required entry \
-point obvious without doing any of the work for the learner.
-
-Return JSON with exactly two keys:
-  "signature": the entry-point signature as a single line, e.g.
-    "def zero_optimizer_step(grads, m, v, t, lr=1e-3):".
-  "scaffold": the starter code: any needed imports, then that function with \
-    the exact signature, ONE short comment naming what to implement, and a \
-    `pass` body (Python) or an equivalent empty body.
-
-Rules:
-  - Never include the solution, a formula implementation, a return value, or \
-    any computation. The function body is only a comment plus `pass`.
-  - Never add helper functions that implement part of the answer.
-  - Infer parameter names from the step prompt; use the step key as the \
-    function name when the prompt does not name one.
-  - Keep the whole scaffold under 15 lines.
-  - Match the requested language."""
-
-_SCAFFOLD_SCHEMA = types.Schema(
-    type=types.Type.OBJECT,
-    properties={
-        "signature": types.Schema(type=types.Type.STRING),
-        "scaffold": types.Schema(type=types.Type.STRING),
-    },
-    required=["scaffold"],
-)
-
 def _scaffold_for(prompt: str, original_task: dict | None) -> str | None:
     """Derive a fill-in stub when the model omits ``scaffold``.
 
     Mirrors ``coach.session.build_code_stub``: prefer a ``def`` signature
-    found in the new prompt, else reuse the original task's scaffold/stub
+    found in the new prompt, else reuse the original task's step scaffold
     so the editor is never blank for a function-style drill.
     """
     import re
@@ -208,8 +178,9 @@ def _scaffold_for(prompt: str, original_task: dict | None) -> str | None:
         name, params = m.group(1), m.group(2)
         return f"def {name}({params}):\n    # TODO: implement {name}\n    pass\n"
     orig = original_task or {}
-    if orig.get("scaffold"):
-        return str(orig["scaffold"])
+    for part in orig.get("parts") or []:
+        if isinstance(part, dict) and part.get("scaffold"):
+            return str(part["scaffold"])
     m2 = re.search(r"def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)", str(orig.get("prompt", "")))
     if m2:
         name, params = m2.group(1), m2.group(2)
@@ -418,8 +389,16 @@ def _base_draft_parts(seeds, draft, difficulty, language) -> list[dict]:
     return _dedupe_keys(out)
 
 
-def _draft_result(parts, task_type, language, context_notes) -> dict:
-    """Package parts in the ``POST /api/v1/tasks`` body shape."""
+def _draft_result(
+    parts, task_type, language, context_notes, problems: Optional[list[str]] = None
+) -> dict:
+    """Package parts in the ``POST /api/v1/tasks`` body shape.
+
+    ``problems`` names anything the model failed to fill in (a missing/invalid
+    scaffold or an unresolvable primary tag). It is always copied onto the
+    response so the curator UI can explain why a step is still empty instead
+    of leaving the assistant silently "successful".
+    """
     from coach.tasks import derive_step_tags
 
     task_type = str(task_type or "").strip().lower()
@@ -431,6 +410,7 @@ def _draft_result(parts, task_type, language, context_notes) -> dict:
         "task_type": task_type,
         "context_notes": (context_notes or "").strip()[:2000],
         "tags": derive_step_tags(parts) or {"primary": "", "secondary": []},
+        "problems": [str(p) for p in (problems or [])],
     }
 
 
@@ -469,7 +449,7 @@ def _assemble_draft(
     payload: dict, base_parts: list[dict], language: str
 ) -> tuple[list[dict], list[str]]:
     """Merge model output onto the seed parts; returns ``(parts, problems)``."""
-    from coach.scaffold_backfill import validate_scaffold
+    from coach.scaffold_validation import validate_scaffold
 
     entries = payload.get("steps")
     if not isinstance(entries, list) or len(entries) != len(base_parts):
@@ -632,76 +612,6 @@ class TaskDecomposer:
             logger.warning("[session-summary] generation failed; using fallback")
             return fallback
 
-    # -- starter-code generation -----------------------------------------
-
-    def generate_scaffold(
-        self,
-        prompt: str,
-        *,
-        language: str = "python",
-        step_key: str = "",
-        context_notes: str = "",
-        exemplar: str = "",
-        feedback: str = "",
-    ) -> dict:
-        """Propose starter code (signature + stub) for one step.
-
-        Returns ``{"signature": str, "scaffold": str}``. Raises
-        ``RuntimeError`` when the API key is missing or the call fails; the
-        caller validates the stub and may re-call with ``feedback`` naming
-        what was rejected (e.g. an answer-revealing body).
-        """
-        import os
-
-        if not os.getenv("GOOGLE_API_KEY"):
-            raise RuntimeError("scaffold generation failed: missing GOOGLE_API_KEY")
-        body = f"Language: {language}\nStep key: {step_key}\n"
-        if context_notes.strip():
-            body += f"Task background: {context_notes.strip()[:600]}\n"
-        body += f"\nStep prompt:\n{(prompt or '').strip()[:4000]}\n"
-        if exemplar.strip():
-            body += (
-                "\nExemplar scaffold from another step of the same task "
-                f"(match this style, do not reuse its function):\n{exemplar.strip()[:1500]}\n"
-            )
-        if feedback.strip():
-            body += (
-                f"\nYour previous attempt was rejected: {feedback.strip()[:600]}. "
-                "Return a corrected starter code JSON.\n"
-            )
-        body += "\nReturn the starter code JSON."
-        raw = ""
-        try:
-            client = self._client()
-            resp = client.models.generate_content(
-                model=self._model,
-                contents=body,
-                config={
-                    "system_instruction": _SCAFFOLD_SYSTEM_PROMPT,
-                    "response_mime_type": "application/json",
-                    "response_schema": _SCAFFOLD_SCHEMA,
-                },
-            )
-            raw = getattr(resp, "text", "") or ""
-            payload = json.loads(raw)
-            scaffold = str(payload.get("scaffold") or "").strip()
-            if not scaffold:
-                raise ValueError(f"empty scaffold in response: {raw[:1000]!r}")
-            return {
-                "signature": str(payload.get("signature") or "").strip(),
-                "scaffold": scaffold,
-            }
-        except Exception as exc:
-            logger.exception(
-                "[scaffold] LLM generation failed (%s: %s) for step=%r",
-                type(exc).__name__, exc, step_key,
-            )
-            logger.error("[scaffold] raw model response: %r", raw[:2000])
-            raise RuntimeError(
-                f"scaffold generation failed: {type(exc).__name__}: {exc}; "
-                f"raw response: {raw[:2000]!r}"
-            ) from exc
-
     # -- curator quick task authoring ------------------------------------
 
     def draft_task(
@@ -727,11 +637,15 @@ class TaskDecomposer:
           a plain-English edit ("make step 2 harder"); the model returns the
           revised body, preserving the step count and order.
 
-        Returns ``{parts, language, task_type, context_notes, tags}`` in the
-        shape ``POST /api/v1/tasks`` accepts. Never persists anything. Without
-        ``GOOGLE_API_KEY`` (or on repeated failure) returns a deterministic
-        fallback that keeps the curator's prompts and leaves tags empty for
-        manual selection.
+        Returns ``{parts, language, task_type, context_notes, tags, problems}``
+        in the shape ``POST /api/v1/tasks`` accepts. ``problems`` is a list of
+        human-readable reasons the assistant could not fill in a field (e.g. a
+        step whose starter code the model omitted or whose stub failed
+        validation); it is empty on a complete draft. Never persists anything.
+        Without ``GOOGLE_API_KEY`` (or on repeated failure) returns a
+        deterministic fallback that keeps the curator's prompts and leaves
+        tags/scaffolds empty for manual selection, with ``problems`` explaining
+        why.
 
         Raises:
             ValueError: no steps / no draft steps, or more than
@@ -764,7 +678,14 @@ class TaskDecomposer:
         baseline_notes = str((draft or {}).get("context_notes") or "")
         if not os.getenv("GOOGLE_API_KEY"):
             return _draft_result(
-                base_parts, baseline_task_type, language, baseline_notes
+                base_parts,
+                baseline_task_type,
+                language,
+                baseline_notes,
+                problems=[
+                    "AI assistant unavailable (GOOGLE_API_KEY is not set): "
+                    "starter code and tags were left empty."
+                ],
             )
 
         body = _draft_body(
@@ -779,6 +700,7 @@ class TaskDecomposer:
         best_parts = base_parts
         best_notes = baseline_notes
         best_task_type = baseline_task_type
+        best_problems: list[str] = []
         feedback = ""
         for _attempt in range(max(1, retries) + 1):
             try:
@@ -789,10 +711,14 @@ class TaskDecomposer:
                 logger.warning(
                     "[draft] generation failed (%s: %s)", type(exc).__name__, exc
                 )
+                best_problems = [
+                    f"AI generation failed ({type(exc).__name__}): {exc}"
+                ]
                 break
             try:
                 parts, problems = _assemble_draft(payload, base_parts, language)
             except ValueError as exc:
+                best_problems = [str(exc)]
                 feedback = (
                     f"Your previous response was rejected: {exc}. "
                     "Return corrected JSON only."
@@ -801,6 +727,7 @@ class TaskDecomposer:
             best_parts = parts
             best_notes = str(payload.get("context_notes") or best_notes)[:2000]
             best_task_type = str(payload.get("task_type") or best_task_type)
+            best_problems = problems
             if not problems:
                 return _draft_result(parts, best_task_type, language, best_notes)
             feedback = (
@@ -808,7 +735,17 @@ class TaskDecomposer:
                 + "; ".join(problems)
                 + ". Return corrected JSON only."
             )
-        return _draft_result(best_parts, best_task_type, language, best_notes)
+        # The model did not produce a complete draft after retries: return the
+        # best partial draft *with* the unresolved problems so the curator UI
+        # can say exactly what the assistant could not fill in (never silently).
+        if best_problems:
+            logger.error(
+                "[draft] returning an incomplete draft after retries: %s",
+                "; ".join(best_problems),
+            )
+        return _draft_result(
+            best_parts, best_task_type, language, best_notes, problems=best_problems
+        )
 
     def _generate_draft_payload(
         self, body: str, *, refine: bool, feedback: str = ""
@@ -1055,6 +992,4 @@ class TaskDecomposer:
             task["root_task_id"] = root_task_id
         if root_difficulty is not None:
             task["root_difficulty"] = root_difficulty
-        if scaffold:
-            task["scaffold"] = scaffold
         return task

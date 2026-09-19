@@ -156,6 +156,19 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
     setActiveStep(to);
   };
 
+  /**
+   * Report anything the assistant could not fill in (e.g. a scaffold it
+   * omitted or produced invalid). The draft still hydrates the form so the
+   * curator keeps the rest, but Create stays blocked until they fix it.
+   */
+  const reportDraftProblems = (problems?: string[]) => {
+    if (!problems || problems.length === 0) return;
+    setAssistantError(
+      `The AI assistant couldn't fill everything in: ${problems.join('; ')}. ` +
+        'Add the missing details by hand.',
+    );
+  };
+
   /** Replace the form state with an AI-drafted (or refined) task body. */
   const applyDraft = (draft: TaskCreateBody) => {
     const next = partsToDrafts(draft.parts);
@@ -182,6 +195,7 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
     try {
       const draft = await apiClient.draftTask({ steps, language, task_type: taskType });
       applyDraft(draft);
+      reportDraftProblems(draft.problems);
     } catch (e) {
       setAssistantError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -204,6 +218,7 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
     try {
       const revised = await apiClient.draftTask({ draft, instruction });
       applyDraft(revised);
+      reportDraftProblems(revised.problems);
       setQuickInstruction('');
     } catch (e) {
       setAssistantError(e instanceof Error ? e.message : String(e));

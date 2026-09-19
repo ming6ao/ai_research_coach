@@ -29,7 +29,6 @@ class AnswerSubmitRequest(BaseModel):
 class TaskCreateRequest(BaseModel):
     # A task is one or more steps; a single-step question is a one-part task.
     parts: list[dict[str, Any]] = Field(min_length=1)
-    scaffold: Optional[str] = Field(default=None, max_length=16000)
     difficulty: int = Field(default=2, ge=1, le=5)
     max_score: int = Field(default=5, ge=1, le=100)
     is_public: bool = False
@@ -57,7 +56,6 @@ class TaskDraftRequest(BaseModel):
 
 
 class TaskPatchRequest(BaseModel):
-    scaffold: Optional[str] = Field(default=None, max_length=16000)
     difficulty: Optional[int] = Field(default=None, ge=1, le=5)
     max_score: Optional[int] = Field(default=None, ge=1, le=100)
     parts: Optional[list[dict[str, Any]]] = None

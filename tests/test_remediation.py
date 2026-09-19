@@ -20,14 +20,24 @@ class FakeDecomposer:
 
     def generate_followup_task(self, target_text, original_task, difficulty, mode="remediate", extra_context=""):
         self.calls.append((target_text, original_task, difficulty, mode))
+        prompt = f"{mode} task for: {target_text}."
         return {
             "id": f"remed_{uuid.uuid4().hex[:10]}",
             "type": "code",
             "difficulty": difficulty,
-            "prompt": f"{mode} task for: {target_text}.",
+            "prompt": prompt,
             "max_score": 5,
             "hints": [],
-            "scaffold": "def solution():\n    # TODO\n    pass\n",
+            "parts": [
+                {
+                    "key": "solution",
+                    "prompt": prompt,
+                    "tags": (original_task or {}).get("tags") or {"primary": "caching"},
+                    "max_score": 5,
+                    "difficulty": difficulty,
+                    "scaffold": "def solution():\n    # TODO\n    pass\n",
+                }
+            ],
             "generated": True,
             "generated_kind": mode,
             "target_text": target_text,
@@ -40,14 +50,24 @@ class FakeDecomposer:
 
     def generate_challenge_task(self, difficulty, avoid_text="", prefer_node="", tags=None):
         self.calls.append(("__challenge__", {}, difficulty, "challenge"))
+        prompt = "Fresh challenge task."
         return {
             "id": f"remed_{uuid.uuid4().hex[:10]}",
             "type": "code",
             "difficulty": difficulty,
-            "prompt": "Fresh challenge task.",
+            "prompt": prompt,
             "max_score": 5,
             "hints": [],
-            "scaffold": "def solution():\n    # TODO\n    pass\n",
+            "parts": [
+                {
+                    "key": "solution",
+                    "prompt": prompt,
+                    "tags": {"primary": "caching"},
+                    "max_score": 5,
+                    "difficulty": difficulty,
+                    "scaffold": "def solution():\n    # TODO\n    pass\n",
+                }
+            ],
             "generated": True,
             "generated_kind": "challenge",
             "target_text": "",
