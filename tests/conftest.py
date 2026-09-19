@@ -28,6 +28,13 @@ def _isolated_db(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "test-coach.db")
     monkeypatch.delenv("LEARNING_PARTNER_DB_URL", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    # Reset runtime custom skills so a test that registers one can never leak
+    # into the next test (the taxonomy is module-level state).
+    from coach import custom_skills as _custom_skills
+    from coach.taxonomy import load_custom_skills
+
+    load_custom_skills([])
+    _custom_skills._loaded_path = None
 
 
 @pytest.fixture()

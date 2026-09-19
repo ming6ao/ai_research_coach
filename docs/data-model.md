@@ -6,17 +6,18 @@ Persistence: single SQLite file `data/coach.db` (gitignored, created on first ru
 
 ## Overview
 
-Eight tables split between two access layers that share one file:
+Nine tables split between two access layers that share one file:
 
 | Layer | Module | Tables |
 |-------|--------|--------|
 | Raw `sqlite3` (hand-written SQL) | `coach/db.py` (`sqlite_conn`), `backend/auth.py`, `backend/dependencies.py`, `backend/google_auth.py` | `users`, `auth_tokens`, `active_sessions`, `oauth_states` |
-| SQLAlchemy ORM (`coach.db.Base`) | `coach/tasks.py`, `coach/steps.py`, `coach/explanations.py` | `tasks`, `session_steps`, `user_skill_beliefs`, `explanations` |
+| SQLAlchemy ORM (`coach.db.Base`) | `coach/tasks.py`, `coach/steps.py`, `coach/explanations.py`, `coach/custom_skills.py` | `tasks`, `session_steps`, `user_skill_beliefs`, `explanations`, `custom_skills` |
 
 `create_schema()` (called at startup and lazily from the task/step CRUD paths) is
 idempotent: it creates all tables, drops removed knowledge-graph/learner tables,
-drops removed columns, migrates legacy beliefs, and backfills `session_steps`
-from legacy JSON blobs. It never writes tasks — the `tasks` table is the source
+drops removed columns, migrates legacy beliefs, backfills `session_steps`
+from legacy JSON blobs, and merges the active DB's `custom_skills` rows into the
+live taxonomy. It never writes tasks — the `tasks` table is the source
 of truth and is populated through the API. All timestamps are stored as naive
 UTC.
 
@@ -144,9 +145,9 @@ into a single part before removing it.
 | `tags_json` | TEXT | `{"primary": <leaf skill>, "secondary": [<leaf skill>…]}` (closed vocabulary from `coach/taxonomy.py`) |
 | `task_type` | TEXT | `implement | apply | debug | design | analyze` |
 | `language` | VARCHAR(32) | NOT NULL, default `python` — Monaco editor language id |
-| `source` | VARCHAR(32) | NOT NULL — `user`/`generated` |
-| `parent_task_id` | VARCHAR(64) | nullable — root task for generated follow-ups |
-| `target_text` | TEXT | nullable — judge's misconception/gap text for generated drills |
+| `source` | VARCHAR(32) | NOT NULL — `user`/`generated` (`generated` is legacy: adaptive drills/challenges are session-only and no longer written here) |
+| `parent_task_id` | VARCHAR(64) | nullable — legacy root task for generated follow-ups |
+| `target_text` | TEXT | nullable — legacy judge's misconception/gap text for generated drills |
 | `delivery` | VARCHAR(16) | NOT NULL — always `'phased'`; legacy `'block'` rows are normalized by `python -m coach.migrate delivery --apply` |
 | `is_public` | INTEGER | NOT NULL — visibility flag (public rows are visible to everyone; guests create public rows, signed-in default private) |
 | `created_at` | DATETIME | NOT NULL |
@@ -154,7 +155,12 @@ into a single part before removing it.
 Index: `ix_tasks_owner (owner)`.
 
 Visibility (`list_visible_tasks`): a candidate sees their own rows and every
-`is_public=1` row (there are no system-owned rows).
+`is_public=1` row (there are no system-owned rows). LLM-generated adaptive
+drills/challenges are **session-only** (stored in `active_sessions.session_json`
+via `generated_task_ids`, never in this table), so `pick_next_task`'s read paths
+(`GET /sessions/{id}`, `_replay_response`) pass `allow_generation=False` and
+never mint a row; `POST /admin/reset` drops any legacy `source='generated'`
+rows along with the sessions.
 
 ### `session_steps`
 RL-shaped per-step log — one row per scored answer (an episode transition
@@ -211,6 +217,22 @@ Only the task's **primary leaf skill** feeds the estimator: one answer updates
 exactly one skill row, plus its area and domain rows, plus the global row.
 Reported mastery is folded at read time from own evidence toward the parent
 (empirical-Bayes shrinkage, `eta=2.0`).
+
+### `custom_skills`
+Curator-added **leaf skills** layered on the built-in `coach/taxonomy.py`
+vocabulary (domains and areas stay fixed in code). Registered through
+`POST /api/v1/taxonomy/skills`, they are merged into the live
+`TAXONOMY`/`LEAF_NODES`/`NODE_*` maps by `coach/custom_skills.py` at startup
+(and on demand), so tagging, beliefs, mastery folding, and the picker treat
+them exactly like built-in leaves. `POST /admin/reset?wipe_tasks=true` drops
+them along with the bank; a plain reset preserves them.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `skill` | VARCHAR(64) | PK — canonical skill id (lowercase, underscores) |
+| `area` | VARCHAR(64) | NOT NULL — an existing area id |
+| `created_by` | VARCHAR(255) | nullable — curator email |
+| `created_at` | DATETIME | NOT NULL |
 
 ### `explanations`
 Selection-driven explanations ("Explain this"): one row per highlighted

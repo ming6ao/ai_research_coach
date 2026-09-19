@@ -119,6 +119,49 @@ def test_reset_wipes_activity_keeps_auth_and_tasks(tmp_path, monkeypatch):
         session.close()
 
 
+def test_reset_drops_legacy_generated_tasks(tmp_path, monkeypatch):
+    """Legacy generated rows are session artifacts, wiped with the sessions."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "reset_gen.db")
+    _add_app_data()
+    from coach.tasks import create_task, get_task
+
+    generated = create_task(
+        owner="alice@example.com", source="generated", tags={"primary": "ablations"},
+        parts=[{"key": "solution", "prompt": "Legacy drill?",
+                "tags": {"primary": "ablations"}, "max_score": 5, "difficulty": 2,
+                "scaffold": "def solution():\n    # TODO: implement\n    pass\n"}],
+    )
+    preview = reset_database(preview=True)
+    assert preview["wiped"]["generated_tasks"] == 1
+    result = reset_database(preview=False)
+    assert result["wiped"]["generated_tasks"] == 1
+    assert get_task(generated["id"]) is None
+    # Authored bank questions survive.
+    with db.sqlite_conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 1
+
+
+def test_reset_keeps_custom_skills_without_wipe_tasks(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "reset_custom.db")
+    from coach.custom_skills import create_custom_skill, list_custom_skills
+
+    create_custom_skill("custom_metric", "evaluation", "a@x.com")
+    reset_database(preview=False)
+    assert [s["skill"] for s in list_custom_skills()] == ["custom_metric"]
+
+
+def test_reset_with_wipe_tasks_drops_custom_skills(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "reset_custom_wipe.db")
+    from coach.custom_skills import create_custom_skill, list_custom_skills
+    from coach.taxonomy import LEAF_NODES
+
+    create_custom_skill("custom_metric", "evaluation", "a@x.com")
+    assert "custom_metric" in LEAF_NODES
+    reset_database(preview=False, wipe_tasks=True)
+    assert list_custom_skills() == []
+    assert "custom_metric" not in LEAF_NODES
+
+
 def test_reset_is_idempotent(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "reset_again.db")
     _add_app_data()

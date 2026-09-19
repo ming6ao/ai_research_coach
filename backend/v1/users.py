@@ -79,25 +79,24 @@ def _progress_for_candidate(candidate: str) -> tuple[Optional[dict], Optional[di
 def _task_counts(candidate: str) -> dict[str, int]:
     """Visible bank task counts keyed by taxonomy node (skill/area/domain).
 
-    Each task is counted once against every node reachable from its primary
-    and secondary tags (the tag plus all its ancestors), so the home page can
-    hide areas/skills that have no questions. Generated session artifacts are
-    excluded by ``list_visible_tasks``.
+    Each task is counted once against its **primary** tag and all of that
+    tag's ancestors. Secondary tags are deliberately ignored: a node is only
+    surfaced on the home page when the picker can actually serve a task for it
+    (``coach/picker.py`` matches the task-level primary tag), so a
+    secondary-only node must not appear or clicking it would fall through to
+    generated content. Generated session artifacts are excluded by
+    ``list_visible_tasks``.
     """
     from coach.tasks import list_visible_tasks
     from coach.taxonomy import ancestors, resolve_node
 
     counts: dict[str, int] = {}
     for task in list_visible_tasks(candidate):
-        tags = task.get("tags") or {}
-        nodes: set[str] = set()
-        for raw in [tags.get("primary"), *(tags.get("secondary") or [])]:
-            canon = resolve_node(raw)
-            if canon is None:
-                continue
-            nodes.add(canon)
-            nodes.update(ancestors(canon))
-        for node in nodes:
+        primary = (task.get("tags") or {}).get("primary")
+        canon = resolve_node(primary)
+        if canon is None:
+            continue
+        for node in {canon, *ancestors(canon)}:
             counts[node] = counts.get(node, 0) + 1
     return counts
 

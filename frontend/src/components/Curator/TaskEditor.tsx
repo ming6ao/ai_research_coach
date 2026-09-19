@@ -130,6 +130,15 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
     setParts((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)));
   };
 
+  /** Persist a curator-typed skill under an existing area, then refresh the
+   * vocabulary so it becomes a normal option everywhere in the editor. */
+  const addSkill = async (skill: string, area: string): Promise<string> => {
+    const created = await apiClient.createSkill({ skill, area });
+    const fresh = await apiClient.taxonomy();
+    setTaxonomy(fresh);
+    return created.skill;
+  };
+
   const addStep = () => {
     setParts((prev) => [...prev, blankPart(prev[activeStep]?.primary ?? '')]);
     setActiveStep(parts.length);
@@ -595,6 +604,7 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
               secondary={active.secondary}
               onPrimary={(t) => updatePart(activeStep, { primary: t })}
               onSecondary={(tags) => updatePart(activeStep, { secondary: tags })}
+              onAddSkill={addSkill}
               primaryLabel="step primary *"
             />
           </section>

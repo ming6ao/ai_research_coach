@@ -14,6 +14,12 @@ Sessions are open-ended: follow-ups keep the session going indefinitely and
 ``coach.selection`` generates fresh challenge tasks once the bank is
 exhausted. Budget guards (a generous per-session cap + per-root chain cap)
 keep the loop finite per root cause and hermetic-friendly.
+
+Generated tasks are **session-only**: they are appended to the session
+snapshot (``tasks`` + ``generated_task_ids``) and never written to the task
+bank. They are write-side effects, so callers must persist the session
+after ``plan_followup`` / ``plan_challenge`` (the picker's read/replay paths
+disable generation instead).
 """
 
 from __future__ import annotations
@@ -300,11 +306,16 @@ def plan_followup(
     coach,
     planner: Optional[RemediationPlanner] = None,
 ) -> Optional[dict]:
-    """Full post-submit follow-up: decide, generate, persist.
+    """Full post-submit follow-up: decide and generate.
 
-    Returns the generated task dict (already appended to ``session.tasks``)
-    or None when no follow-up is warranted or generation fails. Failures
-    are logged (including the raw model response, see
+    Returns the generated task dict (appended to ``session.tasks``) or None
+    when no follow-up is warranted or generation fails. The task is
+    **session-only**: it lives in the session snapshot (``tasks`` +
+    ``generated_task_ids``) and is never written to the task bank, so it can
+    not resurface as a pickable bank question. Callers must persist the
+    session after this call (the generated task is a write-side effect).
+
+    Failures are logged (including the raw model response, see
     ``TaskDecomposer.generate_followup_task``) and skipped so the main
     response is never broken — the session falls through to the bank picker.
     """
@@ -314,7 +325,6 @@ def plan_followup(
         if generated is None:
             return None
         session.add_generated_task(generated)
-        _persist_generated_task(session, generated, task)
         return generated
     except Exception as exc:
         logger.exception(
@@ -369,7 +379,6 @@ def plan_challenge(
             tags=tags,
         )
         session.add_generated_task(generated)
-        _persist_generated_task(session, generated, None)
         return generated
     except Exception as exc:
         logger.exception("[challenge] plan_challenge failed (%s: %s)", type(exc).__name__, exc)
@@ -419,33 +428,3 @@ def least_covered(session, node: str = "") -> str:
         return random.choice([n for key, n in keyed if key == best])
     except Exception:
         return LEAF_NODES[0]
-
-
-def _persist_generated_task(session, generated: dict, parent_task: dict | None) -> None:
-    """Best-effort persistence of generated tasks to the task bank."""
-    try:
-        from coach.tasks import create_task, single_part
-
-        candidate = getattr(session, "candidate", None) or "unknown"
-        generated_parts = generated.get("parts") or []
-        first = generated_parts[0] if generated_parts and isinstance(generated_parts[0], dict) else {}
-        part = single_part(
-            generated.get("prompt", ""),
-            tags=generated.get("tags"),
-            max_score=generated.get("max_score", 5),
-            difficulty=generated.get("difficulty", 2),
-            scaffold=first.get("scaffold"),
-        )
-        create_task(
-            owner=candidate,
-            parts=[part],
-            context_notes=generated.get("context_notes", ""),
-            tags=generated.get("tags"),
-            source="generated",
-            parent_task_id=(parent_task or {}).get("id") or generated.get("parent_task_id"),
-            target_text=generated.get("target_text"),
-            is_public=False,
-            task_id=generated.get("id"),
-        )
-    except Exception:
-        pass

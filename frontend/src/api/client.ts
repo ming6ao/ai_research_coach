@@ -436,4 +436,8 @@ export const apiClient = {
 
   taxonomy: () =>
     v1<Taxonomy>('/taxonomy', undefined, 'GET'),
+
+  /** Register a curator-added leaf skill under an existing area. */
+  createSkill: (body: { skill: string; area: string }) =>
+    v1<{ skill: string; area: string; domain: string }>('/taxonomy/skills', body, 'POST'),
 };

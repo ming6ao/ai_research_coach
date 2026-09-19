@@ -102,6 +102,11 @@ task is picked by `pick_next_task`.
 3. otherwise a judge-driven follow-up fires after a weak answer or a named gap (a *simpler* generated task drills the judge's gap text),
 4. otherwise the EIG bank picker selects the informative task,
 5. a fresh generated challenge when the bank is exhausted, else `None`.
+
+Steps 3 and 5 are write-side effects (they call the LLM and append to the
+session). Generated tasks are session-only — never written to the task bank —
+and read/idempotent-replay paths (`GET /sessions/{id}`, replay) run the picker
+with `allow_generation=False` so a read never mints a task.
 4. **Progress** — when `next_task` is `null`, the candidate is done.
    `POST /api/v1/sessions/{id}/completion` returns the progress snapshot (overall ability).
    Sessions stay in `active_sessions` for resume/history; "done" is derived

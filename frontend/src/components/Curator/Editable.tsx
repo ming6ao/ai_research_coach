@@ -1,61 +1,159 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { Taxonomy } from '../../api/client';
 import { Markdown } from '../Markdown/Markdown';
 
 const inputCls =
   'w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-2 py-1 text-xs text-[var(--color-text-primary)]';
 
-/** Grouped taxonomy options (`domain / area` optgroups), optionally filtered. */
-export function TaxonomyOptions({
-  taxonomy,
-  exclude = [],
-}: {
-  taxonomy: Taxonomy;
-  exclude?: string[];
-}) {
-  return (
-    <>
-      {taxonomy.domains.map((domain) =>
-        Object.entries(taxonomy.tree[domain] ?? {}).map(([area, skills]) => {
-          const visible = skills.filter((s) => !exclude.includes(s));
-          if (visible.length === 0) return null;
-          return (
-            <optgroup key={`${domain}/${area}`} label={`${domain} / ${area}`}>
-              {visible.map((tag) => (
-                <option key={tag} value={tag}>
-                  {tag}
-                </option>
-              ))}
-            </optgroup>
-          );
-        }),
-      )}
-    </>
-  );
+/** Canonical node id: matches ``coach.taxonomy._canon``. */
+function canonSkill(raw: string): string {
+  return raw.trim().toLowerCase().replace(/[-\s]+/g, '_');
 }
 
-function TagSelect({
-  taxonomy,
-  value,
-  onChange,
-  exclude,
-}: {
-  taxonomy: Taxonomy;
-  value: string;
-  onChange: (tag: string) => void;
-  exclude?: string[];
-}) {
-  return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className={inputCls}>
-      {value === '' && <option value="">Select a skill…</option>}
-      <TaxonomyOptions taxonomy={taxonomy} exclude={exclude} />
-    </select>
+/** Groups of ``{ domain, area }`` for the "new skill" area picker. */
+function areaOptions(taxonomy: Taxonomy): { domain: string; area: string }[] {
+  return taxonomy.domains.flatMap((domain) =>
+    Object.keys(taxonomy.tree[domain] ?? {}).map((area) => ({ domain, area })),
   );
 }
 
 /**
- * Primary + up to two secondary tag picker. Primary is a grouped select;
- * secondaries render as removable chips with an "add" select.
+ * Open skill picker: a native combobox (``input`` + ``datalist``) with the
+ * built-in/custom skills, plus an inline "add as new skill" row when the typed
+ * value is not in the vocabulary. ``onAddSkill`` persists it under a chosen
+ * area and returns the canonical id; omit it to keep the picker read-only.
+ */
+function SkillCombobox({
+  taxonomy,
+  value,
+  onSelect,
+  onAddSkill,
+  exclude = [],
+  placeholder = 'Search or type a skill…',
+  clearOnSelect = false,
+}: {
+  taxonomy: Taxonomy;
+  value: string;
+  onSelect: (skill: string) => void;
+  onAddSkill?: (skill: string, area: string) => Promise<string>;
+  exclude?: string[];
+  placeholder?: string;
+  clearOnSelect?: boolean;
+}) {
+  const listId = useId();
+  const [draft, setDraft] = useState(value);
+  const [lastValue, setLastValue] = useState(value);
+  const [area, setArea] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Adjust state when the controlled value changes externally (step switch,
+  // AI draft, task load) without an effect.
+  if (value !== lastValue) {
+    setLastValue(value);
+    setDraft(clearOnSelect ? '' : value);
+  }
+
+  const known = useMemo(() => new Set(taxonomy.skills), [taxonomy.skills]);
+  const candidate = canonSkill(draft);
+  const isKnown = candidate !== '' && known.has(candidate);
+  const canCreate = !!onAddSkill && draft.trim() !== '' && !isKnown;
+
+  const options = useMemo(() => {
+    const out: { skill: string; area: string; domain: string }[] = [];
+    for (const domain of taxonomy.domains) {
+      for (const [areaName, skills] of Object.entries(taxonomy.tree[domain] ?? {})) {
+        for (const skill of skills) {
+          if (exclude.includes(skill) || skill === value) continue;
+          out.push({ skill, area: areaName, domain });
+        }
+      }
+    }
+    return out;
+  }, [taxonomy, exclude, value]);
+
+  const handleInput = (raw: string) => {
+    setDraft(raw);
+    setError(null);
+    const c = canonSkill(raw);
+    if (c && known.has(c)) {
+      onSelect(c);
+      if (clearOnSelect) setDraft('');
+    }
+  };
+
+  const add = async () => {
+    if (!onAddSkill || !area) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const created = await onAddSkill(draft.trim(), area);
+      onSelect(created);
+      setDraft(clearOnSelect ? '' : created);
+      setArea('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-1">
+      <input
+        type="text"
+        list={listId}
+        value={draft}
+        onChange={(e) => handleInput(e.target.value)}
+        placeholder={placeholder}
+        className={inputCls}
+        autoComplete="off"
+      />
+      <datalist id={listId}>
+        {options.map((o) => (
+          <option key={o.skill} value={o.skill}>
+            {`${o.area} · ${o.domain}`}
+          </option>
+        ))}
+      </datalist>
+      {canCreate && (
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="text-[10px] text-[var(--color-text-muted)]">
+            New skill “{draft.trim()}” under
+          </span>
+          <select
+            value={area}
+            onChange={(e) => setArea(e.target.value)}
+            aria-label="Area for the new skill"
+            className={`${inputCls} w-auto`}
+          >
+            <option value="">choose area…</option>
+            {areaOptions(taxonomy).map(({ domain, area: a }) => (
+              <option key={a} value={a}>
+                {`${a} · ${domain}`}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => void add()}
+            disabled={busy || !area}
+            className="rounded-md border border-[var(--color-accent)]/50 px-2 py-0.5 text-[10px] font-semibold text-[var(--color-accent)] disabled:opacity-40"
+          >
+            {busy ? 'Adding…' : 'Add skill'}
+          </button>
+        </div>
+      )}
+      {error && (
+        <p className="text-[10px] text-[var(--color-error)]">{error}</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Primary + up to two secondary tag picker. Both use the open skill
+ * combobox, so a curator can create a missing skill inline.
  */
 export function TagEditor({
   taxonomy,
@@ -63,6 +161,7 @@ export function TagEditor({
   secondary,
   onPrimary,
   onSecondary,
+  onAddSkill,
   primaryLabel = 'primary tag *',
 }: {
   taxonomy: Taxonomy;
@@ -70,29 +169,37 @@ export function TagEditor({
   secondary: string[];
   onPrimary: (tag: string) => void;
   onSecondary: (tags: string[]) => void;
+  onAddSkill?: (skill: string, area: string) => Promise<string>;
   primaryLabel?: string;
 }) {
   const chosen = [primary, ...secondary].filter(Boolean);
   return (
     <div className="space-y-1">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="shrink-0 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
+      <div className="flex flex-wrap items-start gap-1.5">
+        <span className="shrink-0 pt-1 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
           {primaryLabel}
         </span>
         <div className="min-w-[10rem] flex-1">
-          <TagSelect taxonomy={taxonomy} value={primary} onChange={onPrimary} exclude={secondary} />
+          <SkillCombobox
+            taxonomy={taxonomy}
+            value={primary}
+            onSelect={onPrimary}
+            onAddSkill={onAddSkill}
+            exclude={secondary}
+          />
         </div>
         {secondary.length < 2 && (
-          <select
-            value=""
-            onChange={(e) => {
-              if (e.target.value) onSecondary([...secondary, e.target.value]);
-            }}
-            className={`${inputCls} min-w-[9rem] flex-1 text-[var(--color-text-muted)]`}
-          >
-            <option value="">+ secondary tag…</option>
-            <TaxonomyOptions taxonomy={taxonomy} exclude={chosen} />
-          </select>
+          <div className="min-w-[9rem] flex-1">
+            <SkillCombobox
+              taxonomy={taxonomy}
+              value=""
+              onSelect={(t) => onSecondary([...secondary, t])}
+              onAddSkill={onAddSkill}
+              exclude={chosen}
+              placeholder="+ secondary tag…"
+              clearOnSelect
+            />
+          </div>
         )}
       </div>
       {secondary.length > 0 && (

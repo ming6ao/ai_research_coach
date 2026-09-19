@@ -1,4 +1,4 @@
-"""Closed 3-level ML/AI topic vocabulary for task tagging.
+"""3-level ML/AI topic vocabulary for task tagging.
 
 Single source of truth for the taxonomy. Every task carries a ``tags`` block::
 
@@ -17,6 +17,12 @@ are tracked at every level; only the primary leaf skill feeds the estimator
 ``validate`` is the server-side gate: an unknown or missing primary, or a
 non-leaf primary, is rejected (422 on create/PATCH). There is no permissive
 fallback — an uncategorized task must not be created.
+
+Domains and areas are fixed in code. Leaf skills are extensible: curators may
+register new ones under an existing area (``coach/custom_skills.py`` /
+``POST /api/v1/taxonomy/skills``). Those live in the ``custom_skills`` table
+and are merged into the live vocabulary by ``register_custom_skill``, so
+``validate``/beliefs/mastery treat them exactly like built-in leaves.
 """
 
 from __future__ import annotations
@@ -333,7 +339,6 @@ ALIASES: dict[str, str] = {
 # Task types (each is still implemented as a code task judged normally).
 TASK_TYPES = ("implement", "apply", "debug", "design", "analyze")
 
-
 def _canon(name: str | None) -> str:
     return str(name or "").strip().lower().replace("-", "_").replace(" ", "_")
 
@@ -458,6 +463,105 @@ def validate(tags: dict | None) -> dict:
     if primary in secondary:
         secondary.remove(primary)
     return {"primary": primary, "secondary": secondary}
+
+
+# --- Custom (DB-backed) leaf skills -----------------------------------------
+# The code TAXONOMY above is the built-in vocabulary. Curators may register
+# additional leaf skills under an existing area; they live in the
+# ``custom_skills`` table and are merged into the live vocabulary here so
+# tagging, beliefs, mastery folding, and the picker treat them like built-ins.
+_CUSTOM_SKILLS: dict[str, str] = {}  # skill -> area (custom nodes only)
+
+
+def is_custom_skill(skill: str | None) -> bool:
+    return _canon(skill) in _CUSTOM_SKILLS
+
+
+def custom_skills() -> dict[str, str]:
+    """Snapshot of registered custom skills (skill -> area)."""
+    return dict(_CUSTOM_SKILLS)
+
+
+def register_custom_skill(skill: str, area: str) -> str:
+    """Merge a new leaf skill under ``area`` into the live vocabulary.
+
+    Returns the canonical skill id. Idempotent for an already-registered
+    custom skill under the same area; raises ``ValueError`` for a bad area, a
+    collision with a built-in node/alias, or a different area.
+    """
+    name = _canon(skill)
+    if not name:
+        raise ValueError("Skill name is required.")
+    if not name.replace("_", "").isalnum():
+        raise ValueError(
+            "Skill names may only contain letters, digits, spaces, or underscores."
+        )
+    parent = resolve_node(area)
+    if parent is None or NODE_LEVEL.get(parent) != 2:
+        raise ValueError(f"Unknown area: {area!r}.")
+    existing_area = _CUSTOM_SKILLS.get(name)
+    if existing_area is not None:
+        if existing_area != parent:
+            raise ValueError(
+                f"{skill!r} already exists under area {existing_area!r}."
+            )
+        return name
+    if name in NODE_LEVEL or name in ALIASES:
+        raise ValueError(f"{skill!r} already exists in the taxonomy.")
+
+    domain = AREA_TO_DOMAIN[parent]
+    TAXONOMY[domain][parent].append(name)
+    AREAS[parent].append(name)
+    SKILL_TO_AREA[name] = parent
+    SKILL_TO_DOMAIN[name] = domain
+    NODE_PARENT[name] = parent
+    NODE_LEVEL[name] = 3
+    NODE_CHILDREN[name] = []
+    NODE_CHILDREN[parent].append(name)
+    LEAF_NODES.append(name)
+    ALL_NODES.append(name)
+    ALL_TAGS.append(name)
+    _CUSTOM_SKILLS[name] = parent
+    return name
+
+
+def unregister_custom_skill(skill: str) -> bool:
+    """Remove a custom skill from the live vocabulary (DB row untouched)."""
+    name = _canon(skill)
+    area = _CUSTOM_SKILLS.pop(name, None)
+    if area is None:
+        return False
+    domain = AREA_TO_DOMAIN.get(area)
+    if domain and name in TAXONOMY.get(domain, {}).get(area, []):
+        TAXONOMY[domain][area].remove(name)
+    if name in AREAS.get(area, []):
+        AREAS[area].remove(name)
+    SKILL_TO_AREA.pop(name, None)
+    SKILL_TO_DOMAIN.pop(name, None)
+    NODE_PARENT.pop(name, None)
+    NODE_LEVEL.pop(name, None)
+    NODE_CHILDREN.pop(name, None)
+    if name in NODE_CHILDREN.get(area, []):
+        NODE_CHILDREN[area].remove(name)
+    for collection in (LEAF_NODES, ALL_NODES, ALL_TAGS):
+        if name in collection:
+            collection.remove(name)
+    return True
+
+
+def load_custom_skills(rows) -> None:
+    """Replace the runtime custom skills with ``rows`` of ``(skill, area)``.
+
+    Called at startup (and whenever the active DB changes) so DB-registered
+    skills rejoin the vocabulary. Built-in code nodes are never touched.
+    """
+    for name in list(_CUSTOM_SKILLS):
+        unregister_custom_skill(name)
+    for skill, area in rows:
+        try:
+            register_custom_skill(skill, area)
+        except ValueError:
+            continue  # retired/invalid row: keep the rest of the vocabulary usable
 
 
 def format_vocabulary() -> str:

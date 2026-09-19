@@ -1,8 +1,14 @@
-"""DB-backed task bank: user/admin-created questions + LLM-generated tasks.
+"""DB-backed task bank: user/admin-created questions.
 
 Tasks live in the shared SQLite file (``data/coach.db``) via the SQLAlchemy
 ``Base`` in ``coach.db`` — the database is the source of truth for tasks
 (there is no code-embedded catalog).
+
+LLM-generated adaptive drills/challenges are **session-only** artifacts: they
+live in the ``active_sessions`` snapshot (``tasks`` + ``generated_task_ids``),
+never in this table, so they can not resurface as pickable bank questions. The
+legacy ``source='generated'`` rows written by older builds are still hidden
+from the picker/curator list and dropped by the candidate/guest wipe paths.
 
 Each task carries ``context_notes`` (2-4 plain-English sentences generated
 once at creation time) and closed-vocabulary tags. There is no knowledge

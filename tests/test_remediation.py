@@ -200,6 +200,43 @@ class TestPickNextTask:
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
         assert pick_next_task(session.candidate, session) is None
 
+    def test_read_path_never_mints(self, monkeypatch):
+        """allow_generation=False must not spend an LLM call or inject a task."""
+        import coach.remediation as remediation
+        from coach.selection import pick_next_task
+
+        def boom(*args, **kwargs):  # pragma: no cover - must never run
+            raise AssertionError("read path minted a task")
+
+        monkeypatch.setattr(remediation, "plan_followup", boom)
+        monkeypatch.setattr(remediation, "plan_challenge", boom)
+        session = _session(tasks=[_base_task()])
+        session.asked_task_ids.add("mi_sys_cache")
+        assert pick_next_task(
+            session.candidate, session, allow_generation=False
+        ) is None
+
+    def test_read_path_still_reuses_pending_generated(self):
+        """A task already injected by a prior write still surfaces on read."""
+        from coach.selection import pick_next_task
+
+        session = _session(tasks=[_base_task()])
+        pending = {
+            "id": "remed_pending_read",
+            "type": "code",
+            "difficulty": 2,
+            "prompt": "Warm-up.",
+            "max_score": 5,
+            "generated": True,
+            "target_text": "gap",
+        }
+        session.add_generated_task(pending)
+        picked = pick_next_task(
+            session.candidate, session, allow_generation=False
+        )
+        assert picked is not None
+        assert picked["id"] == "remed_pending_read"
+
 
 class TestTrigger:
     def test_incorrect_answer_triggers(self):
@@ -251,7 +288,8 @@ class TestBudgetGuards:
         # Second attempt blocked by session cap.
         assert planner.decide(session, _base_task(), _result(1, 5), _coach("gap")) is None
 
-    def test_followup_persists_to_task_bank(self, tmp_path, monkeypatch):
+    def test_followup_is_session_only(self, tmp_path, monkeypatch):
+        """Generated drills live in the session, never in the task bank."""
         import coach.db as db
 
         monkeypatch.setattr(db, "DB_PATH", tmp_path / "remed.db")
@@ -264,12 +302,12 @@ class TestBudgetGuards:
         gen = plan_followup(session, _base_task(), _result(1, 5), _coach("eviction gap"), planner=planner)
         assert gen is not None
         assert gen in session.tasks
+        assert gen["id"] in session.generated_task_ids
+        # Not persisted: a session artifact must not add a bank row (that is
+        # what orphaned generated tasks when the owning session went away).
         from coach.tasks import get_task
 
-        stored = get_task(gen["id"])
-        assert stored is not None
-        assert stored["target_text"] == "eviction gap"
-        assert stored["parent_task_id"] == "mi_sys_cache"
+        assert get_task(gen["id"]) is None
 
 
 class TestAdaptiveChain:

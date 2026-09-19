@@ -14,6 +14,13 @@
    task via ``plan_challenge`` so the session keeps going indefinitely.
    ``None`` is returned only when generation also fails; the session ends
    explicitly when the user chooses Finish / View progress.
+
+Generation (steps 3 and 5) is a write-side effect: it calls the LLM and
+appends the new task to the session, so callers must persist the session
+afterwards. Read/idempotent-replay paths pass ``allow_generation=False`` so a
+``GET`` never mints content or spends an LLM call (see
+``backend/v1/sessions.py``); they only surface tasks already injected into
+the session.
 """
 
 from __future__ import annotations
@@ -74,6 +81,7 @@ def pick_next_task(
     sample_top_n: Optional[int] = None,
     node: Optional[str] = None,
     session_id: Optional[str] = None,
+    allow_generation: bool = True,
 ) -> dict | None:
     """Choose the next task to present.
 
@@ -86,6 +94,10 @@ def pick_next_task(
     session with a question from an area); it never affects
     pending/follow-up branches. ``session_id`` lets the resume path fetch the
     candidate's prior code for an in-progress step task.
+
+    ``allow_generation=False`` disables the two LLM write branches (3 and 5)
+    for read/replay callers: it only surfaces a generated task already present
+    in the session (branch 1) and otherwise falls through to the bank picker.
     """
     from coach.picker import next_task as next_task_bank
 
@@ -117,7 +129,8 @@ def pick_next_task(
         return task_view(active, session, previous_code=previous_code)
 
     # 3. Judge-driven follow-up after a submission (LLM drill/escalate/pivot).
-    if last_submission is not None:
+    # Write branch: skipped on read/replay paths (allow_generation=False).
+    if allow_generation and last_submission is not None:
         from coach.remediation import plan_followup
 
         generated = plan_followup(
@@ -136,7 +149,11 @@ def pick_next_task(
 
     # 5. Bank exhausted -> mint a fresh adaptive challenge so the session
     # keeps going indefinitely (user exits explicitly via Finish). Steer it
-    # toward the least-covered skill so scope keeps widening.
+    # toward the least-covered skill so scope keeps widening. Write branch:
+    # skipped on read/replay paths (allow_generation=False) so a GET never
+    # mints an orphaned task or spends an LLM call.
+    if not allow_generation:
+        return None
     try:
         from coach.remediation import least_covered, plan_challenge
 

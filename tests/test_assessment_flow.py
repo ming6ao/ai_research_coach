@@ -282,6 +282,46 @@ def test_start_session_with_unknown_node_rejected(client):
     assert res.status_code == 422
 
 
+def test_overview_task_counts_ignore_secondary(client):
+    """A secondary tag must not surface its node in the home drill-down.
+
+    The drill-down is filtered by what the picker can actually serve (the
+    task-level primary tag), so ``error_analysis`` (a secondary tag here) must
+    stay hidden even though the task covers it in one step.
+    """
+    from coach.tasks import create_task, single_part
+
+    create_task(
+        owner="bank@example.com",
+        is_public=True,
+        tags={"primary": "benchmark_design", "secondary": ["error_analysis"]},
+        parts=[single_part("q", tags={"primary": "benchmark_design"},
+                           scaffold="def q():\n    # TODO\n    pass\n")],
+    )
+    headers = {"X-Guest-Id": "overview-secondary-guest"}
+    counts = client.get("/api/v1/me/overview", headers=headers).json()["data"]["task_counts"]
+    assert counts.get("benchmark_design") == 1
+    assert counts.get("evaluation") == 1
+    assert counts.get("error_analysis", 0) == 0
+
+
+def test_start_session_with_uncovered_node_is_rejected(client):
+    """A node with no bank task 404s instead of generating an unrelated task."""
+    with db.sqlite_conn() as conn:
+        before = conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE source = 'generated'"
+        ).fetchone()[0]
+
+    res = client.post("/api/v1/sessions", json={"node": "ablations"})
+    assert res.status_code == 404
+
+    with db.sqlite_conn() as conn:
+        after = conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE source = 'generated'"
+        ).fetchone()[0]
+    assert after == before == 0
+
+
 def test_overview_returns_persisted_progress(client):
     headers = {"X-Guest-Id": "overview-guest-0001"}
     started = _start(client, headers=headers)

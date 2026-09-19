@@ -99,7 +99,7 @@ _DROPPED_STEP_COLUMNS = (
 # Tables reset_database() wipes (activity/progress) vs. preserves (identity/auth
 # and the task bank — the DB is the source of truth for tasks).
 _WIPED_TABLES = ("session_steps", "user_skill_beliefs", "active_sessions")
-_PRESERVED_TABLES = ("users", "auth_tokens", "oauth_states", "tasks")
+_PRESERVED_TABLES = ("users", "auth_tokens", "oauth_states", "tasks", "custom_skills")
 
 
 # Process-local guard so per-request create_schema()/sqlite_conn() calls only
@@ -291,6 +291,12 @@ def create_schema():
     from coach import tasks as _tasks  # noqa: F401  (register task tables)
     from coach import steps as _steps  # noqa: F401  (register session_steps)
     from coach import explanations as _explanations  # noqa: F401  (register explanations)
+    from coach import custom_skills as _custom_skills  # noqa: F401  (register custom_skills)
+
+    # Keep the live taxonomy aligned with the active DB's custom skills even
+    # when the DDL below is skipped (per-path guard). Cheap after the first
+    # call: it early-returns when the DB path is unchanged.
+    _custom_skills.reload_into_taxonomy()
 
     url = learner_db_url()
     key = f"orm:{url}"
@@ -358,6 +364,11 @@ def create_schema():
         _migrate_partless_tasks(conn)
     with _schema_lock:
         _schema_done.add(key)
+    # Custom skills now live in a freshly-created table; merge them in.
+    try:
+        _custom_skills.reload_into_taxonomy(force=True)
+    except Exception:
+        pass
     # Backfill session_steps from legacy JSON blobs (deterministic replay) so
     # old sessions become exportable episodes. Best-effort.
     try:
@@ -494,23 +505,37 @@ def reset_database(preview: bool = False, wipe_tasks: bool = False) -> dict:
     """Wipe activity/progress data; optionally wipe the task bank too.
 
     Deletes every row from the activity tables (``session_steps``,
-    ``user_skill_beliefs``, ``active_sessions``).
-    Identity/auth tables (``users``, ``auth_tokens``, ``oauth_states``) are
-    always preserved. ``tasks`` is preserved by default (the DB is the source
-    of truth for questions); pass ``wipe_tasks=True`` to also delete the entire
-    task bank (used when re-authoring against a new taxonomy).
+    ``user_skill_beliefs``, ``active_sessions``). Identity/auth tables
+    (``users``, ``auth_tokens``, ``oauth_states``) are always preserved.
+    ``tasks`` is preserved by default (the DB is the source of truth for
+    questions); pass ``wipe_tasks=True`` to also delete the entire task bank
+    (used when re-authoring against a new taxonomy).
+
+    Legacy ``source='generated'`` task rows (adaptive drills/challenges
+    persisted by older builds) are session artifacts, so they are wiped
+    alongside the sessions and reported as ``generated_tasks``. Current builds
+    keep generated tasks inside the session snapshot and never write them here.
 
     ``preview=True`` returns per-table row counts without mutating anything;
     ``preview=False`` deletes the rows and returns what was removed.
     """
     create_schema()
     tables = list(_WIPED_TABLES) + (["tasks"] if wipe_tasks else [])
-    preserved = [t for t in _PRESERVED_TABLES if not (wipe_tasks and t == "tasks")]
+    if wipe_tasks:
+        # Re-authoring against a new taxonomy also drops curator-added leaves.
+        tables.append("custom_skills")
+    preserved = [
+        t for t in _PRESERVED_TABLES if not (wipe_tasks and t in ("tasks", "custom_skills"))
+    ]
     with sqlite_conn() as conn:
         counts = {
             table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
             for table in tables
         }
+        if not wipe_tasks:
+            counts["generated_tasks"] = conn.execute(
+                "SELECT COUNT(*) FROM tasks WHERE source = 'generated'"
+            ).fetchone()[0]
         if preview:
             return {
                 "preview": True,
@@ -523,7 +548,21 @@ def reset_database(preview: bool = False, wipe_tasks: bool = False) -> dict:
         for table in tables:
             cur = conn.execute(f"DELETE FROM {table}")
             deleted[table] = cur.rowcount or 0
+        if not wipe_tasks:
+            deleted["generated_tasks"] = conn.execute(
+                "DELETE FROM tasks WHERE source = 'generated'"
+            ).rowcount or 0
         conn.commit()
+
+    # ``wipe_tasks`` may have dropped custom skills: drop them from the live
+    # taxonomy too so a re-authored bank is not tagged against stale leaves.
+    if wipe_tasks:
+        try:
+            from coach.custom_skills import reload_into_taxonomy
+
+            reload_into_taxonomy(force=True)
+        except Exception:
+            pass
 
     return {
         "preview": False,

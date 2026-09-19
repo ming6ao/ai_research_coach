@@ -105,26 +105,27 @@ export function HomeView() {
   const answered = ability?.questions_answered ?? 0;
   const overallMastery = mastery?.global.score ?? ability?.score ?? null;
 
-  // Per-node visible bank task counts. An area (or skill) with no questions is
-  // not shown; `null` until the overview loads, in which case nothing is hidden.
+  // Per-node visible bank task counts (primary tags only). A domain/area/skill
+  // with no associated bank task is never shown; `taskCounts` is null until the
+  // overview loads, so nothing is rendered before we know what actually exists.
   const taskCounts = overview?.task_counts ?? null;
   const hasTasks = useCallback(
-    (node: string) => (taskCounts ? (taskCounts[node] ?? 0) > 0 : true),
+    (node: string) => (taskCounts?.[node] ?? 0) > 0,
     [taskCounts],
   );
 
   const domains = useMemo(() => {
+    if (!taskCounts) return [];
     const base = taxonomy
       ? taxonomy.domains.map((domain) => ({
           domain,
           areas: Object.keys(taxonomy.areas).filter((a) => taxonomy.tree[domain]?.[a]),
         }))
-      // Fallback before the taxonomy loads: whatever the mastery block reports.
+      // Fallback if the taxonomy request failed: whatever the mastery block reports.
       : Object.entries(mastery?.domains ?? {}).map(([domain, d]) => ({
           domain,
           areas: Object.keys(d.areas ?? {}),
         }));
-    if (!taskCounts) return base;
     return base
       .map(({ domain, areas }) => ({ domain, areas: areas.filter(hasTasks) }))
       .filter(({ areas }) => areas.length > 0);
