@@ -9,16 +9,18 @@ RETRY_MAX_DELAY = float(os.getenv("EVAL_RETRY_MAX_DELAY", "30.0"))
 
 # --- Step-by-step task delivery ------------------------------------------
 # Every task is delivered step-by-step: its ``parts`` are shown one at a
-# time, each pass-gated, with the candidate's code carried forward. A step
-# advances once its score reaches ``pass_score``
-# (default ``round(PHASE_PASS_FRACTION * max_score)``) or after
-# ``PHASE_MAX_ATTEMPTS`` attempts, whichever comes first.
+# time with the candidate's code carried forward. Delivery always advances
+# to the next step after each submission, regardless of the score — the
+# learner sees every step and reviews the coaching for each one. Each step's
+# ``pass_score`` is still authored/defaulted below as metadata, but it no
+# longer gates advancement.
 PHASE_PASS_FRACTION = float(os.getenv("PHASE_PASS_FRACTION", "0.7"))
+# Retained for backward compatibility; no longer caps attempts.
 PHASE_MAX_ATTEMPTS = int(os.getenv("PHASE_MAX_ATTEMPTS", "3"))
 
 
 def default_pass_score(max_score: int) -> int:
-    """Default score required to advance a phase (at least 1)."""
+    """Default per-step target score (authored metadata; not an advance gate)."""
     try:
         max_score = int(max_score)
     except (TypeError, ValueError):

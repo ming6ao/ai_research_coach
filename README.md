@@ -95,10 +95,11 @@ task is picked by `pick_next_task`.
    step-by-step: its steps are delivered one at a time and the candidate's code is carried
    forward via `previous_code`.
 3. **Teaching pause** — the UI never auto-advances. The coaching response and per-part
-   results are shown; the candidate clicks **Next question** / **Next step** / **Retry step**
+   results are shown; the candidate clicks **Next step**
    to continue. The next task is chosen by the hybrid `pick_next_task`:
 1. a pending generated task surfaces first,
-2. an active step task continues (next step, or the same step after a failed attempt),
+2. an active step task continues on its next step (each submission advances
+   regardless of the score),
 3. otherwise a judge-driven follow-up fires after a weak answer or a named gap (a *simpler* generated task drills the judge's gap text),
 4. otherwise the EIG bank picker selects the informative task,
 5. a fresh generated challenge when the bank is exhausted, else `None`.
@@ -118,9 +119,9 @@ with `allow_generation=False` so a read never mints a task.
   `N(mean, variance)` over overall ability, updated by the judge score. The bank picker maximizes
   `EIG / expected_time`; when the bank is exhausted a fresh generated challenge keeps the session
   going until the candidate finishes.
-- **Step-by-step tasks**: the judge scores the active step; passing
-  (`score >= pass_score`, default `round(0.7 * max_score)`) or reaching
-  `PHASE_MAX_ATTEMPTS` advances to the next step with the candidate's prior code.
+- **Step-by-step tasks**: the judge scores the active step; every submission
+  advances to the next step with the candidate's prior code, regardless of the
+  score (there is no pass gate or per-step retry).
 - **Follow-ups** (`coach/remediation.py`): the judge's gap text
   (misconception/feedback) drives one simpler drill task on weak answers;
   clean solves generate nothing. Budget caps keep the loop finite.

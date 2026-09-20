@@ -3,8 +3,8 @@
 1. Pending generated task — an injected follow-up not yet asked surfaces first
    (generated tasks are excluded from the bank picker).
 2. Active step task — a task that has been started but not completed
-   continues (next step after a pass, or the same step after a failed
-   attempt). Its view carries the candidate's prior code forward as
+   continues on its next step (delivery always advances after a
+   submission). Its view carries the candidate's prior code forward as
    ``previous_code``.
 3. Judge-driven follow-up — after a submission, ``plan_followup`` may inject
    an adaptive drill (simpler on failure; harder escalation or sibling
@@ -118,7 +118,7 @@ def pick_next_task(
     if pending is not None:
         return task_view(pending, session)
 
-    # 2. Continue / retry an active step task.
+    # 2. Continue an active step task.
     active = _active_step_task(session, (last_submission or {}).get("task"))
     if active is not None:
         previous_code = None

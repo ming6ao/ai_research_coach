@@ -361,7 +361,6 @@ def delete_session(session_id: str, user: Optional[dict] = Depends(get_current_u
 def submit_answer(
     session_id: str, req: AnswerSubmitRequest, user: Optional[dict] = Depends(get_current_user)
 ):
-    from coach.config import PHASE_MAX_ATTEMPTS, default_pass_score
     from coach.judge import LLMJudge
     from coach.score import effective_score
     from coach.selection import pick_next_task
@@ -399,9 +398,6 @@ def submit_answer(
     parts = effective_parts(task)
     idx = completed_phases(task, session)
     active = parts[idx]
-    pass_score = int(
-        active.get("pass_score") or default_pass_score(int(active.get("max_score") or 5))
-    )
     previous_code = _last_code_for(session_id, task["id"])
     judge_task = {
         **task,
@@ -425,17 +421,13 @@ def submit_answer(
     )
 
     step_index = session.submission_index
-    attempts = session.phase_attempts.get(task["id"], 0) + 1
-    passed = result.score >= pass_score
-    advanced = passed or attempts >= PHASE_MAX_ATTEMPTS
-    if advanced:
-        session.task_progress[task["id"]] = idx + 1
-        session.phase_attempts[task["id"]] = 0
-        if session.task_progress[task["id"]] >= len(parts):
-            session.asked_task_ids.add(task["id"])
-            session.index += 1
-    else:
-        session.phase_attempts[task["id"]] = attempts
+    # Delivery always shows the next step, regardless of the score: the
+    # learner reviews the coaching for each step and moves on.
+    session.task_progress[task["id"]] = idx + 1
+    session.phase_attempts.pop(task["id"], None)
+    if session.task_progress[task["id"]] >= len(parts):
+        session.asked_task_ids.add(task["id"])
+        session.index += 1
     session.results.append(result)
 
     insert_step(
