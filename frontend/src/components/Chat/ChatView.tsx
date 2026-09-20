@@ -198,13 +198,9 @@ function ChatViewInner() {
   const showTask = !!currentTask && !pendingTask;
   const finished = !currentTask && results.length > 0 && !loading;
 
-  const last = results[results.length - 1];
-  const retryingPhase =
-    !!pendingTask &&
-    !!last &&
-    pendingTask.id === last.task_id &&
-    (pendingTask.phase_index ?? 1) === (last.phase_index ?? 1);
-  const nextLabel = retryingPhase ? 'Retry step' : 'Next step';
+  // Delivery always advances to the next step, so the continue control has
+  // one label (there is no per-step retry).
+  const nextLabel = 'Next step';
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

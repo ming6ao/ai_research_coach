@@ -1,8 +1,8 @@
-"""Step-by-step task delivery: one step at a time, pass gate, code carry-forward.
+"""Step-by-step task delivery: one step at a time, unconditional advance.
 
-Every task exposes only its active part; a passing score (or the attempt cap)
-advances to the next step with the candidate's prior code carried forward. A
-partless legacy task is delivered as a single implicit step.
+Every task exposes only its active part; every submission advances to the next
+step with the candidate's prior code carried forward, regardless of the score.
+A partless legacy task is delivered as a single implicit step.
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ def _answer(client, session_id, task_id, answer):
     return res.json()["data"]
 
 
-def test_phase_view_and_pass_advance(ctx):
+def test_phase_view_and_advance(ctx):
     client, judge = ctx
     data = _start(client, ["phased_01"])
     task = data["current_task"]
@@ -112,31 +112,31 @@ def test_phase_view_and_pass_advance(ctx):
     assert "def p2" in nxt["scaffold"]
 
 
-def test_failed_phase_retries_then_cap_advances(ctx):
+def test_failed_phase_advances_unconditionally(ctx):
     client, judge = ctx
-    data = _start(client, ["phased_01"])
+    data = _start(client, ["phased_01", "plain_01"])
 
-    judge.scores = [0, 0]
+    judge.scores = [0]
     first = _answer(client, data["id"], "phased_01", "TRY1")
+    assert first["result"]["parts"][0]["key"] == "p1"
     assert first["next_task"]["id"] == "phased_01"
-    assert first["next_task"]["phase_index"] == 1  # same phase retried
+    assert first["next_task"]["phase_index"] == 2  # advanced despite the 0
+    assert first["next_task"]["previous_code"] == "TRY1"
+
+    judge.scores = [0]
     second = _answer(client, data["id"], "phased_01", "TRY2")
-    assert second["next_task"]["phase_index"] == 1
-
-    # Third failure hits PHASE_MAX_ATTEMPTS (default 3) and advances anyway.
-    judge.scores = [0]
-    third = _answer(client, data["id"], "phased_01", "TRY3")
-    assert third["next_task"]["phase_index"] == 2
+    assert second["result"]["parts"][0]["key"] == "p2"
+    assert second["next_task"]["id"] == "plain_01"
 
 
-def test_failed_phase_replay_is_idempotent(ctx):
+def test_completed_task_replay_is_idempotent(ctx):
     client, judge = ctx
-    data = _start(client, ["phased_01"])
-    judge.scores = [0]
-    _answer(client, data["id"], "phased_01", "SAME")
-    replay = _answer(client, data["id"], "phased_01", "SAME")
+    data = _start(client, ["plain_01"])
+    judge.scores = [5]
+    _answer(client, data["id"], "plain_01", "SAME")
+    replay = _answer(client, data["id"], "plain_01", "SAME")
     assert replay["already_answered"] is True
-    assert replay["result"]["parts"][0]["key"] == "p1"
+    assert replay["result"]["parts"][0]["key"] == "plain"
 
 
 def test_resume_mid_phases(ctx):

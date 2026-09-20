@@ -81,9 +81,11 @@ class Session:
     asked_task_ids: Set[str] = field(default_factory=set)
     generated_task_ids: Set[str] = field(default_factory=set)
     node_states: Dict[str, AreaState] = field(default_factory=dict)
-    # Phased delivery bookkeeping: task_id -> phases passed / attempts on the
-    # current phase. ``submission_index`` is the monotonic step counter (it
-    # replaces ``index`` for ``session_steps.step_index`` so repeated phase
+    # Phased delivery bookkeeping: task_id -> steps completed. Delivery now
+    # always advances after a submission, so ``phase_attempts`` is retained
+    # only for backward compatibility with persisted sessions and is no
+    # longer written. ``submission_index`` is the monotonic step counter (it
+    # replaces ``index`` for ``session_steps.step_index`` so repeated
     # submissions never collide).
     task_progress: Dict[str, int] = field(default_factory=dict)
     phase_attempts: Dict[str, int] = field(default_factory=dict)

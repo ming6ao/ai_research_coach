@@ -110,8 +110,10 @@ transitions) lives in `session_steps`:
 - `index` — number of tasks completed so far; used as
   `remaining = len(tasks) - index`.
 - `task_progress` / `phase_attempts` / `submission_index` — step bookkeeping:
-  steps passed per task, failed attempts on the current step, and the monotonic
-  `session_steps.step_index` counter.
+  steps completed per task, a legacy per-step attempt counter (delivery now
+  always advances, so `phase_attempts` is retained for backward compatibility
+  and is no longer written), and the monotonic `session_steps.step_index`
+  counter.
 
 Past sessions are listed per candidate via `GET /api/v1/me/sessions`
 (`store.list_by_candidate`, newest first); `done` is derived at read time by
@@ -125,7 +127,8 @@ The question bank, authored directly in the DB via `POST /api/v1/tasks` or the
 curator UI. Each task
 carries tags (1 primary leaf skill + 0–2 secondary) and a `task_type`.
 Delivery is always **step-by-step**: `parts` are shown one at a time
-(pass-gated, code carried forward). Every task has at least one part; a
+(every submission advances to the next step regardless of the score, code
+carried forward). Every task has at least one part; a
 single-step question is a one-part task (there is no partless request).
 Task-level `difficulty`/`max_score` and `prompt` are all derived from the steps:
 `prompt` is always the first step's prompt, never authored separately. The old
