@@ -713,6 +713,7 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
                 })
               }
               height="h-56"
+              historyControls
             />
             {activeScaffoldIssues.length > 0 && (
               <p className="mt-1.5 rounded-lg border border-[var(--color-warning,#b45309)]/30 bg-[var(--color-bg-secondary)] px-3 py-1.5 text-[11px] text-[var(--color-text-secondary)]">
