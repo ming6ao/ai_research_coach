@@ -22,6 +22,8 @@ interface AssessmentState {
   sessionId: string | null;
   candidate: string;
   currentTask: Task | null;
+  /** Language chosen for the active task; locked across its steps. */
+  selectedLanguage: string | null;
   /** Next task held behind the teaching pause until `advance()` is called. */
   pendingTask: Task | null;
   taskIndex: number;
@@ -37,6 +39,7 @@ interface AssessmentState {
   startAssessment: (opts?: { randomFirst?: boolean; node?: string }) => Promise<void>;
   resumeSession: (response: ResumeResponse) => void;
   submitAnswer: (taskId: string, answer: string) => Promise<void>;
+  setLanguage: (language: string) => void;
   advance: () => void;
   completeSession: () => Promise<void>;
   loadOverview: () => Promise<void>;
@@ -67,6 +70,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
   sessionId: null,
   candidate: '',
   currentTask: null,
+  selectedLanguage: null,
   pendingTask: null,
   taskIndex: 0,
   totalTasks: 0,
@@ -84,6 +88,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       sessionId: res.id,
       candidate: res.candidate,
       currentTask: res.current_task,
+      selectedLanguage: res.current_task?.language ?? null,
       pendingTask: null,
       taskIndex: res.task_index,
       totalTasks: res.total_tasks,
@@ -103,6 +108,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         sessionId: res.id,
         candidate: res.candidate,
         currentTask: res.current_task,
+        selectedLanguage: res.current_task?.language ?? null,
         pendingTask: null,
         taskIndex: 0,
         totalTasks: res.total_tasks,
@@ -123,9 +129,10 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
     if (!sessionId) return;
     set({ loading: true, error: null });
     try {
-      const res = await apiClient.submit(sessionId, taskId, answer);
-
       const currentTask = get().currentTask;
+      const language = get().selectedLanguage ?? currentTask?.language;
+      const res = await apiClient.submit(sessionId, taskId, answer, language);
+
       const rf: ResultWithFeedback = {
         task_id: res.result.task_id,
         prompt: currentTask?.prompt ?? '',
@@ -137,7 +144,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
         scored: true,
         tags: currentTask?.tags,
         parts: currentTask?.parts,
-        language: currentTask?.language,
+        language: res.language ?? language,
         phase_index: currentTask?.phase_index,
         phase_total: currentTask?.phase_total,
       };
@@ -151,10 +158,20 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
           }
         : ability;
 
+      const nextTask = res.next_task;
+      // Keep the chosen language across the steps of one task; reset it for a
+      // new task (or clear it when the session is done).
+      const nextLanguage = nextTask
+        ? nextTask.id === currentTask?.id
+          ? (res.language ?? language ?? null)
+          : (nextTask.language ?? null)
+        : null;
+
       set({
         results: [...results, rf],
-        currentTask: res.next_task,
-        pendingTask: res.next_task,
+        currentTask: nextTask,
+        selectedLanguage: nextLanguage,
+        pendingTask: nextTask,
         taskIndex: get().taskIndex + 1,
         ability: newAbility,
         mastery: res.mastery ?? get().mastery,
@@ -166,6 +183,8 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       set({ loading: false });
     }
   },
+
+  setLanguage: (language) => set({ selectedLanguage: language }),
 
   advance: () => {
     set({ pendingTask: null });
@@ -210,6 +229,7 @@ export const useAssessmentStore = create<AssessmentState>((set, get) => ({
       sessionId: null,
       candidate: '',
       currentTask: null,
+      selectedLanguage: null,
       pendingTask: null,
       taskIndex: 0,
       totalTasks: 0,

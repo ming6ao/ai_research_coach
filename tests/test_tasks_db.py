@@ -152,12 +152,12 @@ def test_create_schema_wraps_legacy_partless_task(tmp_path, monkeypatch):
         conn.execute(
             "INSERT INTO tasks (id, owner, scaffold, difficulty, max_score, source, "
             "is_public, created_at, context_notes, tags_json, task_type, parts_json, "
-            "language, delivery, prompt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "language, languages_json, delivery, prompt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 "legacy", "b@x.com", "def solution():\n    # TODO\n    pass\n", 3, 7, "user",
                 1, "2024-01-01T00:00:00", "",
                 json.dumps({"primary": "testing", "secondary": []}), "implement",
-                "[]", "python", "block", "Explain caching.",
+                "[]", "python", '["python"]', "block", "Explain caching.",
             ),
         )
         conn.commit()

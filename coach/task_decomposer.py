@@ -35,9 +35,11 @@ Return JSON with exactly four keys:
   "prompt": the new, simpler coding task prompt (2-6 sentences, self-contained,
     with a clear function signature or spec). Reduce scope versus the original;
     isolate only the gap. Do not reveal the answer.
-  "scaffold": a Python code stub for the candidate to fill in (the exact
-    function signature from the prompt, with a TODO comment and a `pass`
-    body — never the solution).
+  "scaffold": a code stub for the candidate to fill in (the exact
+    function signature from the prompt, with a TODO comment and an empty/
+    `pass` body — never the solution) in the FIRST requested language.
+  "scaffolds": an array with one {"language", "code"} entry for EVERY
+    requested language (same stub, translated to that language).
   "difficulty": an integer in [1, 5] strictly at or below the original task's
     difficulty, reflecting the reduced scope.
   "context_notes": 2-4 plain English sentences describing the prerequisites,
@@ -53,9 +55,11 @@ repeat the solved drill verbatim and do not reveal the answer.
 Return JSON with exactly four keys:
   "prompt": the new, harder coding task prompt (2-6 sentences, self-contained,
     with a clear function signature or spec).
-  "scaffold": a Python code stub for the candidate to fill in (the exact
-    function signature from the prompt, with a TODO comment and a `pass`
-    body — never the solution).
+  "scaffold": a code stub for the candidate to fill in (the exact
+    function signature from the prompt, with a TODO comment and an empty/
+    `pass` body — never the solution) in the FIRST requested language.
+  "scaffolds": an array with one {"language", "code"} entry for EVERY
+    requested language (same stub, translated to that language).
   "difficulty": an integer in [1, 5], at or above the drill's difficulty \
 (prefer one step harder unless that would exceed the root difficulty + 1).
   "context_notes": 2-4 plain English sentences describing the prerequisites,
@@ -72,9 +76,11 @@ do not reveal the answer.
 Return JSON with exactly four keys:
   "prompt": the new coding task prompt (2-6 sentences, self-contained, with
     a clear function signature or spec) isolating the new prerequisite.
-  "scaffold": a Python code stub for the candidate to fill in (the exact
-    function signature from the prompt, with a TODO comment and a `pass`
-    body — never the solution).
+  "scaffold": a code stub for the candidate to fill in (the exact
+    function signature from the prompt, with a TODO comment and an empty/
+    `pass` body — never the solution) in the FIRST requested language.
+  "scaffolds": an array with one {"language", "code"} entry for EVERY
+    requested language (same stub, translated to that language).
   "difficulty": an integer in [1, 5], similar to the last solved task's \
 difficulty.
   "context_notes": 2-4 plain English sentences describing the prerequisites,
@@ -90,9 +96,11 @@ repetition), self-contained with a clear function signature or spec.
 Return JSON with exactly four keys:
   "prompt": the new coding task prompt (2-6 sentences, self-contained, with
     a clear function signature or spec). Do not reveal the answer.
-  "scaffold": a Python code stub for the candidate to fill in (the exact
-    function signature from the prompt, with a TODO comment and a `pass`
-    body — never the solution).
+  "scaffold": a code stub for the candidate to fill in (the exact
+    function signature from the prompt, with a TODO comment and an empty/
+    `pass` body — never the solution) in the FIRST requested language.
+  "scaffolds": an array with one {"language", "code"} entry for EVERY
+    requested language (same stub, translated to that language).
   "difficulty": an integer in [1, 5], near the requested difficulty.
   "context_notes": 2-4 plain English sentences describing the prerequisites,
     what builds on what, and common confusions for THIS task."""
@@ -109,6 +117,16 @@ _FOLLOWUP_SCHEMA = types.Schema(
     properties={
         "prompt": types.Schema(type=types.Type.STRING),
         "scaffold": types.Schema(type=types.Type.STRING),
+        "scaffolds": types.Schema(
+            type=types.Type.ARRAY,
+            items=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "language": types.Schema(type=types.Type.STRING),
+                    "code": types.Schema(type=types.Type.STRING),
+                },
+            ),
+        ),
         "difficulty": types.Schema(type=types.Type.INTEGER),
         "context_notes": types.Schema(type=types.Type.STRING),
     },
@@ -188,6 +206,51 @@ def _scaffold_for(prompt: str, original_task: dict | None) -> str | None:
     return None
 
 
+def _translate_stub(stub: str, language: str) -> str:
+    """Best-effort stub in ``language`` when the model gave only one.
+
+    Py-to-X translation is not attempted; a non-Python language gets a TODO
+    comment naming the entry point when one can be recovered from the Python
+    stub, so the editor is never blank for a multi-language drill.
+    """
+    if not stub or language == "python":
+        return stub
+    import re
+
+    match = re.search(r"def\s+([A-Za-z_]\w*)", stub or "")
+    if match:
+        return f"// TODO: implement {match.group(1)}\n"
+    return "// TODO: implement the step described above\n"
+
+
+def _resolve_scaffolds(payload: dict, default_stub: str, languages: list) -> tuple[list[str], dict[str, str]]:
+    """Build a per-language scaffold map from a follow-up model response.
+
+    Uses the model's ``scaffolds`` list when present, otherwise the single
+    ``scaffold`` stub for the default language and a translated fallback for
+    the rest. Always returns an entry for every declared language.
+    """
+    from coach.tasks import normalize_language, normalize_languages
+
+    langs = normalize_languages(languages)
+    scaffolds: dict[str, str] = {}
+    raw = payload.get("scaffolds")
+    if isinstance(raw, list):
+        for entry in raw:
+            if not isinstance(entry, dict):
+                continue
+            lang = normalize_language(entry.get("language"))
+            code = str(entry.get("code") or "").strip()
+            if code:
+                scaffolds[lang] = code
+    if default_stub:
+        scaffolds.setdefault(langs[0], default_stub)
+    for lang in langs:
+        if not scaffolds.get(lang):
+            scaffolds[lang] = _translate_stub(scaffolds.get(langs[0], ""), lang)
+    return langs, scaffolds
+
+
 def _fallback_session_title_summary(task: dict) -> dict:
     """Deterministic title/summary when the LLM is unavailable.
 
@@ -228,6 +291,16 @@ _DRAFT_STEP_SCHEMA = types.Schema(
             type=types.Type.ARRAY, items=types.Schema(type=types.Type.STRING)
         ),
         "scaffold": types.Schema(type=types.Type.STRING),
+        "scaffolds": types.Schema(
+            type=types.Type.ARRAY,
+            items=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "language": types.Schema(type=types.Type.STRING),
+                    "code": types.Schema(type=types.Type.STRING),
+                },
+            ),
+        ),
     },
     required=["prompt"],
 )
@@ -248,9 +321,11 @@ _DRAFT_STEP_FIELDS = (
     'repeat the entry-point function signature or any code — the scaffold '
     'already shows it), "difficulty" '
     '[1-5], "max_score" [2-10], "pass_score" [1..max_score], "primary_tag" '
-    '(ONE leaf skill), "secondary_tag" (0-2 leaf skills), and "scaffold" '
+    '(ONE leaf skill), "secondary_tag" (0-2 leaf skills), "scaffold" '
     '(imports + the entry-point function with the exact signature, ONE short '
-    'comment and a `pass`/empty body — never the solution).'
+    'comment and a `pass`/empty body — never the solution) in the FIRST '
+    'requested language, and "scaffolds" (an array of {"language", "code"} '
+    'with the same stub for EVERY requested language).'
 )
 
 _DRAFT_SYSTEM_PROMPT = f"""\
@@ -385,12 +460,26 @@ def _base_draft_parts(seeds, draft, difficulty, language) -> list[dict]:
         scaffold = str(base.get("scaffold") or "").strip()
         if scaffold:
             part["scaffold"] = scaffold
+        raw_scaffolds = base.get("scaffolds")
+        if isinstance(raw_scaffolds, dict):
+            kept = {
+                str(lang): str(code).strip()
+                for lang, code in raw_scaffolds.items()
+                if str(code or "").strip()
+            }
+            if kept:
+                part["scaffolds"] = kept
         out.append(part)
     return _dedupe_keys(out)
 
 
 def _draft_result(
-    parts, task_type, language, context_notes, problems: Optional[list[str]] = None
+    parts,
+    task_type,
+    language,
+    context_notes,
+    problems: Optional[list[str]] = None,
+    languages: Optional[list] = None,
 ) -> dict:
     """Package parts in the ``POST /api/v1/tasks`` body shape.
 
@@ -399,14 +488,16 @@ def _draft_result(
     response so the curator UI can explain why a step is still empty instead
     of leaving the assistant silently "successful".
     """
-    from coach.tasks import derive_step_tags
+    from coach.tasks import derive_step_tags, normalize_languages
 
     task_type = str(task_type or "").strip().lower()
     if task_type not in TASK_TYPES:
         task_type = "implement"
+    langs = normalize_languages(languages, language)
     return {
         "parts": parts,
-        "language": language,
+        "language": langs[0],
+        "languages": langs,
         "task_type": task_type,
         "context_notes": (context_notes or "").strip()[:2000],
         "tags": derive_step_tags(parts) or {"primary": "", "secondary": []},
@@ -415,12 +506,14 @@ def _draft_result(
 
 
 def _draft_body(
-    seeds, draft, language, task_type, difficulty, context, instruction
+    seeds, draft, language, task_type, difficulty, context, instruction, languages=None
 ) -> str:
     """The user-turn contents for a draft or refinement call."""
+    langs = [str(l) for l in (languages or [language])]
     if draft:
         current = {
-            "language": language,
+            "language": langs[0],
+            "languages": langs,
             "task_type": str(draft.get("task_type") or task_type or ""),
             "context_notes": str(draft.get("context_notes") or ""),
             "parts": draft.get("parts") or [],
@@ -431,7 +524,7 @@ def _draft_body(
             + f"\n\nCurator instruction:\n{(instruction or '').strip()[:2000]}\n"
             + "\nReturn the revised task JSON."
         )
-    lines = [f"Language: {language}"]
+    lines = [f"Language(s): {', '.join(langs)}"]
     if task_type:
         lines.append(f"Preferred task_type: {task_type}")
     if difficulty:
@@ -446,11 +539,14 @@ def _draft_body(
 
 
 def _assemble_draft(
-    payload: dict, base_parts: list[dict], language: str
+    payload: dict, base_parts: list[dict], language: str, languages: Optional[list] = None
 ) -> tuple[list[dict], list[str]]:
     """Merge model output onto the seed parts; returns ``(parts, problems)``."""
     from coach.scaffold_validation import validate_scaffold
+    from coach.tasks import normalize_language, normalize_languages
 
+    langs = normalize_languages(languages, language)
+    default_lang = langs[0]
     entries = payload.get("steps")
     if not isinstance(entries, list) or len(entries) != len(base_parts):
         raise ValueError("the model returned the wrong number of steps")
@@ -468,20 +564,50 @@ def _assemble_draft(
         tags = _sanitize_step_tags(entry)
         if not tags["primary"]:
             problems.append(f"step {index + 1} has no valid primary_tag")
-        scaffold = str(entry.get("scaffold") or "").strip()
-        if scaffold:
-            issues = validate_scaffold(scaffold, language=language)
+
+        # Gather the model's per-language scaffolds (plus the legacy single
+        # one and any base stub from a refinement).
+        proposed: dict[str, str] = {}
+        raw_scaffolds = entry.get("scaffolds")
+        if isinstance(raw_scaffolds, list):
+            for item in raw_scaffolds:
+                if isinstance(item, dict):
+                    lang = normalize_language(item.get("language"))
+                    code = str(item.get("code") or "").strip()
+                    if code:
+                        proposed[lang] = code
+        legacy = str(entry.get("scaffold") or "").strip()
+        if legacy:
+            proposed.setdefault(default_lang, legacy)
+        base_scaffolds = base.get("scaffolds") if isinstance(base.get("scaffolds"), dict) else {}
+        for lang in langs:
+            if not proposed.get(lang):
+                fallback = base_scaffolds.get(lang)
+                if not fallback and lang == default_lang:
+                    fallback = base.get("scaffold")
+                if fallback:
+                    proposed[lang] = str(fallback).strip()
+
+        cleaned_scaffolds: dict[str, str] = {}
+        for lang in langs:
+            code = proposed.get(lang)
+            if not code:
+                continue
+            issues = validate_scaffold(code, language=lang)
             if issues:
-                problems.append(f"step {index + 1} scaffold: {', '.join(issues)}")
-                scaffold = ""
-        if not scaffold and base.get("scaffold"):
-            scaffold = base["scaffold"]
-        if not scaffold:
+                problems.append(f"step {index + 1} scaffold ({lang}): {', '.join(issues)}")
+                continue
+            cleaned_scaffolds[lang] = code
+        missing_langs = [lang for lang in langs if lang not in cleaned_scaffolds]
+        if missing_langs:
             # Never synthesize starter code: a missing LLM scaffold must stay
             # visible so the curator editor can block creation.
-            problems.append(f"step {index + 1} has no scaffold")
-        if scaffold:
-            prompt = _strip_duplicate_signature(prompt, scaffold)
+            problems.append(
+                f"step {index + 1} has no scaffold"
+                + (f" for: {', '.join(missing_langs)}" if len(langs) > 1 else "")
+            )
+        if cleaned_scaffolds.get(default_lang):
+            prompt = _strip_duplicate_signature(prompt, cleaned_scaffolds[default_lang])
         part = {
             "key": str(entry.get("key") or "").strip() or base["key"],
             "prompt": prompt,
@@ -490,8 +616,10 @@ def _assemble_draft(
             "difficulty": difficulty,
             "pass_score": pass_score,
         }
-        if scaffold:
-            part["scaffold"] = scaffold
+        if cleaned_scaffolds.get(default_lang):
+            part["scaffold"] = cleaned_scaffolds[default_lang]
+        if len(langs) > 1 and cleaned_scaffolds:
+            part["scaffolds"] = cleaned_scaffolds
         parts.append(part)
     return _dedupe_keys(parts), problems
 
@@ -621,6 +749,7 @@ class TaskDecomposer:
         draft: dict | None = None,
         instruction: str = "",
         language: str = "python",
+        languages: list | None = None,
         task_type: str = "",
         difficulty: int | None = None,
         context: str = "",
@@ -653,8 +782,9 @@ class TaskDecomposer:
         """
         import os
 
-        from coach.tasks import normalize_language
+        from coach.tasks import normalize_language, normalize_languages
 
+        langs = normalize_languages(languages, language)
         language = normalize_language(language)
         refine = bool(draft) and bool((instruction or "").strip())
         if refine:
@@ -686,6 +816,7 @@ class TaskDecomposer:
                     "AI assistant unavailable (GOOGLE_API_KEY is not set): "
                     "starter code and tags were left empty."
                 ],
+                languages=langs,
             )
 
         body = _draft_body(
@@ -696,6 +827,7 @@ class TaskDecomposer:
             difficulty,
             context,
             instruction,
+            languages=langs,
         )
         best_parts = base_parts
         best_notes = baseline_notes
@@ -716,7 +848,7 @@ class TaskDecomposer:
                 ]
                 break
             try:
-                parts, problems = _assemble_draft(payload, base_parts, language)
+                parts, problems = _assemble_draft(payload, base_parts, language, langs)
             except ValueError as exc:
                 best_problems = [str(exc)]
                 feedback = (
@@ -729,7 +861,7 @@ class TaskDecomposer:
             best_task_type = str(payload.get("task_type") or best_task_type)
             best_problems = problems
             if not problems:
-                return _draft_result(parts, best_task_type, language, best_notes)
+                return _draft_result(parts, best_task_type, language, best_notes, languages=langs)
             feedback = (
                 "Your previous response had these problems: "
                 + "; ".join(problems)
@@ -744,7 +876,8 @@ class TaskDecomposer:
                 "; ".join(best_problems),
             )
         return _draft_result(
-            best_parts, best_task_type, language, best_notes, problems=best_problems
+            best_parts, best_task_type, language, best_notes, problems=best_problems,
+            languages=langs,
         )
 
     def _generate_draft_payload(
@@ -807,6 +940,12 @@ class TaskDecomposer:
         task_id = f"remed_{uuid.uuid4().hex[:10]}"
         difficulty = max(1, min(5, int(difficulty)))
         gap = (target_text or "").strip() or "the gap in the previous answer"
+        from coach.tasks import normalize_languages
+
+        languages = normalize_languages(
+            (original_task or {}).get("languages"),
+            (original_task or {}).get("language"),
+        )
 
         if not os.getenv("GOOGLE_API_KEY"):
             reason = "missing GOOGLE_API_KEY"
@@ -820,15 +959,16 @@ class TaskDecomposer:
                 f"Original task:\n{original_task.get('prompt', '')}\n\n"
                 f"Gap to drill: {gap}\n"
                 f"Desired difficulty (1-5): {difficulty}\n"
+                f"Requested implementation language(s): {', '.join(languages)}\n"
             )
             if extra_context and extra_context.strip():
                 body += f"\nChain context (root task, prerequisites, already drilled — do not repeat):\n{extra_context.strip()[:2000]}\n"
             body += (
                 "\nCreate ONE coding task per the system instruction, "
-                "self-contained with a clear function signature. Also "
-                "provide a 'scaffold' Python stub with that signature, "
-                "a TODO comment and a `pass` body (no solution). Do not "
-                "reveal the answer."
+                "self-contained with a clear function signature. For EACH "
+                f"requested language ({', '.join(languages)}) provide a stub "
+                "with that signature, a TODO comment and an empty body (no "
+                "solution). Do not reveal the answer."
             )
             resp = client.models.generate_content(
                 model=self._model,
@@ -855,8 +995,10 @@ class TaskDecomposer:
             else:  # pivot: hold near the last solved level
                 difficulty = max(1, min(5, llm_difficulty or difficulty))
             scaffold = str(payload.get("scaffold") or "").strip() or _scaffold_for(prompt, original_task)
+            langs, scaffolds = _resolve_scaffolds(payload, scaffold, languages)
             return self._build(
                 task_id, difficulty, prompt, gap, scaffold,
+                scaffolds=scaffolds, languages=langs,
                 kind=mode, parent_task_id=(original_task or {}).get("id"),
                 root_task_id=(original_task or {}).get("root_task_id") or (original_task or {}).get("id"),
                 root_difficulty=(original_task or {}).get("root_difficulty", orig_diff),
@@ -951,6 +1093,8 @@ class TaskDecomposer:
         prompt: str,
         target_text: str,
         scaffold: str | None = None,
+        scaffolds: dict | None = None,
+        languages: list | None = None,
         kind: str = "remediate",
         parent_task_id: str | None = None,
         root_task_id: str | None = None,
@@ -958,6 +1102,10 @@ class TaskDecomposer:
         tags: dict | None = None,
         context_notes: str = "",
     ) -> dict:
+        from coach.tasks import normalize_languages
+
+        task_languages = normalize_languages(languages)
+        default_language = task_languages[0]
         validated_tags = None
         if tags:
             from coach.taxonomy import validate as validate_tags
@@ -972,6 +1120,17 @@ class TaskDecomposer:
         }
         if scaffold:
             part["scaffold"] = scaffold
+        if scaffolds:
+            cleaned = {
+                lang: str(code).strip()
+                for lang, code in scaffolds.items()
+                if str(code or "").strip()
+            }
+            if not cleaned.get(default_language) and scaffold:
+                cleaned[default_language] = scaffold
+            if cleaned:
+                part["scaffolds"] = cleaned
+                part["scaffold"] = cleaned[default_language]
         task: dict = {
             "id": task_id,
             "type": "code",
@@ -979,6 +1138,8 @@ class TaskDecomposer:
             "prompt": prompt,
             "max_score": 5,
             "parts": [part],
+            "languages": task_languages,
+            "language": default_language,
             "generated": True,
             "generated_kind": kind,
             "target_text": target_text,

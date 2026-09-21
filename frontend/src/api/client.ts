@@ -8,6 +8,8 @@ export interface TaskPart {
   difficulty: number;
   tags?: TaskTags;
   scaffold?: string;
+  /** Per-language starter code for a multi-language step. */
+  scaffolds?: Record<string, string>;
   pass_score?: number;
 }
 
@@ -29,6 +31,11 @@ export interface Task {
   tags?: TaskTags;
   task_type?: string;
   language?: string;
+  /** Ordered accepted languages; the first is the default. Absent/singleton
+   *  means the task is single-language and shows no picker. */
+  languages?: string[];
+  /** Active step's starter code per language (multi-language tasks). */
+  scaffolds?: Record<string, string>;
   phase_index?: number;
   phase_total?: number;
   pass_score?: number;
@@ -105,6 +112,8 @@ export interface SubmitResponse {
   ability_update: AbilityUpdate | null;
   mastery?: MasteryBlock;
   already_answered: boolean;
+  /** Language the answer was accepted in (multi-language tasks). */
+  language?: string;
 }
 
 export interface CompleteResponse {
@@ -327,6 +336,8 @@ export interface TaskCreateBody {
   tags?: { primary: string; secondary: string[] };
   task_type?: string;
   language?: string;
+  /** Ordered accepted languages; provide per-language scaffolds when > 1. */
+  languages?: string[];
   owner?: string;
 }
 
@@ -349,6 +360,7 @@ export interface TaskDraftBody {
   draft?: Partial<TaskCreateBody>;
   instruction?: string;
   language?: string;
+  languages?: string[];
   task_type?: string;
   difficulty?: number;
   context?: string;
@@ -364,8 +376,12 @@ export const apiClient = {
       },
     ),
 
-  submit: (session_id: string, task_id: string, answer: string) =>
-    v1<SubmitResponse>(`/sessions/${encodeURIComponent(session_id)}/answers`, { task_id, answer }),
+  submit: (session_id: string, task_id: string, answer: string, language?: string) =>
+    v1<SubmitResponse>(`/sessions/${encodeURIComponent(session_id)}/answers`, {
+      task_id,
+      answer,
+      language: language || undefined,
+    }),
 
   complete: (session_id: string) =>
     v1<CompleteResponse>(`/sessions/${encodeURIComponent(session_id)}/completion`, {}),

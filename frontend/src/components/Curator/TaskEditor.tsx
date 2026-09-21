@@ -20,7 +20,8 @@ import {
 interface PartDraft {
   key: string;
   prompt: string;
-  scaffold: string;
+  /** Starter code per language; the first declared language is the default. */
+  scaffolds: Record<string, string>;
   max_score: string;
   difficulty: string;
   pass_score: string;
@@ -46,7 +47,7 @@ function blankPart(primary = ''): PartDraft {
   return {
     key: '',
     prompt: '',
-    scaffold: '',
+    scaffolds: {},
     max_score: '5',
     difficulty: '2',
     pass_score: '',
@@ -55,23 +56,41 @@ function blankPart(primary = ''): PartDraft {
   };
 }
 
-function partsToDrafts(parts?: TaskPart[]): PartDraft[] {
-  return (parts ?? []).map((p) => ({
-    key: p.key,
-    prompt: p.prompt,
-    scaffold: p.scaffold ?? '',
-    max_score: String(p.max_score ?? 5),
-    difficulty: String(p.difficulty ?? 2),
-    pass_score: p.pass_score != null ? String(p.pass_score) : '',
-    primary: p.tags?.primary ?? '',
-    secondary: p.tags?.secondary ?? [],
-  }));
+/** The default language is the first declared one (never empty). */
+function defaultLanguage(languages: string[]): string {
+  return languages[0] ?? 'python';
 }
 
-function draftsToParts(drafts: PartDraft[]): TaskPart[] {
+function partsToDrafts(parts: TaskPart[] | undefined, languages: string[]): PartDraft[] {
+  return (parts ?? []).map((p) => {
+    const scaffolds: Record<string, string> = {};
+    for (const lang of languages) {
+      const code = p.scaffolds?.[lang] ?? (lang === 'python' ? p.scaffold : undefined);
+      if (code) scaffolds[lang] = code;
+    }
+    return {
+      key: p.key,
+      prompt: p.prompt,
+      scaffolds,
+      max_score: String(p.max_score ?? 5),
+      difficulty: String(p.difficulty ?? 2),
+      pass_score: p.pass_score != null ? String(p.pass_score) : '',
+      primary: p.tags?.primary ?? '',
+      secondary: p.tags?.secondary ?? [],
+    };
+  });
+}
+
+function draftsToParts(drafts: PartDraft[], languages: string[]): TaskPart[] {
+  const defaultLang = defaultLanguage(languages);
   const out: TaskPart[] = [];
   for (const p of drafts) {
     if (!p.prompt.trim()) continue;
+    const scaffolds: Record<string, string> = {};
+    for (const lang of languages) {
+      const code = (p.scaffolds[lang] ?? '').trim();
+      if (code) scaffolds[lang] = code;
+    }
     const part: TaskPart = {
       key: p.key.trim() || `step_${out.length + 1}`,
       prompt: p.prompt.trim(),
@@ -79,7 +98,8 @@ function draftsToParts(drafts: PartDraft[]): TaskPart[] {
       difficulty: clamp1to5(Number(p.difficulty)) || 2,
       tags: { primary: p.primary, secondary: p.secondary.slice(0, 2) },
     };
-    if (p.scaffold.trim()) part.scaffold = p.scaffold;
+    if (scaffolds[defaultLang]) part.scaffold = scaffolds[defaultLang];
+    if (languages.length > 1) part.scaffolds = scaffolds;
     if (p.pass_score.trim() !== '') {
       part.pass_score = Math.max(0, Math.min(part.max_score, Number(p.pass_score) || 0));
     }
@@ -102,11 +122,19 @@ function autoPassScore(maxScore: number): number {
  */
 export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props) {
   const [taxonomy, setTaxonomy] = useState<Taxonomy | null>(null);
-  const [language, setLanguage] = useState(task?.language ?? 'python');
+  const [languages, setLanguages] = useState<string[]>(() =>
+    task?.languages?.length ? task.languages : [task?.language ?? 'python'],
+  );
+  const [scaffoldLang, setScaffoldLang] = useState<string>(
+    () => task?.languages?.[0] ?? task?.language ?? 'python',
+  );
   const [taskType, setTaskType] = useState(task?.task_type ?? 'implement');
   const [isPublic, setIsPublic] = useState(task ? task.is_public : true);
   const [parts, setParts] = useState<PartDraft[]>(() => {
-    const drafts = partsToDrafts(task?.parts);
+    const initialLangs = task?.languages?.length
+      ? task.languages
+      : [task?.language ?? 'python'];
+    const drafts = partsToDrafts(task?.parts, initialLangs);
     return drafts.length > 0 ? drafts : [blankPart()];
   });
   const [activeStep, setActiveStep] = useState(0);
@@ -128,6 +156,17 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
 
   const updatePart = (idx: number, patch: Partial<PartDraft>) => {
     setParts((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)));
+  };
+
+  /** Add/remove a language; the first remains the default and at least one
+   * language must stay selected. */
+  const toggleLanguage = (lang: string) => {
+    const next = languages.includes(lang)
+      ? languages.filter((l) => l !== lang)
+      : [...languages, lang];
+    const stable = next.length > 0 ? next : [lang];
+    setLanguages(stable);
+    if (!stable.includes(scaffoldLang)) setScaffoldLang(stable[0]);
   };
 
   /** Persist a curator-typed skill under an existing area, then refresh the
@@ -180,10 +219,16 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
 
   /** Replace the form state with an AI-drafted (or refined) task body. */
   const applyDraft = (draft: TaskCreateBody) => {
-    const next = partsToDrafts(draft.parts);
+    const nextLangs = draft.languages?.length
+      ? draft.languages
+      : draft.language
+        ? [draft.language]
+        : languages;
+    const next = partsToDrafts(draft.parts, nextLangs);
     setParts(next.length > 0 ? next : [blankPart()]);
     setActiveStep(0);
-    if (draft.language) setLanguage(draft.language);
+    setLanguages(nextLangs);
+    setScaffoldLang(nextLangs[0]);
     if (draft.task_type) setTaskType(draft.task_type);
     if (draft.context_notes != null) setContextNotes(draft.context_notes);
   };
@@ -202,7 +247,12 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
     }
     setAssistantBusy(true);
     try {
-      const draft = await apiClient.draftTask({ steps, language, task_type: taskType });
+      const draft = await apiClient.draftTask({
+        steps,
+        language: defaultLanguage(languages),
+        languages,
+        task_type: taskType,
+      });
       applyDraft(draft);
       reportDraftProblems(draft.problems);
     } catch (e) {
@@ -218,8 +268,9 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
     const instruction = quickInstruction.trim();
     if (!instruction) return;
     const draft: TaskCreateBody = {
-      parts: draftsToParts(parts),
-      language,
+      parts: draftsToParts(parts, languages),
+      language: defaultLanguage(languages),
+      languages,
       task_type: taskType,
       context_notes: contextNotes,
     };
@@ -239,16 +290,22 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
   /** Validate + build the create/update body; returns null on invalid input. */
   const buildBody = (): TaskCreateBody | null => {
     setFormError(null);
-    const problem = findStepDraftError(parts);
+    const problem = findStepDraftError(parts, languages);
     if (problem) {
       setFormError(problem.message);
       onError(problem.message);
       setActiveStep(problem.index);
       return null;
     }
+    const defaultLang = defaultLanguage(languages);
     const cleaned: TaskPart[] = parts
       .filter((p) => p.prompt.trim().length > 0)
       .map((p) => {
+        const scaffolds: Record<string, string> = {};
+        for (const lang of languages) {
+          const code = (p.scaffolds[lang] ?? '').trim();
+          if (code) scaffolds[lang] = code;
+        }
         const part: TaskPart = {
           key: p.key.trim(),
           prompt: p.prompt.trim(),
@@ -256,7 +313,8 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
           difficulty: clamp1to5(Number(p.difficulty)) || 2,
           tags: { primary: p.primary, secondary: p.secondary.slice(0, 2) },
         };
-        if (p.scaffold.trim()) part.scaffold = p.scaffold;
+        if (scaffolds[defaultLang]) part.scaffold = scaffolds[defaultLang];
+        if (languages.length > 1) part.scaffolds = scaffolds;
         if (p.pass_score.trim() !== '') {
           part.pass_score = Math.max(0, Math.min(part.max_score, Number(p.pass_score) || 0));
         }
@@ -271,7 +329,8 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
     const body: TaskCreateBody = {
       parts: cleaned,
       task_type: taskType,
-      language,
+      language: defaultLanguage(languages),
+      languages,
       is_public: isPublic,
     };
     if (contextNotes.trim()) body.context_notes = contextNotes.trim();
@@ -326,7 +385,7 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
     active.pass_score.trim() !== ''
       ? Math.max(0, Math.min(activeMax, Number(active.pass_score) || 0))
       : autoPassScore(activeMax);
-  const activeScaffoldIssues = scaffoldHygieneIssues(active.scaffold);
+  const activeScaffoldIssues = scaffoldHygieneIssues(active.scaffolds[scaffoldLang]);
 
   const activeTaskPart: TaskPart = {
     key: active.key.trim() || `step_${activeStep + 1}`,
@@ -424,20 +483,32 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
               Question settings — hidden from learners
             </p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <label className="block">
-                <span className={labelCls}>language</span>
-                <select
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
-                  className={fieldCls}
-                >
-                  {LANGUAGES.map((l) => (
-                    <option key={l} value={l}>
-                      {l}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="col-span-2 sm:col-span-2">
+                <span className={labelCls}>languages (first is the default)</span>
+                <div className="flex flex-wrap gap-1">
+                  {LANGUAGES.map((l) => {
+                    const on = languages.includes(l);
+                    return (
+                      <button
+                        key={l}
+                        type="button"
+                        onClick={() => toggleLanguage(l)}
+                        aria-pressed={on}
+                        className={`rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
+                          on
+                            ? 'border-[var(--color-accent)]/50 bg-[var(--color-accent)]/10 text-[var(--color-accent)]'
+                            : 'border-[var(--color-border-default)] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
+                        }`}
+                      >
+                        {l === 'cpp' ? 'C++' : l}
+                      </button>
+                    );
+                  })}
+                </div>
+                <span className="mt-0.5 block text-[10px] text-[var(--color-text-muted)]">
+                  Every selected language needs its own starter code below.
+                </span>
+              </div>
               <label className="block">
                 <span className={labelCls}>task type</span>
                 <select
@@ -452,7 +523,7 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
                   ))}
                 </select>
               </label>
-              <label className="col-span-2 flex items-center gap-2 self-end pb-1">
+              <label className="flex items-center gap-2 self-end pb-1">
                 <input
                   type="checkbox"
                   checked={isPublic}
@@ -460,7 +531,7 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
                   className="h-3.5 w-3.5"
                 />
                 <span className="text-[11px] text-[var(--color-text-secondary)]">
-                  Public in the question bank (visible to all learners)
+                  Public in the question bank
                 </span>
               </label>
             </div>
@@ -609,14 +680,38 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
             />
           </section>
 
-          {/* Starter code for the active step. */}
+          {/* Starter code for the active step, one tab per declared language. */}
           <div>
-            <p className={labelCls}>Starter code for this step (optional)</p>
+            <div className="flex items-center gap-2">
+              <p className={labelCls}>Starter code for this step (required for every language)</p>
+              {languages.length > 1 && (
+                <div className="ml-auto flex flex-wrap gap-1">
+                  {languages.map((l) => (
+                    <button
+                      key={l}
+                      type="button"
+                      onClick={() => setScaffoldLang(l)}
+                      className={`rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
+                        l === scaffoldLang
+                          ? 'border-[var(--color-accent)]/50 bg-[var(--color-accent)]/10 text-[var(--color-accent)]'
+                          : 'border-[var(--color-border-default)] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
+                      }`}
+                    >
+                      {l === 'cpp' ? 'C++' : l}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <CodeEditor
-              key={`${task?.id ?? 'new'}:${activeStep}`}
-              code={active.scaffold}
-              language={language}
-              onChange={(v) => updatePart(activeStep, { scaffold: v })}
+              key={`${task?.id ?? 'new'}:${activeStep}:${scaffoldLang}`}
+              code={active.scaffolds[scaffoldLang] ?? ''}
+              language={scaffoldLang}
+              onChange={(v) =>
+                updatePart(activeStep, {
+                  scaffolds: { ...active.scaffolds, [scaffoldLang]: v },
+                })
+              }
               height="h-56"
             />
             {activeScaffoldIssues.length > 0 && (

@@ -334,6 +334,10 @@ def create_schema():
             for col in _DROPPED_STEP_COLUMNS:
                 if col in step_cols:
                     conn.exec_driver_sql(f"ALTER TABLE session_steps DROP COLUMN {col}")
+            if "language" not in step_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE session_steps ADD COLUMN language TEXT DEFAULT 'python'"
+                )
         except Exception:
             pass
         _migrate_skill_beliefs_to_ability(conn)
@@ -353,6 +357,10 @@ def create_schema():
                 conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'implement'")
             if "language" not in cols:
                 conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN language TEXT DEFAULT 'python'")
+            if "languages_json" not in cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE tasks ADD COLUMN languages_json TEXT DEFAULT '[\"python\"]'"
+                )
             if "parts_json" not in cols:
                 conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN parts_json TEXT DEFAULT '[]'")
             if "delivery" not in cols:

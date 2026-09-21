@@ -55,6 +55,21 @@ def _active_part(session, task: dict, step_key: Optional[str]):
     return None, 0
 
 
+def _task_language(session_id: str, task_id: str, task: dict) -> str:
+    """The language the candidate answered this task in (locked), else the
+    task's default. Keeps explanations in the language of the submitted code."""
+    try:
+        from coach.steps import list_steps
+
+        for s in list_steps(session_id):
+            tid = s.get("task_id") or (s.get("task_snapshot") or {}).get("id")
+            if tid == task_id and s.get("language"):
+                return str(s["language"])
+    except Exception:
+        pass
+    return str(task.get("language") or "python")
+
+
 @router.post(
     "/{session_id}/explanations",
     status_code=status.HTTP_201_CREATED,
@@ -113,7 +128,7 @@ def create_explanation(
             context=context,
             step_prompt=str((part or {}).get("prompt") or task.get("prompt") or ""),
             task_notes=str(task.get("context_notes") or ""),
-            language=str(task.get("language") or "python"),
+            language=_task_language(session_id, task_id, task),
             question=question,
             prior_explanation=str((parent or {}).get("explanation") or ""),
         )

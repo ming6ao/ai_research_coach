@@ -48,6 +48,9 @@ class SessionStepModel(Base):
     state_after_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     result_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     coaching_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    # Language the candidate answered in; lets review render the right editor
+    # mode and keeps prior code carry-forward per language.
+    language: Mapped[str] = mapped_column(String(32), nullable=False, default="python")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
@@ -77,6 +80,7 @@ def step_to_dict(m: SessionStepModel) -> dict:
         "state_after": _safe_json(m.state_after_json, {}),
         "result": _safe_json(m.result_json, {}),
         "coaching": _safe_json(m.coaching_json, {}),
+        "language": getattr(m, "language", None) or "python",
         "created_at": m.created_at.isoformat() if m.created_at else None,
     }
 
@@ -96,9 +100,11 @@ def insert_step(
     state_after: dict | None,
     result: dict | None,
     coaching: dict | None,
+    language: str = "python",
 ) -> str:
     """Append one RL-transition row to a session."""
     from coach.db import create_schema
+    from coach.tasks import normalize_language
 
     create_schema()
     sid = str(uuid.uuid4())
@@ -122,6 +128,7 @@ def insert_step(
                 state_after_json=json.dumps(state_after or {}),
                 result_json=json.dumps(result or {}),
                 coaching_json=json.dumps(coaching or {}),
+                language=normalize_language(language),
                 created_at=_utcnow_naive(),
             )
         )
@@ -131,9 +138,45 @@ def insert_step(
         session.close()
 
 
-def answer_for_task(session_id: str, task_id: str) -> Optional[str]:
-    """The user's submitted code for a task in a session (latest step), or None."""
+def answer_for_task(
+    session_id: str, task_id: str, language: Optional[str] = None
+) -> Optional[str]:
+    """The user's submitted code for a task in a session (latest step), or None.
+
+    When ``language`` is given, only steps answered in that language count, so
+    switching languages mid-task never feeds a stub from one language into the
+    other's prior code.
+    """
     from coach.db import create_schema, learner_session
+    from coach.tasks import normalize_language
+
+    create_schema()
+    session = learner_session()
+    try:
+        stmt = select(SessionStepModel).where(
+            SessionStepModel.session_id == session_id,
+            SessionStepModel.task_id == task_id,
+        )
+        if language is not None:
+            stmt = stmt.where(
+                SessionStepModel.language == normalize_language(language)
+            )
+        m = session.scalars(
+            stmt.order_by(SessionStepModel.step_index.desc()).limit(1)
+        ).first()
+        return (m.user_answer or "") if m else None
+    finally:
+        session.close()
+
+
+def language_for_task(session_id: str, task_id: str, default: str = "python") -> str:
+    """Language the candidate first answered a task in (locked), else ``default``.
+
+    Used by the resume/next-step view so the editor reopens in the language the
+    candidate chose, not the task's default.
+    """
+    from coach.db import create_schema, learner_session
+    from coach.tasks import normalize_language
 
     create_schema()
     session = learner_session()
@@ -144,10 +187,10 @@ def answer_for_task(session_id: str, task_id: str) -> Optional[str]:
                 SessionStepModel.session_id == session_id,
                 SessionStepModel.task_id == task_id,
             )
-            .order_by(SessionStepModel.step_index.desc())
+            .order_by(SessionStepModel.step_index)
             .limit(1)
         ).first()
-        return (m.user_answer or "") if m else None
+        return normalize_language((m.language if m else None) or default)
     finally:
         session.close()
 
@@ -409,7 +452,7 @@ def feedback_from_steps(steps: list[dict]) -> list[dict]:
                 "coach": coaching,
                 "tags": task.get("tags"),
                 "parts": parts,
-                "language": task.get("language") or "python",
+                "language": st.get("language") or task.get("language") or "python",
                 "scored": True,
                 "delivery": "phased",
                 "phase_index": phase_index,

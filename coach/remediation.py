@@ -148,6 +148,14 @@ class RemediationPlanner:
         generated.setdefault("parent_task_id", (task or {}).get("id"))
         generated.setdefault("root_task_id", base["root_task_id"])
         generated.setdefault("root_difficulty", base["root_difficulty"])
+        # A drill inherits its root task's language set so a multi-language
+        # question keeps accepting the language the candidate chose.
+        inherited_languages = list(
+            (root or {}).get("languages")
+            or [((root or {}).get("language") or "python")]
+        )
+        generated.setdefault("languages", inherited_languages)
+        generated.setdefault("language", inherited_languages[0])
         return generated
 
     # -- difficulty ----------------------------------------------------------

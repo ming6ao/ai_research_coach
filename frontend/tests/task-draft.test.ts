@@ -62,3 +62,25 @@ test('findStepDraftError still catches missing prompt, key, and primary', () => 
     /same key/,
   );
 });
+
+test('findStepDraftError requires starter code for every declared language', () => {
+  const base = {
+    key: 'k',
+    prompt: 'Do it.',
+    primary: 'testing',
+    scaffolds: { python: 'def k():\n    pass\n' },
+  };
+  assert.deepEqual(findStepDraftError([base], ['python', 'cpp']), {
+    index: 0,
+    message: 'Step 1 needs starter code.',
+  });
+  assert.equal(
+    findStepDraftError(
+      [{ ...base, scaffolds: { ...base.scaffolds, cpp: '// TODO\nvoid k();\n' } }],
+      ['python', 'cpp'],
+    ),
+    null,
+  );
+  // A single-language task only needs its default language.
+  assert.equal(findStepDraftError([base], ['python']), null);
+});

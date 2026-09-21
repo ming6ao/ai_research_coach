@@ -160,6 +160,8 @@ function ChatViewInner() {
     pendingTask,
     loading,
     error,
+    selectedLanguage,
+    setLanguage,
     advance,
     completeSession,
   } = useAssessmentStore();
@@ -170,11 +172,28 @@ function ChatViewInner() {
 
   const taskId = currentTask?.id ?? null;
   const phaseIndex = currentTask?.phase_index ?? null;
+  const language = selectedLanguage ?? currentTask?.language ?? 'python';
+  const multiLanguage = (currentTask?.languages?.length ?? 0) > 1;
+  // The picker locks once the task has a submitted step (the server enforces
+  // this too, so prior code is always in one language).
+  const languageLocked = !!currentTask?.previous_code;
   useEffect(() => {
     // A phased step carries the candidate's prior code; otherwise start from
-    // the scaffold.
-    setCode(currentTask?.previous_code ?? currentTask?.scaffold ?? '');
-  }, [taskId, phaseIndex, currentTask?.scaffold, currentTask?.previous_code]);
+    // the chosen language's scaffold (falling back to the default scaffold).
+    setCode(
+      currentTask?.previous_code
+        ?? currentTask?.scaffolds?.[language]
+        ?? currentTask?.scaffold
+        ?? '',
+    );
+  }, [
+    taskId,
+    phaseIndex,
+    language,
+    currentTask?.scaffold,
+    currentTask?.scaffolds,
+    currentTask?.previous_code,
+  ]);
 
   const handleSubmit = (note: string) => {
     if (!currentTask) return;
@@ -250,11 +269,38 @@ function ChatViewInner() {
             </div>
           )}
 
+          {showTask && currentTask && multiLanguage && (
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="answer-language"
+                className="text-[11px] font-medium text-[var(--color-text-muted)]"
+              >
+                Language
+              </label>
+              <select
+                id="answer-language"
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+                disabled={languageLocked || loading}
+                className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-2 py-1 text-xs text-[var(--color-text-primary)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {currentTask.languages!.map((l) => (
+                  <option key={l} value={l}>
+                    {l === 'cpp' ? 'C++' : l}
+                  </option>
+                ))}
+              </select>
+              <span className="text-[10px] text-[var(--color-text-muted)]">
+                {languageLocked ? 'locked for this question' : 'stay the same across steps'}
+              </span>
+            </div>
+          )}
+
           {showTask && currentTask && (
             <CodeEditor
-              key={`${currentTask.id}:${currentTask.phase_index ?? 0}`}
+              key={`${currentTask.id}:${currentTask.phase_index ?? 0}:${language}`}
               code={code}
-              language={currentTask.language}
+              language={language}
               onChange={setCode}
               readOnly={loading}
               fitContent

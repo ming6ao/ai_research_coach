@@ -716,48 +716,58 @@ def hygiene_report() -> dict:
         task = task_to_dict(model)
         parts = task.get("parts") or []
         for part in parts:
-            scaffold = part.get("scaffold") or ""
-            if not scaffold.strip():
-                counts["scaffold_missing"] += 1
-                findings.append(
-                    {
-                        "task_id": task["id"],
-                        "owner": task.get("owner"),
-                        "issue": "scaffold_missing",
-                        "part_key": part.get("key"),
-                        "detail": "Step has no starter code.",
-                    }
-                )
-                continue
-            leaks: list[str] = []
-            if private_section.search(scaffold):
-                leaks.append("private/protected section")
-            if member_field.search(scaffold):
-                leaks.append("member field")
-            if self_attr.search(scaffold):
-                leaks.append("instance attribute")
-            if leaks:
-                counts["scaffold_leaks_internals"] += 1
-                findings.append(
-                    {
-                        "task_id": task["id"],
-                        "owner": task.get("owner"),
-                        "issue": "scaffold_leaks_internals",
-                        "part_key": part.get("key"),
-                        "detail": "; ".join(leaks),
-                    }
-                )
-            if ("class " in scaffold or "def " in scaffold) and not comment.search(scaffold):
-                counts["scaffold_missing_comments"] += 1
-                findings.append(
-                    {
-                        "task_id": task["id"],
-                        "owner": task.get("owner"),
-                        "issue": "scaffold_missing_comments",
-                        "part_key": part.get("key"),
-                        "detail": "Starter code has API surface but no comments.",
-                    }
-                )
+            # Audit every declared language's starter code (multi-language
+            # tasks carry a ``scaffolds`` map; single-language tasks a
+            # ``scaffold`` string).
+            default_lang = task.get("language") or "python"
+            scaffolds = part.get("scaffolds") if isinstance(part.get("scaffolds"), dict) else {}
+            if not scaffolds:
+                scaffolds = {default_lang: part.get("scaffold") or ""}
+            for language, scaffold in scaffolds.items():
+                if not str(scaffold or "").strip():
+                    counts["scaffold_missing"] += 1
+                    findings.append(
+                        {
+                            "task_id": task["id"],
+                            "owner": task.get("owner"),
+                            "issue": "scaffold_missing",
+                            "part_key": part.get("key"),
+                            "language": language,
+                            "detail": "Step has no starter code.",
+                        }
+                    )
+                    continue
+                leaks: list[str] = []
+                if private_section.search(scaffold):
+                    leaks.append("private/protected section")
+                if member_field.search(scaffold):
+                    leaks.append("member field")
+                if self_attr.search(scaffold):
+                    leaks.append("instance attribute")
+                if leaks:
+                    counts["scaffold_leaks_internals"] += 1
+                    findings.append(
+                        {
+                            "task_id": task["id"],
+                            "owner": task.get("owner"),
+                            "issue": "scaffold_leaks_internals",
+                            "part_key": part.get("key"),
+                            "language": language,
+                            "detail": "; ".join(leaks),
+                        }
+                    )
+                if ("class " in scaffold or "def " in scaffold) and not comment.search(scaffold):
+                    counts["scaffold_missing_comments"] += 1
+                    findings.append(
+                        {
+                            "task_id": task["id"],
+                            "owner": task.get("owner"),
+                            "issue": "scaffold_missing_comments",
+                            "part_key": part.get("key"),
+                            "language": language,
+                            "detail": "Starter code has API surface but no comments.",
+                        }
+                    )
     return {"tasks": len(models), "findings": findings, "counts": counts}
 
 

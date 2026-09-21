@@ -243,7 +243,7 @@ class Session:
         return s
 
 
-def _compose_step_scaffold(task: dict) -> str | None:
+def _compose_step_scaffold(task: dict, language: str = "python") -> str | None:
     """Compose a best-effort stub from step prompts when none is stored.
 
     Preference order per step:
@@ -255,11 +255,14 @@ def _compose_step_scaffold(task: dict) -> str | None:
     The last resort deliberately avoids naming a function after the internal
     step key or a backticked data name (``def bp_step(*args)`` / ``def x(...)``
     read as a real API and mislead the candidate). Authored per-step scaffolds
-    take precedence over this helper via :func:`_phase_scaffold`.
+    take precedence over this helper via :func:`_phase_scaffold`. Non-Python
+    languages have no ``def`` form, so they fall back to a TODO comment.
     """
     parts = task.get("parts") or []
     if not parts:
         return None
+    if language and language != "python":
+        return "\n\n".join("// TODO: implement the step described above" for _ in parts)
     stubs: list[str] = []
     for part in parts:
         prompt = part.get("prompt", "") or ""
@@ -275,13 +278,13 @@ def _compose_step_scaffold(task: dict) -> str | None:
     return "\n\n".join(stubs)
 
 
-def build_code_stub(task: dict) -> str | None:
+def build_code_stub(task: dict, language: str = "python") -> str | None:
     """Build an editor scaffold for a code task from its step prompts.
 
     Starter code lives on each step (there is no task-level scaffold), so this
     composes a best-effort stub when the view has no active step.
     """
-    return _compose_step_scaffold(task)
+    return _compose_step_scaffold(task, language)
 
 
 def effective_parts(task: dict) -> list[dict]:
@@ -307,27 +310,39 @@ def active_phase(task: dict, session: Session) -> Optional[dict]:
     return parts[idx]
 
 
-def _phase_scaffold(task: dict, part: dict) -> Optional[str]:
-    """Starter code for one phase: its own scaffold, else a composed stub."""
-    if part.get("scaffold"):
-        return part["scaffold"]
-    return _compose_step_scaffold({"parts": [part]})
+def _phase_scaffold(task: dict, part: dict, language: Optional[str] = None) -> Optional[str]:
+    """Starter code for one phase in ``language`` (default: the task's first)."""
+    from coach.tasks import part_scaffold
+
+    default_language = task.get("language") or "python"
+    code = part_scaffold(part, language, default_language)
+    if code:
+        return code
+    return _compose_step_scaffold({"parts": [part]}, language or default_language)
 
 
 def task_view(
-    task: dict, session: Session, previous_code: Optional[str] = None
+    task: dict,
+    session: Session,
+    previous_code: Optional[str] = None,
+    language: Optional[str] = None,
 ) -> dict | None:
     """Build the client-facing view of a task.
 
     Every task is step-by-step: the view emits only the active step plus
     ``phase_index``/``phase_total`` and its own scaffold, so the learner sees
     one step at a time with their prior code carried forward via
-    ``previous_code``. Every task has at least one part.
+    ``previous_code``. Every task has at least one part. For a multi-language
+    task, ``language`` is the candidate's locked answer language (from a prior
+    step); it becomes the view's default so a resume reopens in that language.
     """
     if task is None:
         return None
     parts = effective_parts(task)
     active = active_phase(task, session)
+    languages = list(task.get("languages") or [task.get("language") or "python"])
+    default_language = languages[0]
+    view_language = language if language in languages else default_language
     view = {
         "id": task["id"],
         "type": "code",
@@ -335,11 +350,19 @@ def task_view(
         "prompt": parts[0]["prompt"] if parts else task.get("prompt", ""),
         "difficulty": task.get("difficulty", 1),
         "max_score": task.get("max_score", 5),
-        "scaffold": _phase_scaffold(task, active) if active else build_code_stub(task),
+        "scaffold": _phase_scaffold(task, active, view_language) if active else build_code_stub(task, view_language),
         "tags": task.get("tags") or {"primary": None, "secondary": []},
         "task_type": task.get("task_type") or "implement",
-        "language": task.get("language") or "python",
+        "language": view_language,
+        "languages": languages,
     }
+    # A multi-language task exposes every declared language's starter code so
+    # the learner can switch without a round-trip; its first language is the
+    # default and the submission is locked to whichever they pick.
+    if active and len(languages) > 1:
+        view["scaffolds"] = {
+            lang: (_phase_scaffold(task, active, lang) or "") for lang in languages
+        }
     if active:
         idx = completed_phases(task, session)
         view["delivery"] = "phased"

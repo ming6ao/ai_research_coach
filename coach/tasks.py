@@ -72,6 +72,9 @@ class TaskModel(Base):
     tags_json: Mapped[str] = mapped_column(Text, nullable=False, default='{"primary": null, "secondary": []}')
     task_type: Mapped[str] = mapped_column(String(32), nullable=False, default="implement")
     language: Mapped[str] = mapped_column(String(32), nullable=False, default="python")
+    # Ordered, de-duplicated list of languages a candidate may answer in. The
+    # first entry is the default (and always mirrors ``language``).
+    languages_json: Mapped[str] = mapped_column(Text, nullable=False, default='["python"]')
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     parent_task_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     target_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -155,6 +158,57 @@ def normalize_language(language: Optional[str]) -> str:
     return key if key in ALLOWED_LANGUAGES else "python"
 
 
+def normalize_languages(
+    languages: Optional[list], fallback: Optional[str] = None
+) -> list[str]:
+    """Canonical, de-duplicated, order-preserving language list.
+
+    Never returns an empty list: an empty/unknown input collapses to
+    ``[normalize_language(fallback)]`` (``python`` when ``fallback`` is empty).
+    """
+    out: list[str] = []
+    for item in languages or []:
+        key = normalize_language(item)
+        if key not in out:
+            out.append(key)
+    if not out:
+        out = [normalize_language(fallback)]
+    return out
+
+
+def parse_languages(
+    languages_json: Optional[str], fallback: Optional[str] = None
+) -> list[str]:
+    """Parse stored ``languages_json``; always returns a non-empty list."""
+    try:
+        parsed = json.loads(languages_json or "[]")
+    except Exception:
+        parsed = []
+    if not isinstance(parsed, list):
+        parsed = []
+    return normalize_languages(parsed, fallback)
+
+
+def part_scaffold(
+    part: dict, language: Optional[str] = None, default: Optional[str] = None
+) -> str:
+    """Starter code for a step in ``language``.
+
+    Multi-language steps store a ``scaffolds`` map; single-language steps keep
+    the legacy ``scaffold`` string. Falls back to the default language (or the
+    legacy ``scaffold``) when the requested language has no dedicated stub.
+    """
+    if not isinstance(part, dict):
+        return ""
+    scaffolds = part.get("scaffolds") or {}
+    if isinstance(scaffolds, dict):
+        if language and scaffolds.get(language):
+            return str(scaffolds[language])
+        if default and scaffolds.get(default):
+            return str(scaffolds[default])
+    return str(part.get("scaffold") or "")
+
+
 def parse_parts(parts_json: Optional[str]) -> list[dict]:
     """Parse a stored ``parts_json`` value into a list of part dicts.
 
@@ -196,6 +250,15 @@ def parse_parts(parts_json: Optional[str]) -> list[dict]:
         scaffold = str(item.get("scaffold") or "").strip()[:16000]
         if scaffold:
             entry["scaffold"] = scaffold
+        raw_scaffolds = item.get("scaffolds")
+        if isinstance(raw_scaffolds, dict):
+            cleaned: dict[str, str] = {}
+            for lang, code in raw_scaffolds.items():
+                code = str(code or "").strip()[:16000]
+                if code:
+                    cleaned[normalize_language(lang)] = code
+            if cleaned:
+                entry["scaffolds"] = cleaned
         out.append(entry)
     return out
 
@@ -205,17 +268,35 @@ def serialize_parts(parts: Optional[list]) -> str:
     return json.dumps(parts or [])
 
 
-def validate_parts(parts) -> list[dict]:
+def validate_parts(parts, languages: Optional[list] = None) -> list[dict]:
     """Validate a parts list; returns the normalized list. Raises ValueError.
 
     Every part needs a unique ``key``, a non-empty ``prompt``,
     taxonomy-validated ``tags``, a ``max_score`` in 1..100, a
-    ``difficulty`` in 1..5, and its own ``scaffold`` (starter code).
+    ``difficulty`` in 1..5, and starter code for every declared language.
+
+    ``languages`` is the ordered task language list. When omitted it is
+    inferred from the parts' ``scaffolds`` maps (default ``[\"python\"]``), so
+    direct callers keep the legacy single-scaffold behavior. A part stores a
+    ``scaffolds`` map when the task declares more than one language and always
+    keeps ``scaffold`` as the default-language stub for backward compatibility.
     """
     from coach.taxonomy import validate as validate_tags
 
     if not isinstance(parts, list) or not parts:
         raise ValueError("At least one part is required.")
+    if languages is None:
+        inferred: list[str] = []
+        for item in parts:
+            if not isinstance(item, dict):
+                continue
+            raw = item.get("scaffolds")
+            if isinstance(raw, dict):
+                inferred.extend(raw.keys())
+        langs = normalize_languages(inferred or None)
+    else:
+        langs = normalize_languages(languages)
+    default_language = langs[0]
     out: list[dict] = []
     seen: set[str] = set()
     for item in parts:
@@ -242,11 +323,26 @@ def validate_parts(parts) -> list[dict]:
             difficulty = max(1, min(5, int(item.get("difficulty") or 1)))
         except (TypeError, ValueError):
             raise ValueError(f"Part {key!r} difficulty must be an integer 1..5.")
-        scaffold = str(item.get("scaffold") or "").strip()
-        if len(scaffold) > 16000:
-            raise ValueError(f"Part {key!r} scaffold must be at most 16000 characters.")
-        if not scaffold:
-            raise ValueError(f"Part {key!r} needs a scaffold (starter code).")
+        scaffolds: dict[str, str] = {}
+        raw_scaffolds = item.get("scaffolds")
+        if isinstance(raw_scaffolds, dict):
+            for lang, code in raw_scaffolds.items():
+                code = str(code or "").strip()
+                if code:
+                    scaffolds[normalize_language(lang)] = code
+        legacy_scaffold = str(item.get("scaffold") or "").strip()
+        if legacy_scaffold:
+            scaffolds.setdefault(default_language, legacy_scaffold)
+        missing_languages = [lang for lang in langs if not scaffolds.get(lang)]
+        if missing_languages:
+            raise ValueError(
+                f"Part {key!r} needs a scaffold for: {', '.join(missing_languages)}."
+            )
+        for lang, code in scaffolds.items():
+            if len(code) > 16000:
+                raise ValueError(
+                    f"Part {key!r} scaffold ({lang}) must be at most 16000 characters."
+                )
         try:
             pass_score = int(item.get("pass_score"))
         except (TypeError, ValueError):
@@ -259,8 +355,10 @@ def validate_parts(parts) -> list[dict]:
             "max_score": max_score,
             "difficulty": difficulty,
             "pass_score": pass_score,
-            "scaffold": scaffold,
+            "scaffold": scaffolds[default_language],
         }
+        if len(langs) > 1:
+            part["scaffolds"] = {lang: scaffolds[lang] for lang in langs}
         out.append(part)
     return out
 
@@ -322,6 +420,10 @@ def derive_step_tags(parts: list[dict]) -> dict | None:
 
 def task_to_dict(model: TaskModel) -> dict:
     parts = parse_parts(getattr(model, "parts_json", "") or "[]")
+    languages = parse_languages(
+        getattr(model, "languages_json", "") or "[]",
+        getattr(model, "language", "") or "python",
+    )
     d: dict[str, Any] = {
         "id": model.id,
         "prompt": _task_prompt(parts),
@@ -330,7 +432,8 @@ def task_to_dict(model: TaskModel) -> dict:
         "context_notes": getattr(model, "context_notes", "") or "",
         "tags": parse_tags(getattr(model, "tags_json", "")),
         "task_type": getattr(model, "task_type", "") or "implement",
-        "language": normalize_language(getattr(model, "language", "")),
+        "language": languages[0],
+        "languages": languages,
         "source": model.source,
         "is_public": bool(model.is_public),
         "owner": model.owner,
@@ -362,6 +465,7 @@ def create_task(
     tags: Optional[dict] = None,
     task_type: str = "implement",
     language: Optional[str] = None,
+    languages: Optional[list] = None,
 ) -> dict:
     """Persist a task row and return its dict form.
 
@@ -371,7 +475,10 @@ def create_task(
     (``coach.taxonomy.validate``); invalid or missing tags raise
     ``ValueError`` — every task must be categorized. When ``tags`` is omitted
     they are auto-derived from the steps. ``max_score`` and ``difficulty``
-    default to the steps' aggregates when omitted.
+    default to the steps' aggregates when omitted. ``languages`` is the
+    ordered list of languages the task accepts; ``language`` is the legacy
+    single-language shorthand for it, and each declared language needs a
+    scaffold on every step.
     """
     from coach.db import create_schema
 
@@ -380,7 +487,8 @@ def create_task(
 
     if task_type not in TASK_TYPES:
         raise ValueError(f"Unknown task_type: {task_type!r}.")
-    parts = validate_parts(parts)
+    langs = normalize_languages(languages, language)
+    parts = validate_parts(parts, langs)
     tid = task_id or f"task_{uuid.uuid4().hex[:10]}"
 
     if tags is None:
@@ -410,7 +518,8 @@ def create_task(
             context_notes=(context_notes or "").strip()[:2000],
             tags_json=serialize_tags(tags),
             task_type=task_type,
-            language=normalize_language(language),
+            language=langs[0],
+            languages_json=json.dumps(langs),
             source=source,
             parent_task_id=parent_task_id,
             target_text=target_text,
@@ -440,7 +549,7 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
     allowed = {
         "difficulty", "max_score", "parts",
         "is_public", "context_notes", "tags", "task_type", "language",
-        "owner",
+        "languages", "owner",
     }
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if "owner" in updates and not str(updates["owner"]).strip():
@@ -448,28 +557,42 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
     create_schema()
     from coach.taxonomy import TASK_TYPES, validate as validate_tags
 
-    if "tags" in updates:
-        updates["tags"] = validate_tags(updates["tags"])
-    if "parts" in updates:
-        updates["parts"] = validate_parts(updates["parts"])
-        # Task-level tags are a summary of the steps: re-derive them when the
-        # author edits the steps without explicitly overriding the tags.
-        if "tags" not in updates:
-            derived = derive_step_tags(updates["parts"])
-            if derived is not None:
-                updates["tags"] = derived
-    if "task_type" in updates and updates["task_type"] not in TASK_TYPES:
-        raise ValueError(f"Unknown task_type: {updates['task_type']!r}.")
-    if "parts" in updates:
-        if "difficulty" not in updates:
-            updates["difficulty"] = max(p["difficulty"] for p in updates["parts"])
-        if "max_score" not in updates:
-            updates["max_score"] = sum(p["max_score"] for p in updates["parts"])
     session = learner_session()
     try:
         model = session.get(TaskModel, task_id)
         if model is None:
             return None
+
+        current_languages = parse_languages(
+            getattr(model, "languages_json", "") or "[]",
+            getattr(model, "language", "") or "python",
+        )
+        if "languages" in updates:
+            new_languages = normalize_languages(updates["languages"], current_languages[0])
+        elif "language" in updates:
+            # Legacy single-language shorthand resets the declared set.
+            new_languages = normalize_languages(None, updates["language"])
+        else:
+            new_languages = current_languages
+
+        if "tags" in updates:
+            updates["tags"] = validate_tags(updates["tags"])
+        if "parts" in updates:
+            updates["parts"] = validate_parts(updates["parts"], new_languages)
+            # Task-level tags are a summary of the steps: re-derive them when the
+            # author edits the steps without explicitly overriding the tags.
+            if "tags" not in updates:
+                derived = derive_step_tags(updates["parts"])
+                if derived is not None:
+                    updates["tags"] = derived
+        if "task_type" in updates and updates["task_type"] not in TASK_TYPES:
+            raise ValueError(f"Unknown task_type: {updates['task_type']!r}.")
+        if "parts" in updates:
+            if "difficulty" not in updates:
+                updates["difficulty"] = max(p["difficulty"] for p in updates["parts"])
+            if "max_score" not in updates:
+                updates["max_score"] = sum(p["max_score"] for p in updates["parts"])
+
         if "difficulty" in updates:
             model.difficulty = max(1, min(5, int(updates["difficulty"])))
         if "max_score" in updates:
@@ -484,8 +607,9 @@ def update_task(task_id: str, **fields) -> Optional[dict]:
             model.tags_json = serialize_tags(updates["tags"])
         if "task_type" in updates:
             model.task_type = updates["task_type"]
-        if "language" in updates:
-            model.language = normalize_language(updates["language"])
+        if "language" in updates or "languages" in updates:
+            model.language = new_languages[0]
+            model.languages_json = json.dumps(new_languages)
         if "owner" in updates:
             model.owner = str(updates["owner"]).strip()
         session.commit()

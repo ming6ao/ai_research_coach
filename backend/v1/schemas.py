@@ -24,6 +24,10 @@ class SessionCreateRequest(BaseModel):
 class AnswerSubmitRequest(BaseModel):
     task_id: str = Field(min_length=1, max_length=128)
     answer: str = Field(min_length=1, max_length=50000)
+    # Language the candidate answered in (multi-language tasks only); the
+    # server clamps it to the task's declared set and locks it after the first
+    # submission.
+    language: Optional[str] = Field(default=None, max_length=32)
 
 
 class TaskCreateRequest(BaseModel):
@@ -36,6 +40,9 @@ class TaskCreateRequest(BaseModel):
     tags: Optional[dict[str, Any]] = None
     task_type: Optional[str] = Field(default=None, max_length=32)
     language: Optional[str] = Field(default=None, max_length=32)
+    # Ordered list of accepted languages; the first is the default. Every
+    # declared language needs its own scaffold on every step.
+    languages: Optional[list[str]] = Field(default=None, max_length=8)
 
 
 class TaskDraftRequest(BaseModel):
@@ -50,6 +57,7 @@ class TaskDraftRequest(BaseModel):
     draft: Optional[dict[str, Any]] = None
     instruction: Optional[str] = Field(default=None, max_length=2000)
     language: Optional[str] = Field(default=None, max_length=32)
+    languages: Optional[list[str]] = Field(default=None, max_length=8)
     task_type: Optional[str] = Field(default=None, max_length=32)
     difficulty: Optional[int] = Field(default=None, ge=1, le=5)
     context: Optional[str] = Field(default=None, max_length=2000)
@@ -64,6 +72,7 @@ class TaskPatchRequest(BaseModel):
     tags: Optional[dict[str, Any]] = None
     task_type: Optional[str] = Field(default=None, max_length=32)
     language: Optional[str] = Field(default=None, max_length=32)
+    languages: Optional[list[str]] = Field(default=None, max_length=8)
     owner: Optional[str] = Field(default=None, max_length=255)
 
 

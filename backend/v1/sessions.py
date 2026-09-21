@@ -137,12 +137,30 @@ def _latest_task_step(session_id: str, task_id: str):
     return steps[-1] if steps else None
 
 
-def _last_code_for(session_id: str, task_id: str):
-    """Candidate's latest submitted code for a task (phase carry-forward)."""
+def _last_code_for(session_id: str, task_id: str, language: Optional[str] = None):
+    """Candidate's latest submitted code for a task (phase carry-forward).
+
+    Scoped to one language so switching a multi-language task never carries a
+    stub from another language.
+    """
     try:
         from coach.steps import answer_for_task
 
-        return answer_for_task(session_id, task_id)
+        return answer_for_task(session_id, task_id, language=language)
+    except Exception:
+        return None
+
+
+def _last_language_for(session_id: str, task_id: str):
+    """Language the candidate first answered a task in (locked), or None."""
+    try:
+        from coach.steps import list_steps
+
+        for s in list_steps(session_id):
+            tid = s.get("task_id") or (s.get("task_snapshot") or {}).get("id")
+            if tid == task_id and s.get("language"):
+                return s["language"]
+        return None
     except Exception:
         return None
 
@@ -167,6 +185,7 @@ def _replay_response(session, session_id: str, step: dict) -> dict:
             "ability_update": None,
             "mastery": _mastery_dict(session),
             "already_answered": True,
+            "language": step.get("language") or None,
         }
     }
 
@@ -398,9 +417,22 @@ def submit_answer(
     parts = effective_parts(task)
     idx = completed_phases(task, session)
     active = parts[idx]
-    previous_code = _last_code_for(session_id, task["id"])
+    # Resolve the answer language: multi-language tasks take the candidate's
+    # choice (defaulting to the first declared language), and the choice is
+    # locked to the language of the task's first recorded answer.
+    from coach.tasks import normalize_language
+
+    languages = list(task.get("languages") or [task.get("language") or "python"])
+    locked_language = _last_language_for(session_id, task["id"])
+    if locked_language:
+        chosen_language = normalize_language(locked_language)
+    else:
+        requested = normalize_language(req.language) if req.language else languages[0]
+        chosen_language = requested if requested in languages else languages[0]
+    previous_code = _last_code_for(session_id, task["id"], chosen_language)
     judge_task = {
         **task,
+        "language": chosen_language,
         "parts": [active],
         "max_score": int(active.get("max_score") or 5),
         "difficulty": int(active.get("difficulty") or task.get("difficulty") or 2),
@@ -445,6 +477,7 @@ def submit_answer(
         after,
         result.to_dict(),
         coach.to_dict(),
+        language=chosen_language,
     )
     session.submission_index += 1
 
@@ -503,6 +536,7 @@ def submit_answer(
             "ability_update": ability_update,
             "mastery": _mastery_dict(session),
             "already_answered": False,
+            "language": chosen_language,
         }
     }
 

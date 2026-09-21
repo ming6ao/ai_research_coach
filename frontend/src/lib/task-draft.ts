@@ -24,16 +24,29 @@ export interface DraftStepLike {
   key: string;
   prompt: string;
   primary: string;
-  scaffold: string;
+  /** Legacy single-language starter code. */
+  scaffold?: string;
+  /** Per-language starter code for multi-language steps. */
+  scaffolds?: Record<string, string>;
+}
+
+/** Starter code for one step in ``language`` (legacy ``scaffold`` = python). */
+function scaffoldFor(step: DraftStepLike, language: string): string {
+  const fromMap = step.scaffolds?.[language];
+  if (fromMap != null) return fromMap.trim();
+  if (language === 'python') return (step.scaffold ?? '').trim();
+  return '';
 }
 
 /**
  * First blocking problem in the curator's step drafts, or null when the form
  * is ready to submit. Empty trailing steps are ignored. Includes the step
- * index so the editor can focus the offending step.
+ * index so the editor can focus the offending step. Every declared language
+ * must have starter code.
  */
 export function findStepDraftError(
   steps: DraftStepLike[],
+  languages: string[] = ['python'],
 ): { index: number; message: string } | null {
   const seen = new Set<string>();
   for (let i = 0; i < steps.length; i += 1) {
@@ -50,7 +63,7 @@ export function findStepDraftError(
     if (!steps[i].primary) {
       return { index: i, message: `Step ${i + 1} needs a primary skill.` };
     }
-    if (!steps[i].scaffold.trim()) {
+    if (languages.some((lang) => !scaffoldFor(steps[i], lang))) {
       return { index: i, message: `Step ${i + 1} needs starter code.` };
     }
   }

@@ -105,6 +105,7 @@ def create_task(
             tags=tags,
             task_type=req.task_type or "implement",
             language=req.language,
+            languages=req.languages,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -140,7 +141,8 @@ def draft_task(
             req.steps,
             draft=req.draft,
             instruction=req.instruction or "",
-            language=req.language or "python",
+            language=(req.languages[0] if req.languages else req.language) or "python",
+            languages=req.languages,
             task_type=req.task_type or "",
             difficulty=req.difficulty,
             context=req.context or "",

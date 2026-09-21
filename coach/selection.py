@@ -30,14 +30,28 @@ from typing import Optional
 from coach.session import effective_parts, task_view
 
 
-def _last_code_for(session_id: Optional[str], task_id: str) -> Optional[str]:
+def _last_code_for(
+    session_id: Optional[str], task_id: str, language: Optional[str] = None
+) -> Optional[str]:
     """Fetch the candidate's latest submitted code for a task, or None."""
     if not session_id:
         return None
     try:
         from coach.steps import answer_for_task
 
-        return answer_for_task(session_id, task_id)
+        return answer_for_task(session_id, task_id, language=language)
+    except Exception:
+        return None
+
+
+def _locked_language(session_id: Optional[str], task_id: str) -> Optional[str]:
+    """Language the candidate already answered a task in, or None."""
+    if not session_id:
+        return None
+    try:
+        from coach.steps import language_for_task
+
+        return language_for_task(session_id, task_id)
     except Exception:
         return None
 
@@ -122,11 +136,17 @@ def pick_next_task(
     active = _active_step_task(session, (last_submission or {}).get("task"))
     if active is not None:
         previous_code = None
+        locked_language = _locked_language(session_id, active["id"])
         if last_submission and last_submission.get("answer"):
             previous_code = last_submission.get("answer")
         else:
-            previous_code = _last_code_for(session_id, active["id"])
-        return task_view(active, session, previous_code=previous_code)
+            previous_code = _last_code_for(session_id, active["id"], locked_language)
+        return task_view(
+            active,
+            session,
+            previous_code=previous_code,
+            language=locked_language,
+        )
 
     # 3. Judge-driven follow-up after a submission (LLM drill/escalate/pivot).
     # Write branch: skipped on read/replay paths (allow_generation=False).
