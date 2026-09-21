@@ -2,7 +2,6 @@ import { Fragment, memo, useEffect, useRef, useState } from 'react';
 import { useAssessmentStore, type ResultWithFeedback } from '../../stores/assessmentStore';
 import { CodeEditor } from '../TaskPanel/CodeEditor';
 import { Markdown } from '../Markdown/Markdown';
-import { Composer } from '../Composer/Composer';
 import { CodeBlock } from '../CodeBlock/CodeBlock';
 import { CoachBubble, QuestionBubble } from '../Task/QuestionBubble';
 
@@ -194,10 +193,9 @@ function ChatViewInner() {
     currentTask?.scaffolds,
   ]);
 
-  const handleSubmit = (note: string) => {
+  const handleSubmit = () => {
     if (!currentTask) return;
-    const answer = note ? `${code}${NOTE_SEPARATOR}${note}` : code;
-    useAssessmentStore.getState().submitAnswer(currentTask.id, answer);
+    useAssessmentStore.getState().submitAnswer(currentTask.id, code);
   };
 
   // A new task/step starts at the top so the question is visible before the
@@ -335,25 +333,23 @@ function ChatViewInner() {
         <div className="shrink-0 border-t border-[var(--color-border-default)] bg-[var(--color-bg-primary)]">
           <div className="mx-auto max-w-2xl space-y-2 px-4 py-3 lg:max-w-4xl xl:max-w-6xl">
             {showTask && currentTask && (
-              <>
-                <Composer
-                  placeholder="Add a note (optional) and submit…"
-                  onSubmit={handleSubmit}
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={completeSession}
                   disabled={loading}
-                  allowEmpty
-                />
-                {results.length > 0 && (
-                  <p className="text-center">
-                    <button
-                      onClick={completeSession}
-                      disabled={loading}
-                      className="text-xs text-[var(--color-text-muted)] underline-offset-2 transition-colors hover:text-[var(--color-text-secondary)] hover:underline disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      Finish session and view progress
-                    </button>
-                  </p>
-                )}
-              </>
+                  title="Finish the session and view your progress (the session otherwise keeps going)"
+                  className="rounded-lg px-4 py-2 text-sm text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Finish
+                </button>
+                <button
+                  onClick={handleSubmit}
+                  disabled={loading}
+                  className="rounded-lg bg-[var(--color-accent)] px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Submit
+                </button>
+              </div>
             )}
 
             {/* Teaching pause: hold the next task until the candidate continues. */}

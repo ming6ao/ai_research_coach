@@ -7,7 +7,7 @@ interface Props {
 }
 
 export function Header({ onOpenAuth, onOpenCurator }: Props) {
-  const { sessionId, taskIndex, completeSession, loading, reset } = useAssessmentStore();
+  const { sessionId, taskIndex, reset } = useAssessmentStore();
   const { user, logout } = useAuthStore();
 
   const handleLogout = () => {
@@ -30,17 +30,6 @@ export function Header({ onOpenAuth, onOpenCurator }: Props) {
             Q {taskIndex + 1}
           </span>
         )}
-        {sessionId && (
-          <button
-            onClick={completeSession}
-            disabled={loading}
-            title="Finish the session and view your progress (the session otherwise keeps going)"
-            className="rounded-lg px-3 py-1.5 text-xs text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)] disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Finish
-          </button>
-        )}
-
         {user ? (
           <>
             <button
