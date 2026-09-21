@@ -174,15 +174,15 @@ function ChatViewInner() {
   const phaseIndex = currentTask?.phase_index ?? null;
   const language = selectedLanguage ?? currentTask?.language ?? 'python';
   const multiLanguage = (currentTask?.languages?.length ?? 0) > 1;
-  // The picker locks once the task has a submitted step (the server enforces
-  // this too, so prior code is always in one language).
-  const languageLocked = !!currentTask?.previous_code;
+  // The picker locks once the task has moved past its first step (the server
+  // enforces this too, so every answer is in one language).
+  const languageLocked = (currentTask?.phase_index ?? 1) > 1;
   useEffect(() => {
-    // A phased step carries the candidate's prior code; otherwise start from
-    // the chosen language's scaffold (falling back to the default scaffold).
+    // Each step starts from its own starter code; nothing is carried forward
+    // from a prior answer. Fall back to the default scaffold for
+    // single-language steps.
     setCode(
-      currentTask?.previous_code
-        ?? currentTask?.scaffolds?.[language]
+      currentTask?.scaffolds?.[language]
         ?? currentTask?.scaffold
         ?? '',
     );
@@ -192,7 +192,6 @@ function ChatViewInner() {
     language,
     currentTask?.scaffold,
     currentTask?.scaffolds,
-    currentTask?.previous_code,
   ]);
 
   const handleSubmit = (note: string) => {

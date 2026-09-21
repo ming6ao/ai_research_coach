@@ -49,7 +49,7 @@ class SessionStepModel(Base):
     result_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     coaching_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     # Language the candidate answered in; lets review render the right editor
-    # mode and keeps prior code carry-forward per language.
+    # mode and scopes per-language scaffolds on resume.
     language: Mapped[str] = mapped_column(String(32), nullable=False, default="python")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 

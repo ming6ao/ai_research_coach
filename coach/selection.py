@@ -4,8 +4,7 @@
    (generated tasks are excluded from the bank picker).
 2. Active step task — a task that has been started but not completed
    continues on its next step (delivery always advances after a
-   submission). Its view carries the candidate's prior code forward as
-   ``previous_code``.
+   submission). Each step renders its own scaffold.
 3. Judge-driven follow-up — after a submission, ``plan_followup`` may inject
    an adaptive drill (simpler on failure; harder escalation or sibling
    prerequisite pivot after a solved follow-up).
@@ -28,20 +27,6 @@ from __future__ import annotations
 from typing import Optional
 
 from coach.session import effective_parts, task_view
-
-
-def _last_code_for(
-    session_id: Optional[str], task_id: str, language: Optional[str] = None
-) -> Optional[str]:
-    """Fetch the candidate's latest submitted code for a task, or None."""
-    if not session_id:
-        return None
-    try:
-        from coach.steps import answer_for_task
-
-        return answer_for_task(session_id, task_id, language=language)
-    except Exception:
-        return None
 
 
 def _locked_language(session_id: Optional[str], task_id: str) -> Optional[str]:
@@ -100,14 +85,13 @@ def pick_next_task(
     """Choose the next task to present.
 
     ``last_submission`` carries ``{"task", "answer", "result", "coach"}``
-    from a just-recorded submission (``answer`` is the candidate's code,
-    carried into the next step). ``sample_top_n`` (> 1) samples uniformly
+    from a just-recorded submission. ``sample_top_n`` (> 1) samples uniformly
     from the top-N EIG bank candidates instead of always taking the single
     best; it applies to the bank-picker branch only. ``node`` restricts the
     bank-picker branch to tasks in one domain/area/skill (used to seed a
     session with a question from an area); it never affects
-    pending/follow-up branches. ``session_id`` lets the resume path fetch the
-    candidate's prior code for an in-progress step task.
+    pending/follow-up branches. ``session_id`` lets the resume path recover
+    the locked answer language for an in-progress step task.
 
     ``allow_generation=False`` disables the two LLM write branches (3 and 5)
     for read/replay callers: it only surfaces a generated task already present
@@ -132,21 +116,12 @@ def pick_next_task(
     if pending is not None:
         return task_view(pending, session)
 
-    # 2. Continue an active step task.
+    # 2. Continue an active step task. Each step starts from its own
+    # scaffold, so no prior code is carried into the view.
     active = _active_step_task(session, (last_submission or {}).get("task"))
     if active is not None:
-        previous_code = None
         locked_language = _locked_language(session_id, active["id"])
-        if last_submission and last_submission.get("answer"):
-            previous_code = last_submission.get("answer")
-        else:
-            previous_code = _last_code_for(session_id, active["id"], locked_language)
-        return task_view(
-            active,
-            session,
-            previous_code=previous_code,
-            language=locked_language,
-        )
+        return task_view(active, session, language=locked_language)
 
     # 3. Judge-driven follow-up after a submission (LLM drill/escalate/pivot).
     # Write branch: skipped on read/replay paths (allow_generation=False).

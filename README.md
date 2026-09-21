@@ -92,8 +92,8 @@ python check_env.py          # verify env + model connectivity
 task is picked by `pick_next_task`.
 2. **Task loop** — the candidate writes code; the LLM judge returns a score, a rationale, and a
    **coaching response** (misconception + step-by-step walkthrough with code). Every task is
-   step-by-step: its steps are delivered one at a time and the candidate's code is carried
-   forward via `previous_code`.
+   step-by-step: its steps are delivered one at a time and each step starts from
+   its own starter code.
 3. **Teaching pause** — the UI never auto-advances. The coaching response and per-part
    results are shown; the candidate clicks **Next step**
    to continue. The next task is chosen by the hybrid `pick_next_task`:
@@ -120,8 +120,8 @@ with `allow_generation=False` so a read never mints a task.
   `EIG / expected_time`; when the bank is exhausted a fresh generated challenge keeps the session
   going until the candidate finishes.
 - **Step-by-step tasks**: the judge scores the active step; every submission
-  advances to the next step with the candidate's prior code, regardless of the
-  score (there is no pass gate or per-step retry).
+  advances to the next step, which starts from its own scaffold, regardless of
+  the score (there is no pass gate or per-step retry).
 - **Follow-ups** (`coach/remediation.py`): the judge's gap text
   (misconception/feedback) drives one simpler drill task on weak answers;
   clean solves generate nothing. Budget caps keep the loop finite.

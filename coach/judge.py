@@ -174,7 +174,7 @@ def score_targets(task: dict) -> list[dict]:
 
 class LLMJudge:
     def evaluate(
-        self, task: dict, answer: str, previous_code: Optional[str] = None
+        self, task: dict, answer: str
     ) -> tuple[EvaluationResult, CoachContent]:
         targets = score_targets(task)
         max_score = sum(int(p.get("max_score") or 5) for p in targets)
@@ -191,11 +191,6 @@ class LLMJudge:
             f"Implementation language: {language}\n\n"
             f"Parts to implement (score every part):\n{parts_block}\n\n"
         )
-        if previous_code:
-            user += (
-                "Previous implementation this builds on:\n"
-                f"```\n{previous_code}\n```\n\n"
-            )
         user += f"Candidate's code:\n```\n{answer}\n```"
 
         try:

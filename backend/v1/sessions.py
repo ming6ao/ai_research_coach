@@ -137,20 +137,6 @@ def _latest_task_step(session_id: str, task_id: str):
     return steps[-1] if steps else None
 
 
-def _last_code_for(session_id: str, task_id: str, language: Optional[str] = None):
-    """Candidate's latest submitted code for a task (phase carry-forward).
-
-    Scoped to one language so switching a multi-language task never carries a
-    stub from another language.
-    """
-    try:
-        from coach.steps import answer_for_task
-
-        return answer_for_task(session_id, task_id, language=language)
-    except Exception:
-        return None
-
-
 def _last_language_for(session_id: str, task_id: str):
     """Language the candidate first answered a task in (locked), or None."""
     try:
@@ -412,8 +398,7 @@ def submit_answer(
     ):
         return _replay_response(session, session_id, latest)
 
-    # Every task is step-by-step: score only the active step, judged against
-    # the candidate's previous code for the same task.
+    # Every task is step-by-step: score only the active step.
     parts = effective_parts(task)
     idx = completed_phases(task, session)
     active = parts[idx]
@@ -429,7 +414,6 @@ def submit_answer(
     else:
         requested = normalize_language(req.language) if req.language else languages[0]
         chosen_language = requested if requested in languages else languages[0]
-    previous_code = _last_code_for(session_id, task["id"], chosen_language)
     judge_task = {
         **task,
         "language": chosen_language,
@@ -445,7 +429,7 @@ def submit_answer(
         else "bank"
     )
 
-    result, coach = LLMJudge().evaluate(judge_task, req.answer, previous_code=previous_code)
+    result, coach = LLMJudge().evaluate(judge_task, req.answer)
 
     observation = effective_score(result.fraction)
     before, after, new_score, new_variance, new_questions = _update_beliefs(

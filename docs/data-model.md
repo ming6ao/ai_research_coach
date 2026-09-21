@@ -127,8 +127,8 @@ The question bank, authored directly in the DB via `POST /api/v1/tasks` or the
 curator UI. Each task
 carries tags (1 primary leaf skill + 0–2 secondary) and a `task_type`.
 Delivery is always **step-by-step**: `parts` are shown one at a time
-(every submission advances to the next step regardless of the score, code
-carried forward). Every task has at least one part; a
+(every submission advances to the next step regardless of the score, each
+step starting from its own scaffold). Every task has at least one part; a
 single-step question is a one-part task (there is no partless request).
 Task-level `difficulty`/`max_score` and `prompt` are all derived from the steps:
 `prompt` is always the first step's prompt, never authored separately. The old

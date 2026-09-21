@@ -2,8 +2,9 @@
 
 One task may declare several accepted languages; every step must carry a
 scaffold for each declared language. The candidate picks a language, which is
-locked after the first submission, and prior code is carried forward per
-language. Single-language tasks keep the legacy ``scaffold``/``language`` shape.
+locked after the first submission, and each step starts from that language's
+own scaffold. Single-language tasks keep the legacy ``scaffold``/``language``
+shape.
 """
 
 from __future__ import annotations
@@ -16,15 +17,15 @@ from coach.judge import CoachContent, EvaluationResult
 
 
 class RecordingJudge:
-    """Judge that records the language and prior code it was called with."""
+    """Judge that records the language it was called with."""
 
     def __init__(self):
-        self.calls: list[tuple[str, str | None]] = []
+        self.calls: list[str | None] = []
 
-    def evaluate(self, task, answer, previous_code=None):
+    def evaluate(self, task, answer):
         from coach.judge import score_targets
 
-        self.calls.append((task.get("language"), previous_code))
+        self.calls.append(task.get("language"))
         targets = score_targets(task)
         parts = [
             {"key": p["key"], "score": p["max_score"], "rationale": "ok"}
@@ -185,26 +186,35 @@ def test_chosen_language_flows_to_judge_and_is_locked(ctx):
 
     first = _answer(client, data["id"], "multi_01", "CPP STEP 1", language="cpp")
     assert first["language"] == "cpp"
-    assert judge.calls[-1] == ("cpp", None)
+    assert judge.calls[-1] == "cpp"
 
     # Step 2 is a new step of the same task: the language stays locked to cpp
     # even when the client asks for python.
     second = _answer(client, data["id"], "multi_01", "PY STEP 2", language="python")
     assert second["language"] == "cpp"
-    assert judge.calls[-1] == ("cpp", "CPP STEP 1")
+    assert judge.calls[-1] == "cpp"
 
 
-def test_previous_code_is_carried_per_language(ctx):
+def test_next_step_uses_its_own_scaffold(ctx):
     from coach.steps import list_steps
 
     client, judge = ctx
     data = _start(client, ["multi_01"])
-    _answer(client, data["id"], "multi_01", "PY STEP 1", language="python")
-    _answer(client, data["id"], "multi_01", "PY STEP 2", language="python")
+    first = _answer(client, data["id"], "multi_01", "PY STEP 1", language="python")
 
+    nxt = first["next_task"]
+    assert nxt["id"] == "multi_01"
+    assert nxt["phase_index"] == 2
+    # The second step starts from its own starter code; nothing is carried
+    # forward from the first answer.
+    assert "previous_code" not in nxt
+    assert nxt["scaffold"].startswith("def causal")
+    assert nxt["scaffolds"]["python"].startswith("def causal")
+
+    _answer(client, data["id"], "multi_01", "PY STEP 2", language="python")
     steps = list_steps(data["id"])
     assert [s["language"] for s in steps] == ["python", "python"]
-    assert judge.calls[-1] == ("python", "PY STEP 1")
+    assert judge.calls == ["python", "python"]
 
 
 def test_default_language_used_when_none_requested(ctx):
@@ -212,7 +222,7 @@ def test_default_language_used_when_none_requested(ctx):
     data = _start(client, ["multi_01"])
     res = _answer(client, data["id"], "multi_01", "PY CODE")
     assert res["language"] == "python"
-    assert judge.calls[-1] == ("python", None)
+    assert judge.calls[-1] == "python"
 
 
 def test_resume_reports_locked_language(ctx):
@@ -223,10 +233,10 @@ def test_resume_reports_locked_language(ctx):
     resume = client.get(f"/api/v1/sessions/{data['id']}").json()["data"]
     task = resume["current_task"]
     assert task["phase_index"] == 2
-    # Reopens in the locked language, with that language's scaffold. A resume
-    # carries prior code, so the editor shows the code rather than the stub.
+    # Reopens in the locked language, showing the second step's own scaffold
+    # rather than the first answer.
     assert task["language"] == "cpp"
-    assert task["previous_code"] == "CPP1"
+    assert "previous_code" not in task
     assert task["scaffolds"]["cpp"].startswith("// TODO")
 
 

@@ -9,7 +9,7 @@ RETRY_MAX_DELAY = float(os.getenv("EVAL_RETRY_MAX_DELAY", "30.0"))
 
 # --- Step-by-step task delivery ------------------------------------------
 # Every task is delivered step-by-step: its ``parts`` are shown one at a
-# time with the candidate's code carried forward. Delivery always advances
+# time, each starting from its own scaffold. Delivery always advances
 # to the next step after each submission, regardless of the score — the
 # learner sees every step and reviews the coaching for each one. Each step's
 # ``pass_score`` is still authored/defaulted below as metadata, but it no

@@ -1,7 +1,7 @@
 """Step-by-step task delivery: one step at a time, unconditional advance.
 
 Every task exposes only its active part; every submission advances to the next
-step with the candidate's prior code carried forward, regardless of the score.
+step, which starts from its own scaffold, regardless of the score.
 A partless legacy task is delivered as a single implicit step.
 """
 
@@ -20,7 +20,7 @@ class ScriptedJudge:
     def __init__(self):
         self.scores: list[float] = []
 
-    def evaluate(self, task, answer, previous_code=None):
+    def evaluate(self, task, answer):
         from coach.judge import score_targets
 
         targets = score_targets(task)
@@ -108,7 +108,6 @@ def test_phase_view_and_advance(ctx):
     assert nxt["id"] == "phased_01"
     assert nxt["phase_index"] == 2
     assert [p["key"] for p in nxt["parts"]] == ["p2"]
-    assert nxt["previous_code"] == "PHASE1 CODE"
     assert "def p2" in nxt["scaffold"]
 
 
@@ -121,7 +120,6 @@ def test_failed_phase_advances_unconditionally(ctx):
     assert first["result"]["parts"][0]["key"] == "p1"
     assert first["next_task"]["id"] == "phased_01"
     assert first["next_task"]["phase_index"] == 2  # advanced despite the 0
-    assert first["next_task"]["previous_code"] == "TRY1"
 
     judge.scores = [0]
     second = _answer(client, data["id"], "phased_01", "TRY2")
@@ -148,7 +146,7 @@ def test_resume_mid_phases(ctx):
     resume = client.get(f"/api/v1/sessions/{data['id']}").json()["data"]
     assert resume["current_task"]["id"] == "phased_01"
     assert resume["current_task"]["phase_index"] == 2
-    assert resume["current_task"]["previous_code"] == "PHASE1 CODE"
+    assert "def p2" in resume["current_task"]["scaffold"]
 
 
 def test_completed_phased_task_moves_to_bank(ctx):

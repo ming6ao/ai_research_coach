@@ -26,7 +26,6 @@ export interface Task {
   max_score: number;
   scaffold?: string;
   parts?: TaskPart[];
-  previous_code?: string;
   context_notes?: string;
   tags?: TaskTags;
   task_type?: string;

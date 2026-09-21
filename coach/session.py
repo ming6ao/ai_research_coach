@@ -324,17 +324,16 @@ def _phase_scaffold(task: dict, part: dict, language: Optional[str] = None) -> O
 def task_view(
     task: dict,
     session: Session,
-    previous_code: Optional[str] = None,
     language: Optional[str] = None,
 ) -> dict | None:
     """Build the client-facing view of a task.
 
     Every task is step-by-step: the view emits only the active step plus
     ``phase_index``/``phase_total`` and its own scaffold, so the learner sees
-    one step at a time with their prior code carried forward via
-    ``previous_code``. Every task has at least one part. For a multi-language
-    task, ``language`` is the candidate's locked answer language (from a prior
-    step); it becomes the view's default so a resume reopens in that language.
+    one step at a time and each step starts from its own starter code. Every
+    task has at least one part. For a multi-language task, ``language`` is the
+    candidate's locked answer language (from a prior step); it becomes the
+    view's default so a resume reopens in that language.
     """
     if task is None:
         return None
@@ -372,8 +371,6 @@ def task_view(
         view["max_score"] = int(active.get("max_score") or 5)
         if active.get("pass_score") is not None:
             view["pass_score"] = int(active.get("pass_score"))
-    if previous_code:
-        view["previous_code"] = previous_code
     if task.get("context_notes"):
         view["context_notes"] = task["context_notes"]
     if task.get("generated"):

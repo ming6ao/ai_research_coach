@@ -331,8 +331,8 @@ _DRAFT_STEP_FIELDS = (
 _DRAFT_SYSTEM_PROMPT = f"""\
 You are a curriculum engineer turning a curator's step prompts into a \
 step-by-step coding task for a tutor. Each input step becomes exactly one task \
-step, delivered in order; later steps may build on earlier ones because the \
-learner's code is carried forward.
+step, delivered in order; each step is worked independently from its own \
+starter code.
 
 Return JSON with exactly three keys:
   "context_notes": 2-4 plain English sentences describing the prerequisites, \
