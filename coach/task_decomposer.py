@@ -325,14 +325,18 @@ _DRAFT_STEP_FIELDS = (
     '(imports + the entry-point function with the exact signature, ONE short '
     'comment and a `pass`/empty body — never the solution) in the FIRST '
     'requested language, and "scaffolds" (an array of {"language", "code"} '
-    'with the same stub for EVERY requested language).'
+    'with the same stub for EVERY requested language). The FIRST step MUST '
+    'provide starter code; a LATER step that should build directly on the '
+    'previous step may OMIT "scaffold"/"scaffolds" entirely and will open '
+    'from the previous step\'s complete solution. A step that provides starter '
+    'code must provide it for every requested language.'
 )
 
 _DRAFT_SYSTEM_PROMPT = f"""\
 You are a curriculum engineer turning a curator's step prompts into a \
 step-by-step coding task for a tutor. Each input step becomes exactly one task \
-step, delivered in order; each step is worked independently from its own \
-starter code.
+step, delivered in order; the first step always carries starter code, while a \
+later step may omit it to open from the previous step's complete solution.
 
 Return JSON with exactly three keys:
   "context_notes": 2-4 plain English sentences describing the prerequisites, \
@@ -598,8 +602,12 @@ def _assemble_draft(
                 problems.append(f"step {index + 1} scaffold ({lang}): {', '.join(issues)}")
                 continue
             cleaned_scaffolds[lang] = code
+        # The first step must carry starter code. A later step may omit it
+        # Only the first step must carry starter code for every language. A
+        # later step may leave any language blank; that language then opens
+        # from the previous step's solution.
         missing_langs = [lang for lang in langs if lang not in cleaned_scaffolds]
-        if missing_langs:
+        if missing_langs and index == 0:
             # Never synthesize starter code: a missing LLM scaffold must stay
             # visible so the curator editor can block creation.
             problems.append(

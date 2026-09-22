@@ -37,7 +37,7 @@ interface Props {
   onError: (msg: string) => void;
 }
 
-const LANGUAGES = ['python', 'cpp', 'c', 'javascript', 'typescript', 'java', 'go', 'rust'];
+const LANGUAGES = ['python', 'cpp'];
 
 const labelCls = 'mb-0.5 block text-[10px] text-[var(--color-text-muted)]';
 const fieldCls =
@@ -99,7 +99,9 @@ function draftsToParts(drafts: PartDraft[], languages: string[]): TaskPart[] {
       tags: { primary: p.primary, secondary: p.secondary.slice(0, 2) },
     };
     if (scaffolds[defaultLang]) part.scaffold = scaffolds[defaultLang];
-    if (languages.length > 1) part.scaffolds = scaffolds;
+    if (languages.length > 1 && Object.keys(scaffolds).length > 0) {
+      part.scaffolds = scaffolds;
+    }
     if (p.pass_score.trim() !== '') {
       part.pass_score = Math.max(0, Math.min(part.max_score, Number(p.pass_score) || 0));
     }
@@ -314,7 +316,9 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
           tags: { primary: p.primary, secondary: p.secondary.slice(0, 2) },
         };
         if (scaffolds[defaultLang]) part.scaffold = scaffolds[defaultLang];
-        if (languages.length > 1) part.scaffolds = scaffolds;
+        if (languages.length > 1 && Object.keys(scaffolds).length > 0) {
+          part.scaffolds = scaffolds;
+        }
         if (p.pass_score.trim() !== '') {
           part.pass_score = Math.max(0, Math.min(part.max_score, Number(p.pass_score) || 0));
         }
@@ -683,7 +687,11 @@ export function TaskEditor({ task, onSaved, onDeleted, onClose, onError }: Props
           {/* Starter code for the active step, one tab per declared language. */}
           <div>
             <div className="flex items-center gap-2">
-              <p className={labelCls}>Starter code for this step (required for every language)</p>
+              <p className={labelCls}>
+                {activeStep > 0
+                  ? 'Starter code for this step (optional — leave blank to continue from the previous step’s solution)'
+                  : 'Starter code for this step (required for every language)'}
+              </p>
               {languages.length > 1 && (
                 <div className="ml-auto flex flex-wrap gap-1">
                   {languages.map((l) => (

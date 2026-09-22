@@ -38,6 +38,8 @@ export interface Task {
   phase_index?: number;
   phase_total?: number;
   pass_score?: number;
+  /** Set when the active step opened from the previous step's solution. */
+  starts_from_previous?: boolean;
   remediation?: { focus?: string; kind?: string; root_task_id?: string };
 }
 

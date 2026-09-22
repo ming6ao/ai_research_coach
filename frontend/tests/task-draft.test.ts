@@ -47,8 +47,11 @@ test('findStepDraftError requires a scaffold', () => {
 });
 
 test('findStepDraftError reports the offending step index', () => {
-  const problem = findStepDraftError([step({}), step({ key: 'k2', scaffold: '   ' })]);
-  assert.deepEqual(problem, { index: 1, message: 'Step 2 needs starter code.' });
+  const problem = findStepDraftError([step({ key: 'a' }), step({ key: 'b', primary: '' })]);
+  assert.deepEqual(problem, {
+    index: 1,
+    message: 'Step 2 needs a primary skill.',
+  });
 });
 
 test('findStepDraftError still catches missing prompt, key, and primary', () => {
@@ -83,4 +86,40 @@ test('findStepDraftError requires starter code for every declared language', () 
   );
   // A single-language task only needs its default language.
   assert.equal(findStepDraftError([base], ['python']), null);
+});
+
+test('findStepDraftError requires starter code on the first step only', () => {
+  assert.deepEqual(findStepDraftError([step({ key: 'a' }), step({ key: 'b', scaffold: '' })]), null);
+  // A multi-language later step with no scaffold is also fine (it continues
+  // from the previous step's solution).
+  assert.equal(
+    findStepDraftError(
+      [
+        step({ key: 'a', scaffolds: { python: 'x', cpp: 'y' } }),
+        step({ key: 'b', scaffold: '' }),
+      ],
+      ['python', 'cpp'],
+    ),
+    null,
+  );
+});
+
+test('findStepDraftError allows a partial scaffold on a later step', () => {
+  assert.equal(
+    findStepDraftError(
+      [
+        step({ key: 'a', scaffolds: { python: 'x', cpp: 'y' } }),
+        step({ key: 'b', scaffolds: { python: 'x' }, scaffold: '' }),
+      ],
+      ['python', 'cpp'],
+    ),
+    null,
+  );
+});
+
+test('findStepDraftError still requires every language on the first step', () => {
+  assert.deepEqual(
+    findStepDraftError([step({ scaffolds: { python: 'x' } })], ['python', 'cpp']),
+    { index: 0, message: 'Step 1 needs starter code.' },
+  );
 });

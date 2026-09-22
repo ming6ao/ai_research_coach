@@ -195,6 +195,53 @@ def language_for_task(session_id: str, task_id: str, default: str = "python") ->
         session.close()
 
 
+def solution_for_step(
+    session_id: str,
+    task_id: str,
+    step_key: str,
+    language: Optional[str] = None,
+) -> Optional[str]:
+    """The judge's complete solution for a scored step, or None.
+
+    A later step with no authored starter code opens from its immediately
+    preceding step's solution. Lookup is scoped to ``task_id`` and (for
+    multi-language tasks) the candidate's locked language. Returns None when
+    the step has not been scored, the key does not match, or the judge produced
+    no solution — callers fall back to the composed stub.
+    """
+    from coach.db import create_schema, learner_session
+    from coach.tasks import normalize_language
+
+    key = str(step_key or "").strip()
+    if not key:
+        return None
+    create_schema()
+    session = learner_session()
+    try:
+        stmt = select(SessionStepModel).where(
+            SessionStepModel.session_id == session_id,
+            SessionStepModel.task_id == task_id,
+        )
+        if language is not None:
+            stmt = stmt.where(
+                SessionStepModel.language == normalize_language(language)
+            )
+        rows = session.scalars(
+            stmt.order_by(SessionStepModel.step_index.desc())
+        ).all()
+        for m in rows:
+            result = _safe_json(m.result_json, {})
+            parts = result.get("parts") or []
+            if parts and str(parts[0].get("key") or "") == key:
+                coaching = _safe_json(m.coaching_json, {})
+                code = str(coaching.get("solution") or "").strip()
+                if code:
+                    return code
+        return None
+    finally:
+        session.close()
+
+
 def list_steps(session_id: str) -> list[dict]:
     """Steps of a session, ordered by ``step_index`` (dict forms)."""
     from coach.db import create_schema

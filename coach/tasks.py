@@ -16,10 +16,11 @@ graph and no nodes/edges.
 
 A task is a **step sequence**: its ``parts_json`` holds one or more ordered
 steps ``{key, prompt, tags, max_score, difficulty, pass_score?, scaffold?}``
-delivered one at a time, pass-gated, with the candidate's code carried
-forward. Every task has at least one part; a single-step question is a task
-with exactly one. The task-level ``prompt`` is derived from the first step —
-there is no partless request.
+delivered one at a time. Every task has at least one part; a single-step
+question is a task with exactly one. The first step always has authored starter
+code; a later step may omit it, in which case it opens from the previous step's
+complete judge solution. The task-level ``prompt`` is derived from the first
+step — there is no partless request.
 
 Visibility: a candidate sees their own rows and every public row. There is no
 system-owned bucket — every task has a user owner. Guests create public rows
@@ -136,18 +137,10 @@ def serialize_tags(tags: dict | None) -> str:
     return json.dumps(tags if isinstance(tags, dict) else {"primary": None, "secondary": []})
 
 
-# Monaco editor language ids accepted for a code task. Unknown values fall
-# back to "python" so a task can never break the editor.
-ALLOWED_LANGUAGES = {
-    "python",
-    "cpp",
-    "c",
-    "javascript",
-    "typescript",
-    "java",
-    "go",
-    "rust",
-}
+# Supported task languages. Unknown values (including the retired
+# javascript/typescript/java/go/rust/c ids) fall back to "python" so a task can
+# never break the editor.
+ALLOWED_LANGUAGES = {"python", "cpp"}
 
 
 def normalize_language(language: Optional[str]) -> str:
@@ -272,8 +265,10 @@ def validate_parts(parts, languages: Optional[list] = None) -> list[dict]:
     """Validate a parts list; returns the normalized list. Raises ValueError.
 
     Every part needs a unique ``key``, a non-empty ``prompt``,
-    taxonomy-validated ``tags``, a ``max_score`` in 1..100, a
-    ``difficulty`` in 1..5, and starter code for every declared language.
+    taxonomy-validated ``tags``, a ``max_score`` in 1..100, and a
+    ``difficulty`` in 1..5. The first step needs starter code for every
+    declared language; a later step may omit it per language, in which case
+    that language opens from the previous step's complete judge solution.
 
     ``languages`` is the ordered task language list. When omitted it is
     inferred from the parts' ``scaffolds`` maps (default ``[\"python\"]``), so
@@ -333,8 +328,14 @@ def validate_parts(parts, languages: Optional[list] = None) -> list[dict]:
         legacy_scaffold = str(item.get("scaffold") or "").strip()
         if legacy_scaffold:
             scaffolds.setdefault(default_language, legacy_scaffold)
+        # The first step always needs starter code. A later step may omit it
+        # (it then opens from the previous step's complete judge solution); a
+        # step that gives starter code must give it for every language.
         missing_languages = [lang for lang in langs if not scaffolds.get(lang)]
-        if missing_languages:
+        # Only the first step must cover every declared language. A later step
+        # may leave any language blank; that language then opens from the
+        # previous step's solution.
+        if missing_languages and not out:
             raise ValueError(
                 f"Part {key!r} needs a scaffold for: {', '.join(missing_languages)}."
             )
@@ -355,10 +356,13 @@ def validate_parts(parts, languages: Optional[list] = None) -> list[dict]:
             "max_score": max_score,
             "difficulty": difficulty,
             "pass_score": pass_score,
-            "scaffold": scaffolds[default_language],
         }
-        if len(langs) > 1:
-            part["scaffolds"] = {lang: scaffolds[lang] for lang in langs}
+        if scaffolds.get(default_language):
+            part["scaffold"] = scaffolds[default_language]
+        if scaffolds and len(langs) > 1:
+            part["scaffolds"] = {
+                lang: scaffolds[lang] for lang in langs if scaffolds.get(lang)
+            }
         out.append(part)
     return out
 

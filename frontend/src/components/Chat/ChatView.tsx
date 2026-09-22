@@ -349,6 +349,12 @@ function ChatViewInner() {
             </div>
           )}
 
+          {showTask && currentTask?.starts_from_previous && (
+            <p className="rounded-lg border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/5 px-3 py-1.5 text-[11px] text-[var(--color-text-secondary)]">
+              This step continues from the previous step's solution — extend it.
+            </p>
+          )}
+
           {showTask && currentTask && (
             <CodeEditor
               key={`${currentTask.id}:${currentTask.phase_index ?? 0}:${language}`}

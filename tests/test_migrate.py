@@ -337,6 +337,26 @@ def test_hygiene_flags_missing_scaffold(tmp_path, monkeypatch):
     assert report["counts"]["scaffold_missing"] == 1
 
 
+def test_hygiene_ignores_carry_forward_step(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "hygiene_carry.db")
+    from coach.migrate import hygiene_report
+
+    _insert_task(
+        "hyg_carry",
+        {"primary": "testing", "secondary": []},
+        parts=[
+            {"key": "p1", "prompt": "Implement f.",
+             "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2,
+             "scaffold": "def f():\n    # TODO\n    pass\n"},
+            {"key": "p2", "prompt": "Extend f.",
+             "tags": {"primary": "testing"}, "max_score": 5, "difficulty": 2},
+        ],
+    )
+    report = hygiene_report()
+    assert report["counts"]["scaffold_missing"] == 0
+    assert not any(f["part_key"] == "p2" for f in report["findings"])
+
+
 def test_hygiene_passes_api_only_scaffold(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "hygiene3.db")
     from coach.migrate import hygiene_report

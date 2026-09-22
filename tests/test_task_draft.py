@@ -275,3 +275,45 @@ def test_draft_task_drops_leaking_scaffold_after_retries(monkeypatch):
     part = out["parts"][0]
     assert part["tags"]["primary"] == ""
     assert "return 1" not in part.get("scaffold", "")
+
+
+def test_draft_task_allows_a_scaffoldless_later_step(monkeypatch):
+    monkeypatch.setenv("GOOGLE_API_KEY", "test")
+    from coach.task_decomposer import TaskDecomposer
+
+    decomposer = TaskDecomposer()
+
+    def fake(body, *, refine, feedback=""):
+        return {
+            "steps": [
+                {"key": "foo", "prompt": "Do foo", "primary_tag": "testing",
+                 "scaffold": "def foo():\n    # TODO\n    pass\n"},
+                {"key": "bar", "prompt": "Extend foo", "primary_tag": "testing"},
+            ]
+        }
+
+    monkeypatch.setattr(decomposer, "_generate_draft_payload", fake)
+    out = decomposer.draft_task(steps=["Do foo", "Extend foo"])
+    # The later step opens from the previous step's solution, so its missing
+    # scaffold is not a problem.
+    assert "scaffold" not in out["parts"][1]
+    assert not any("scaffold" in p for p in out["problems"])
+
+
+def test_draft_task_flags_a_scaffoldless_first_step(monkeypatch):
+    monkeypatch.setenv("GOOGLE_API_KEY", "test")
+    from coach.task_decomposer import TaskDecomposer
+
+    decomposer = TaskDecomposer()
+
+    def fake(body, *, refine, feedback=""):
+        return {
+            "steps": [
+                {"key": "foo", "prompt": "Do foo", "primary_tag": "testing"}
+            ]
+        }
+
+    monkeypatch.setattr(decomposer, "_generate_draft_payload", fake)
+    out = decomposer.draft_task(steps=["Do foo"], retries=1)
+    assert "scaffold" not in out["parts"][0]
+    assert any("step 1" in p and "scaffold" in p for p in out["problems"])

@@ -290,3 +290,21 @@ def test_followup_inherits_root_languages():
     )
     assert generated["languages"] == ["python", "cpp"]
     assert generated["language"] == "python"
+
+
+def test_only_python_and_cpp_are_supported_languages():
+    """The allow-list is Python + C++; every other id falls back to Python."""
+    from coach.tasks import normalize_language, normalize_languages
+
+    assert normalize_language("python") == "python"
+    assert normalize_language("cpp") == "cpp"
+    # Spellings of C++ collapse to the cpp editor id.
+    assert normalize_language("C++") == "cpp"
+    assert normalize_language("cxx") == "cpp"
+    # Retired / unknown ids never reach the editor.
+    for retired in ("c", "javascript", "typescript", "java", "go", "rust"):
+        assert normalize_language(retired) == "python"
+    assert normalize_languages(["cpp", "javascript", "go", "python"]) == [
+        "cpp",
+        "python",
+    ]

@@ -41,8 +41,10 @@ function scaffoldFor(step: DraftStepLike, language: string): string {
 /**
  * First blocking problem in the curator's step drafts, or null when the form
  * is ready to submit. Empty trailing steps are ignored. Includes the step
- * index so the editor can focus the offending step. Every declared language
- * must have starter code.
+ * index so the editor can focus the offending step. The first step always
+ * needs starter code for every declared language; a later step may omit it
+ * (per language), in which case that language opens from the previous step's
+ * solution.
  */
 export function findStepDraftError(
   steps: DraftStepLike[],
@@ -63,8 +65,10 @@ export function findStepDraftError(
     if (!steps[i].primary) {
       return { index: i, message: `Step ${i + 1} needs a primary skill.` };
     }
-    if (languages.some((lang) => !scaffoldFor(steps[i], lang))) {
-      return { index: i, message: `Step ${i + 1} needs starter code.` };
+    // Only the first step must cover every language; a later step may leave
+    // any language blank to continue from the previous step's solution.
+    if (i === 0 && languages.some((lang) => !scaffoldFor(steps[i], lang))) {
+      return { index: i, message: 'Step 1 needs starter code.' };
     }
   }
   return null;

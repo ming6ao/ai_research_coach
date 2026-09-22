@@ -114,14 +114,17 @@ def pick_next_task(
         None,
     )
     if pending is not None:
-        return task_view(pending, session)
+        return task_view(pending, session, session_id=session_id)
 
-    # 2. Continue an active step task. Each step starts from its own
-    # scaffold, so no prior code is carried into the view.
+    # 2. Continue an active step task. Each step opens from its own starting
+    # code (authored scaffold, or the previous step's solution when it has no
+    # starter code).
     active = _active_step_task(session, (last_submission or {}).get("task"))
     if active is not None:
         locked_language = _locked_language(session_id, active["id"])
-        return task_view(active, session, language=locked_language)
+        return task_view(
+            active, session, language=locked_language, session_id=session_id
+        )
 
     # 3. Judge-driven follow-up after a submission (LLM drill/escalate/pivot).
     # Write branch: skipped on read/replay paths (allow_generation=False).
@@ -135,12 +138,12 @@ def pick_next_task(
             last_submission.get("coach"),
         )
         if generated is not None:
-            return task_view(generated, session)
+            return task_view(generated, session, session_id=session_id)
 
     # 4. EIG bank picker.
     nxt = next_task_bank(session, sample_top_n=sample_top_n, node=node)
     if nxt is not None:
-        return task_view(nxt, session)
+        return task_view(nxt, session, session_id=session_id)
 
     # 5. Bank exhausted -> mint a fresh adaptive challenge so the session
     # keeps going indefinitely (user exits explicitly via Finish). Steer it
@@ -158,7 +161,7 @@ def pick_next_task(
         prefer_node = least_covered(session, node)
         challenge = plan_challenge(session, prefer_node=prefer_node)
         if challenge is not None:
-            return task_view(challenge, session)
+            return task_view(challenge, session, session_id=session_id)
     except Exception:
         pass
     return None

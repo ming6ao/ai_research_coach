@@ -487,7 +487,7 @@ def submit_answer(
         from coach.picker import next_task as next_task_bank
 
         nxt = next_task_bank(session)
-        next_task = task_view(nxt, session) if nxt else None
+        next_task = task_view(nxt, session, session_id=session_id) if nxt else None
 
     # First persisted answer: mint an LLM title + summary so the home page can
     # label the session and preview it on hover. Draft sessions (no answer yet)

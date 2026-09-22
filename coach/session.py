@@ -255,8 +255,9 @@ def _compose_step_scaffold(task: dict, language: str = "python") -> str | None:
     The last resort deliberately avoids naming a function after the internal
     step key or a backticked data name (``def bp_step(*args)`` / ``def x(...)``
     read as a real API and mislead the candidate). Authored per-step scaffolds
-    take precedence over this helper via :func:`_phase_scaffold`. Non-Python
-    languages have no ``def`` form, so they fall back to a TODO comment.
+    and a previous step's solution take precedence over this helper via
+    :func:`resolve_step_start_code`. Non-Python languages have no ``def`` form,
+    so they fall back to a TODO comment.
     """
     parts = task.get("parts") or []
     if not parts:
@@ -310,30 +311,90 @@ def active_phase(task: dict, session: Session) -> Optional[dict]:
     return parts[idx]
 
 
-def _phase_scaffold(task: dict, part: dict, language: Optional[str] = None) -> Optional[str]:
-    """Starter code for one phase in ``language`` (default: the task's first)."""
-    from coach.tasks import part_scaffold
+def _previous_part_key(task: dict, part: Optional[dict]) -> Optional[str]:
+    """The key of the step immediately before ``part``, or None for the first."""
+    parts = effective_parts(task)
+    keys = [p.get("key") for p in parts]
+    key = (part or {}).get("key")
+    try:
+        idx = keys.index(key)
+    except ValueError:
+        return None
+    if idx <= 0 or not keys[idx - 1]:
+        return None
+    return str(keys[idx - 1])
 
+
+def _authored_scaffold(task: dict, part: dict, language: Optional[str]) -> str:
+    """Starter code authored for exactly ``language`` (no cross-language fallback).
+
+    A partial multi-language step must resolve each missing language from the
+    previous step's solution, never borrow another language's stub. A
+    single-language step keeps its legacy ``scaffold`` string.
+    """
+    scaffolds = part.get("scaffolds")
+    if isinstance(scaffolds, dict) and scaffolds:
+        code = scaffolds.get(language) if language else None
+        return str(code).strip() if code else ""
     default_language = task.get("language") or "python"
-    code = part_scaffold(part, language, default_language)
-    if code:
-        return code
-    return _compose_step_scaffold({"parts": [part]}, language or default_language)
+    if language in (None, default_language):
+        return str(part.get("scaffold") or "").strip()
+    return ""
+
+
+def resolve_step_start_code(
+    task: dict,
+    part: Optional[dict],
+    language: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> tuple[str, bool]:
+    """Return ``(code, used_previous_solution)`` for a step's editor.
+
+    Authored starter code always wins. A step after the first whose starter
+    code is missing for ``language`` opens from the previous step's complete
+    judge solution for that language (when it has been scored in this
+    session); if that is unavailable it gets the best-effort composed stub, so
+    the editor is never blank.
+    """
+    if not part:
+        return "", False
+    authored = _authored_scaffold(task, part, language)
+    if authored:
+        return authored, False
+    if session_id:
+        prev_key = _previous_part_key(task, part)
+        if prev_key:
+            try:
+                from coach.steps import solution_for_step
+
+                code = solution_for_step(
+                    session_id, task.get("id"), prev_key, language
+                )
+            except Exception:
+                code = None
+            if code:
+                return code, True
+    return (
+        _compose_step_scaffold({"parts": [part]}, language or default_language) or "",
+        False,
+    )
 
 
 def task_view(
     task: dict,
     session: Session,
     language: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> dict | None:
     """Build the client-facing view of a task.
 
     Every task is step-by-step: the view emits only the active step plus
-    ``phase_index``/``phase_total`` and its own scaffold, so the learner sees
-    one step at a time and each step starts from its own starter code. Every
-    task has at least one part. For a multi-language task, ``language`` is the
-    candidate's locked answer language (from a prior step); it becomes the
-    view's default so a resume reopens in that language.
+    ``phase_index``/``phase_total`` and its own starting code, so the learner
+    sees one step at a time. A step's starting code is its authored scaffold;
+    when a later step has none, it is the previous step's complete judge
+    solution (``session_id`` supplies the scored steps). For a multi-language
+    task, ``language`` is the candidate's locked answer language (from a prior
+    step); it becomes the view's default so a resume reopens in that language.
     """
     if task is None:
         return None
@@ -342,6 +403,12 @@ def task_view(
     languages = list(task.get("languages") or [task.get("language") or "python"])
     default_language = languages[0]
     view_language = language if language in languages else default_language
+    if active:
+        start_code, started_from_previous = resolve_step_start_code(
+            task, active, view_language, session_id
+        )
+    else:
+        start_code, started_from_previous = build_code_stub(task, view_language), False
     view = {
         "id": task["id"],
         "type": "code",
@@ -349,18 +416,19 @@ def task_view(
         "prompt": parts[0]["prompt"] if parts else task.get("prompt", ""),
         "difficulty": task.get("difficulty", 1),
         "max_score": task.get("max_score", 5),
-        "scaffold": _phase_scaffold(task, active, view_language) if active else build_code_stub(task, view_language),
+        "scaffold": start_code,
         "tags": task.get("tags") or {"primary": None, "secondary": []},
         "task_type": task.get("task_type") or "implement",
         "language": view_language,
         "languages": languages,
     }
-    # A multi-language task exposes every declared language's starter code so
+    # A multi-language task exposes every declared language's starting code so
     # the learner can switch without a round-trip; its first language is the
     # default and the submission is locked to whichever they pick.
     if active and len(languages) > 1:
         view["scaffolds"] = {
-            lang: (_phase_scaffold(task, active, lang) or "") for lang in languages
+            lang: resolve_step_start_code(task, active, lang, session_id)[0]
+            for lang in languages
         }
     if active:
         idx = completed_phases(task, session)
@@ -371,6 +439,8 @@ def task_view(
         view["max_score"] = int(active.get("max_score") or 5)
         if active.get("pass_score") is not None:
             view["pass_score"] = int(active.get("pass_score"))
+        if started_from_previous:
+            view["starts_from_previous"] = True
     if task.get("context_notes"):
         view["context_notes"] = task["context_notes"]
     if task.get("generated"):

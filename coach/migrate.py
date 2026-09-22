@@ -685,8 +685,9 @@ def coverage_report() -> dict:
 def hygiene_report() -> dict:
     """Audit the task bank for learner-facing scaffold hygiene.
 
-    Flags steps with no starter code and starter code that gives the answer
-    away by declaring private members or instance state. Read-only, like
+    Flags the first step when it has no starter code and starter code that
+    gives the answer away by declaring private members or instance state.
+    Read-only, like
     ``coverage``: it never rewrites author text.
     """
     from sqlalchemy import select
@@ -715,7 +716,7 @@ def hygiene_report() -> dict:
     for model in models:
         task = task_to_dict(model)
         parts = task.get("parts") or []
-        for part in parts:
+        for part_index, part in enumerate(parts):
             # Audit every declared language's starter code (multi-language
             # tasks carry a ``scaffolds`` map; single-language tasks a
             # ``scaffold`` string).
@@ -725,6 +726,10 @@ def hygiene_report() -> dict:
                 scaffolds = {default_lang: part.get("scaffold") or ""}
             for language, scaffold in scaffolds.items():
                 if not str(scaffold or "").strip():
+                    # Only the first step must carry starter code; a later
+                    # step legitimately opens from the previous step's solution.
+                    if part_index > 0:
+                        continue
                     counts["scaffold_missing"] += 1
                     findings.append(
                         {
