@@ -154,7 +154,7 @@ def test_only_primary_tag_updates_the_estimator():
                 for p in targets
             ]
             max_score = sum(int(p["max_score"]) for p in targets)
-            coach = CoachContent(feedback="ok", misconception="", steps=[CoachStep("t", "e", None)])
+            coach = CoachContent(feedback="ok", steps=[CoachStep("t", "e", None)])
             result = EvaluationResult(task["id"], max_score, max_score, "Perfect.", coach.to_dict(), parts)
             return result, coach
 

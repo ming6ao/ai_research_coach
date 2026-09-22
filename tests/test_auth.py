@@ -72,7 +72,6 @@ def fake_judge(monkeypatch):
             max_score = sum(int(p["max_score"]) for p in targets)
             coach = CoachContent(
                 feedback="Great job!",
-                misconception="No misconception.",
                 steps=[CoachStep("Done", "The solution is correct.", None)],
             )
             result = EvaluationResult(

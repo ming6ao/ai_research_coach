@@ -1,8 +1,7 @@
 """Judge-driven adaptive follow-up loop (no knowledge graph).
 
 After a candidate submits an answer, the judge's free-text gap
-(``coach.misconception`` / ``coach.feedback``) decides whether a follow-up
-task is warranted:
+(``coach.feedback``) decides whether a follow-up task is warranted:
 
 - Bank task failed (or solved with a named gap) -> simpler ``remediate`` drill.
 - Solved drill -> harder ``escalate`` variant stepping back toward the root.
@@ -295,10 +294,8 @@ class RemediationPlanner:
             if coach is None:
                 return ""
             if isinstance(coach, dict):
-                return ((coach.get("misconception") or "").strip()
-                        or (coach.get("feedback") or "").strip())
-            return ((getattr(coach, "misconception", "") or "").strip()
-                    or (getattr(coach, "feedback", "") or "").strip())
+                return (coach.get("feedback") or "").strip()
+            return (getattr(coach, "feedback", "") or "").strip()
         except Exception:
             return ""
 

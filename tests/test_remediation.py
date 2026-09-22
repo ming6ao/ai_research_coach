@@ -96,8 +96,8 @@ def _result(score=1, max_score=5):
     return type("R", (), {"score": score, "max_score": max_score})()
 
 
-def _coach(misconception="", feedback=""):
-    return type("C", (), {"misconception": misconception, "feedback": feedback})()
+def _coach(feedback=""):
+    return type("C", (), {"feedback": feedback})()
 
 
 class TestPickNextTask:
@@ -241,7 +241,7 @@ class TestPickNextTask:
 class TestTrigger:
     def test_incorrect_answer_triggers(self):
         planner = RemediationPlanner(decomposer=FakeDecomposer())
-        gen = planner.decide(_session(), _base_task(), _result(1, 5), _coach("gap", "fb"))
+        gen = planner.decide(_session(), _base_task(), _result(1, 5), _coach("gap"))
         assert gen is not None
         assert gen["generated"] is True
         assert gen["target_text"] == "gap"
@@ -249,29 +249,29 @@ class TestTrigger:
 
     def test_partially_correct_triggers(self):
         planner = RemediationPlanner(decomposer=FakeDecomposer())
-        gen = planner.decide(_session(), _base_task(), _result(2, 5), _coach("", "weak loop"))
+        gen = planner.decide(_session(), _base_task(), _result(2, 5), _coach("weak loop"))
         assert gen is not None
 
     def test_correct_without_gap_does_not_trigger(self):
         planner = RemediationPlanner(decomposer=FakeDecomposer())
-        gen = planner.decide(_session(), _base_task(), _result(5, 5), _coach("", ""))
+        gen = planner.decide(_session(), _base_task(), _result(5, 5), _coach(""))
         assert gen is None
 
     def test_named_gap_triggers_even_on_correct(self):
         planner = RemediationPlanner(decomposer=FakeDecomposer())
         gen = planner.decide(
             _session(), _base_task(), _result(5, 5),
-            _coach("Confused eviction with invalidation", "Solid otherwise."),
+            _coach("Confused eviction with invalidation"),
         )
         assert gen is not None
         assert gen["target_text"] == "Confused eviction with invalidation"
         # Consolidation repetition never gets harder than the original.
         assert gen["difficulty"] <= _base_task()["difficulty"]
 
-    def test_feedback_only_gap_triggers(self):
+    def test_feedback_gap_triggers(self):
         decomposer = FakeDecomposer()
         planner = RemediationPlanner(decomposer=decomposer)
-        gen = planner.decide(_session(), _base_task(), _result(1, 5), _coach("", "Off-by-one in loop"))
+        gen = planner.decide(_session(), _base_task(), _result(1, 5), _coach("Off-by-one in loop"))
         assert gen is not None
         assert decomposer.calls[-1][0] == "Off-by-one in loop"
 
@@ -325,7 +325,7 @@ class TestAdaptiveChain:
         assert decomposer.calls[-1][3] == "remediate"
         session.add_generated_task(drill)
         # Solve the drill cleanly -> escalation at same-or-harder difficulty.
-        esc = planner.decide(session, drill, self._solved(), _coach("", ""))
+        esc = planner.decide(session, drill, self._solved(), _coach(""))
         assert esc is not None
         assert decomposer.calls[-1][3] == "escalate"
         assert esc["difficulty"] >= drill["difficulty"]
@@ -337,9 +337,9 @@ class TestAdaptiveChain:
         session = _session(tasks=[_base_task(difficulty=3)])
         drill = planner.decide(session, _base_task(difficulty=3), _result(1, 5), _coach("eviction gap"))
         session.add_generated_task(drill)
-        esc = planner.decide(session, drill, self._solved(), _coach("", ""))
+        esc = planner.decide(session, drill, self._solved(), _coach(""))
         session.add_generated_task(esc)
-        pivot = planner.decide(session, esc, self._solved(), _coach("", ""))
+        pivot = planner.decide(session, esc, self._solved(), _coach(""))
         assert pivot is not None
         assert decomposer.calls[-1][3] == "pivot"
 
@@ -361,7 +361,7 @@ class TestAdaptiveChain:
         drill = planner.decide(session, _base_task(difficulty=3), _result(1, 5), _coach("gap"))
         assert drill is not None
         session.add_generated_task(drill)
-        assert planner.decide(session, drill, self._solved(), _coach("", "")) is None
+        assert planner.decide(session, drill, self._solved(), _coach("")) is None
 
     def test_challenge_keeps_session_going(self):
         from coach.remediation import plan_challenge

@@ -58,8 +58,9 @@ export interface CoachStep {
 
 export interface CoachContent {
   feedback: string;
-  misconception: string;
   steps: CoachStep[];
+  /** Complete, ready-to-run solution for the scored step (plain code). */
+  solution?: string;
 }
 
 export interface AbilityUpdate {

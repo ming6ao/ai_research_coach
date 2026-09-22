@@ -32,7 +32,7 @@ class ScriptedJudge:
             total += s
             parts.append({"key": p["key"], "score": s, "rationale": "r"})
         max_score = sum(int(p["max_score"]) for p in targets)
-        coach = CoachContent(feedback="", misconception="", steps=[])
+        coach = CoachContent(feedback="", steps=[])
         return (
             EvaluationResult(task["id"], total, max_score, "r", coach.to_dict(), parts),
             coach,
@@ -171,3 +171,14 @@ def test_partless_task_is_a_single_step(ctx, monkeypatch):
     r = _answer(client, data["id"], "plain_01", "CODE")
     assert r["result"]["parts"][0]["key"] == "plain"
     assert len(r["result"]["parts"]) == 1
+
+
+def test_coach_solution_key_is_always_present(ctx):
+    """Coaching payloads always carry `solution` (empty when unavailable)."""
+    client, judge = ctx
+    data = _start(client, ["plain_01"])
+    judge.scores = [5]
+    r = _answer(client, data["id"], "plain_01", "CODE")
+    assert r["coach"]["solution"] == ""
+    resume = client.get(f"/api/v1/sessions/{data['id']}").json()["data"]
+    assert resume["results"][0]["coach"]["solution"] == ""

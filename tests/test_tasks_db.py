@@ -26,7 +26,7 @@ def test_create_and_list_tasks_endpoint():
     judge_mod.LLMJudge = type(
         "J",
         (),
-        {"evaluate": lambda self, task, ans, previous_code=None: (__import__("coach.judge").EvaluationResult(task["id"], 5, 5, "ok", {"feedback": "f", "misconception": "m", "steps": []}), __import__("coach.judge").CoachContent(feedback="f", misconception="m", steps=[]))},
+        {"evaluate": lambda self, task, ans, previous_code=None: (__import__("coach.judge").EvaluationResult(task["id"], 5, 5, "ok", {"feedback": "f", "steps": []}), __import__("coach.judge").CoachContent(feedback="f", steps=[]))},
     )
     from backend.main import app
 
@@ -100,7 +100,7 @@ def test_followup_fires_after_weak_answer_with_gap():
     session = Session("c", tasks=[_task(0, 3)])
     task = session.tasks[0]
     result = type("R", (), {"score": 1, "max_score": 5})()
-    coach = type("C", (), {"misconception": "confused X with Y", "feedback": "weak"})()
+    coach = type("C", (), {"feedback": "confused X with Y"})()
     gen = plan_followup(session, task, result, coach)
     # No API key in tests -> deterministic fallback follow-up.
     assert gen is None or gen["difficulty"] <= task["difficulty"]
@@ -113,7 +113,7 @@ def test_followup_skipped_on_clean_solve():
     session = Session("c2", tasks=[_task(0, 3)])
     task = session.tasks[0]
     result = type("R", (), {"score": 5, "max_score": 5})()
-    coach = type("C", (), {"misconception": "", "feedback": ""})()
+    coach = type("C", (), {"feedback": ""})()
     assert plan_followup(session, task, result, coach) is None
 
 

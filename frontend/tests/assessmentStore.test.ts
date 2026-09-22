@@ -47,7 +47,7 @@ test('submit auto-advances to the next task immediately', async () => {
   const submit = mock.method(apiClient, 'submit', async () =>
     ({
       result: { task_id: 't1', score: 5, max_score: 5, rationale: 'ok' },
-      coach: { feedback: 'Great job!', misconception: 'none', steps: [] },
+      coach: { feedback: 'Great job!', steps: [] },
       next_task: next,
       remaining: 1,
       ability_update: { new_score: 0.8, new_confidence: 0.5 },
@@ -62,7 +62,7 @@ test('submit auto-advances to the next task immediately', async () => {
   const after = useAssessmentStore.getState();
   assert.equal(after.currentTask?.id, 't2', 'current task auto-advances to next task');
   assert.equal(after.results.length, 1);
-  assert.equal(after.results[0].coach?.misconception, 'none');
+  assert.equal(after.results[0].coach?.feedback, 'Great job!');
   assert.equal(after.ability?.score, 0.8);
 
   assert.equal(start.mock.callCount(), 1);
@@ -94,7 +94,7 @@ test('submit with null next_task leaves no current task (done)', async () => {
   const submit = mock.method(apiClient, 'submit', async () =>
     ({
       result: { task_id: 't1', score: 5, max_score: 5, rationale: 'ok' },
-      coach: { feedback: 'Great job!', misconception: 'none', steps: [] },
+      coach: { feedback: 'Great job!', steps: [] },
       next_task: null,
       remaining: 0,
       ability_update: { new_score: 0.8, new_confidence: 0.5 },

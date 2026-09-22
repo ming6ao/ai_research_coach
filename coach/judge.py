@@ -78,27 +78,31 @@ class CoachStep:
 class CoachContent:
     """Structured teaching response shown after a submit.
 
-    Identifies the user's misconception/gap and walks them step-by-step to the
-    correct solution. `feedback` remains the concise summary used in reports.
+    The single user-facing `feedback` text names the gap and says how to fix
+    it; `steps` walks the candidate to the correct solution and `solution` is
+    the complete, ready-to-run answer for the scored step.
     """
 
     feedback: str = ""
-    misconception: str = ""
     steps: list = field(default_factory=list)
+    # Complete, ready-to-run solution for the scored step (plain code, no
+    # fences). Empty when the judge could not produce one.
+    solution: str = ""
 
     def to_dict(self):
         return {
             "feedback": self.feedback,
-            "misconception": self.misconception,
             "steps": [s.to_dict() for s in self.steps],
+            "solution": self.solution,
         }
 
     @classmethod
     def from_dict(cls, d):
+        """Rebuild coach content; legacy blobs without a solution still load."""
         return cls(
             d.get("feedback", ""),
-            d.get("misconception", ""),
             [CoachStep.from_dict(s) for s in d.get("steps", [])],
+            d.get("solution", ""),
         )
 
 _STEP_SCHEMA = types.Schema(
@@ -127,10 +131,10 @@ _SCHEMA = types.Schema(
         "parts": types.Schema(type=types.Type.ARRAY, items=_PART_SCHEMA),
         "rationale": types.Schema(type=types.Type.STRING),
         "feedback": types.Schema(type=types.Type.STRING),
-        "misconception": types.Schema(type=types.Type.STRING),
         "steps": types.Schema(type=types.Type.ARRAY, items=_STEP_SCHEMA),
+        "solution": types.Schema(type=types.Type.STRING),
     },
-    required=["parts", "rationale", "feedback", "misconception", "steps"],
+    required=["parts", "rationale", "feedback", "steps", "solution"],
 )
 
 _SYSTEM_PROMPT = """\
@@ -146,12 +150,13 @@ Return a JSON object with five keys:
 "score" is a number from 0 to that part's max (in whole-number increments);
   "rationale": a concise explanation of strengths and weaknesses \
 (this will appear in a report as evidence, so be specific but brief);
-  "feedback": a short (2-4 sentence) summary of the result for the user;
-  "misconception": identify the specific gap or misconception in the \
-candidate's skills/knowledge that caused their answer to be wrong or \
-incomplete. Name the concept clearly (e.g. "You confused overfitting with \
-underfitting: ...") and explain precisely where their reasoning/approach \
-went astray. If the answer is correct, describe what it demonstrates.
+  "feedback": the primary user-facing explanation (2-4 sentences). State \
+whether the answer is correct, then name the specific gap or misconception \
+and explain precisely where the reasoning went astray or which concept is \
+missing. Make it actionable: say concretely what to change and why (e.g. \
+"You used the biased variance; divide by N-1 for an unbiased estimate."). \
+Avoid generic praise or restating the question. If the answer is correct, \
+explain what it demonstrates and any edge case worth hardening.
   "steps": a step-by-step path from the candidate's answer to the correct \
 solution, ordered from the most fundamental misunderstanding to the final \
 correct implementation. Each step has a "title" (one short phrase), an \
@@ -161,6 +166,12 @@ correct implementation. Each step has a "title" (one short phrase), an \
 at the correct solution on their own. Use as many steps as needed (typically \
 2-5) to guide them fully. If the answer is already correct, steps should \
 reinforce why it works and point out any edge cases to harden.
+  "solution": the COMPLETE, correct, ready-to-run implementation of the \
+active part in {language}, as plain code with no fences. It must fully \
+satisfy the part's prompt and be a drop-in replacement the candidate could \
+run: include the full function/class definition with every branch, not a \
+fragment or a diff. If the answer is already correct, return a canonical \
+version of it. Only leave this empty if a solution is genuinely impossible.
 
 Use triple-backtick {language} fenced blocks for any corrected or exemplary \
 code inside "rationale" and "feedback", with a blank line before and after \
@@ -240,8 +251,8 @@ class LLMJudge:
             ]
             coach = CoachContent(
                 feedback=str(payload.get("feedback", "")),
-                misconception=str(payload.get("misconception", "")),
                 steps=steps,
+                solution=str(payload.get("solution", "") or ""),
             )
             return EvaluationResult(
                 task["id"], total, max_score, rationale, coach.to_dict(), scored
@@ -253,8 +264,8 @@ class LLMJudge:
             ]
             fallback = CoachContent(
                 feedback="We could not evaluate your answer. Please try again.",
-                misconception="",
                 steps=[],
+                solution="",
             )
             return (
                 EvaluationResult(

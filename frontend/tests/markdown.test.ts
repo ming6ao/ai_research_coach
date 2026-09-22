@@ -6,6 +6,14 @@ import { renderToString } from 'react-dom/server';
 import ReactMarkdown from 'react-markdown';
 import { normalizeMarkdownFences } from '../src/lib/markdown-fences.ts';
 import { LIST_CLASSES } from '../src/lib/markdown-lists.ts';
+import { MARKDOWN_SIZE_CLASSES } from '../src/lib/markdown-sizes.ts';
+
+test('markdown exposes a medium coach-reading size', () => {
+  assert.match(MARKDOWN_SIZE_CLASSES.md, /text-\[15px\]/);
+  assert.match(MARKDOWN_SIZE_CLASSES.md, /leading-7/);
+  assert.match(MARKDOWN_SIZE_CLASSES.lg, /text-\[17px\]/);
+  assert.match(MARKDOWN_SIZE_CLASSES.sm, /text-sm/);
+});
 
 test('inserts a newline before a fence glued to prose', () => {
   const input = 'Here is the correct implementation:```python\ndef f():\n    pass\n```';

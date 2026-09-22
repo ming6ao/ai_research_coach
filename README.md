@@ -91,7 +91,7 @@ python check_env.py          # verify env + model connectivity
    derived from the bearer token (email) or a fresh `guest-<hex>` id. The first
 task is picked by `pick_next_task`.
 2. **Task loop** — the candidate writes code; the LLM judge returns a score, a rationale, and a
-   **coaching response** (misconception + step-by-step walkthrough with code). Every task is
+   **coaching response** (actionable feedback + step-by-step walkthrough with code). Every task is
    step-by-step: its steps are delivered one at a time and each step starts from
    its own starter code.
 3. **Teaching pause** — the UI never auto-advances. The coaching response and per-part
@@ -123,7 +123,7 @@ with `allow_generation=False` so a read never mints a task.
   advances to the next step, which starts from its own scaffold, regardless of
   the score (there is no pass gate or per-step retry).
 - **Follow-ups** (`coach/remediation.py`): the judge's gap text
-  (misconception/feedback) drives one simpler drill task on weak answers;
+  (the judge's actionable feedback) drives one simpler drill task on weak answers;
   clean solves generate nothing. Budget caps keep the loop finite.
 
 ## API surface

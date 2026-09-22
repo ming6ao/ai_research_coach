@@ -186,7 +186,7 @@ export is a plain `SELECT ... ORDER BY session_id, step_index`.
 | `state_before_json` | TEXT | NOT NULL — `s_t` (`{global, nodes}` belief snapshot) |
 | `state_after_json` | TEXT | NOT NULL — `s_{t+1}` |
 | `result_json` | TEXT | NOT NULL — judge result (rationale) |
-| `coaching_json` | TEXT | NOT NULL — coach content (misconception, steps) |
+| `coaching_json` | TEXT | NOT NULL — coach content (`feedback`, `steps`, `solution`; `solution` is the complete per-step answer, empty for legacy rows) |
 | `created_at` | DATETIME | NOT NULL |
 
 Indexes: `uq_session_steps (session_id, step_index)` UNIQUE,

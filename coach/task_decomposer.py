@@ -4,7 +4,7 @@ Each task optionally carries ``context_notes``:
 2-4 plain sentences such as "A is a prerequisite of B, which is often
 confused with C." Produced once by an LLM at creation time (empty string
 on failure keeps startup/tests hermetic). Follow-up generation takes the
-judge's free-text gap (misconception/feedback), not a node id, and requires
+judge's free-text gap (feedback), not a node id, and requires
 an LLM call — failures raise so the cause is visible in logs instead of
 serving a confusing templated task.
 """
@@ -912,7 +912,7 @@ class TaskDecomposer:
         """Generate an adaptive follow-up task drilling a free-text gap.
 
         Args:
-            target_text: judge's gap description (misconception/feedback).
+            target_text: judge's gap description (feedback).
             original_task: the task the candidate just answered (may itself
                 be a generated drill; chain bookkeeping is preserved).
             difficulty: pre-tuned difficulty (mode-aware bounds applied).

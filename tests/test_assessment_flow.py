@@ -28,8 +28,8 @@ class FakeJudge:
         max_score = sum(int(p["max_score"]) for p in targets)
         coach = CoachContent(
             feedback="Great job!",
-            misconception="You had no misconception; the solution is sound.",
             steps=[CoachStep("Confirm the approach", "The implementation is correct.", None)],
+            solution="def solve():\n    return 42\n",
         )
         result = EvaluationResult(
             task["id"], max_score, max_score, "Perfect.", coach.to_dict(), parts
@@ -154,9 +154,11 @@ def test_submit_returns_coaching_and_next_task(client):
     started = _start(client)
     task = started["current_task"]
     data = _answer(client, started["id"], task["id"])
-    assert data["coach"]["misconception"], "coach should identify a gap/misconception"
+    assert data["coach"]["feedback"], "coach should carry the gap explanation"
     assert data["coach"]["steps"], "coach should provide step-by-step guidance"
     assert data["coach"]["steps"][0]["title"]
+    assert data["coach"]["solution"].startswith("def solve"), \
+        "coach should include the complete step solution"
     assert "next_task" in data, "the picked task is still returned (gated by the UI)"
     assert data["coach"]["feedback"] == "Great job!"
     assert data["already_answered"] is False
@@ -186,6 +188,18 @@ def test_submit_is_idempotent(client):
     assert second["already_answered"] is True
     assert second["ability_update"] is None
     assert second["result"]["task_id"] == first["result"]["task_id"]
+    # The stored coaching (including the complete solution) survives replay.
+    assert second["coach"]["solution"] == first["coach"]["solution"]
+
+
+def test_coach_content_from_dict_ignores_legacy_fields():
+    """Legacy coaching blobs (extra keys / no solution) still load."""
+    legacy = CoachContent.from_dict(
+        {"feedback": "f", "misconception": "m", "steps": []}
+    )
+    assert legacy.solution == ""
+    assert legacy.feedback == "f"
+    assert not hasattr(legacy, "misconception")
 
 
 def test_get_and_delete_session(client):

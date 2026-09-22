@@ -3,18 +3,14 @@ import ReactMarkdown from 'react-markdown';
 import { CodeBlock } from '../CodeBlock/CodeBlock';
 import { normalizeMarkdownFences, splitMathChildren } from '../../lib/markdown';
 import { LIST_CLASSES } from '../../lib/markdown-lists';
+import { MARKDOWN_SIZE_CLASSES, type MarkdownSize } from '../../lib/markdown-sizes';
 
 interface Props {
   text: string;
   className?: string;
-  /** Body copy (default) vs a larger, higher-contrast reading size for questions. */
-  size?: 'sm' | 'lg';
+  /** Body copy (default), a larger coach-reading size, vs questions. */
+  size?: MarkdownSize;
 }
-
-const SIZE_CLASSES: Record<NonNullable<Props['size']>, string> = {
-  sm: 'text-sm leading-6 text-[var(--color-text-secondary)]',
-  lg: 'text-[17px] leading-7 text-[var(--color-text-primary)]',
-};
 
 // Hoisted to module scope so the component *identities* are stable across
 // renders. Recreating these inline (as `components={{ p: (...) => ... }}`)
@@ -61,7 +57,7 @@ const MARKDOWN_COMPONENTS = {
 
 export function Markdown({ text, className = '', size = 'sm' }: Props) {
   return (
-    <div className={`${SIZE_CLASSES[size]} ${className}`}>
+    <div className={`${MARKDOWN_SIZE_CLASSES[size]} ${className}`}>
       <ReactMarkdown components={MARKDOWN_COMPONENTS}>
         {normalizeMarkdownFences(text)}
       </ReactMarkdown>

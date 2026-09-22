@@ -32,7 +32,7 @@ class RecordingJudge:
             for p in targets
         ]
         total = sum(int(p["max_score"]) for p in targets)
-        coach = CoachContent(feedback="", misconception="", steps=[])
+        coach = CoachContent(feedback="", steps=[])
         return (
             EvaluationResult(task["id"], total, total, "r", coach.to_dict(), parts),
             coach,

@@ -45,15 +45,30 @@ function UserCodeBubble({ answer, language }: { answer: string; language?: strin
   );
 }
 
-function shortGapText(coach: ResultWithFeedback['coach']): string {
-  const raw = (coach?.feedback || coach?.misconception || '').trim();
-  if (!raw) return '';
-  const first = raw.match(/^.*?[.!?](\s|$)/)?.[0]?.trim() ?? raw;
-  const singleLine = first.replace(/\s+/g, ' ');
-  return singleLine.length > 120 ? `${singleLine.slice(0, 117).trimEnd()}…` : singleLine;
+/** Human label for the active step (or a part in a legacy multi-part result). */
+function stepLabel(r: ResultWithFeedback, index: number, total: number): string {
+  if (total > 1) return `Part ${index + 1}`;
+  return r.phase_index != null ? `Step ${r.phase_index}` : 'Result';
 }
 
-/** Per-part outcomes (a phased task has one active part). */
+function scoreTone(pct: number): string {
+  return pct >= 80
+    ? 'text-[var(--color-success)]'
+    : pct <= 40
+      ? 'text-[var(--color-error)]'
+      : 'text-[var(--color-warning)]';
+}
+
+/**
+ * The single actionable explanation for the scored step: the judge's
+ * `feedback`, which names the gap and says how to fix it. Legacy payloads that
+ * lack it fall back to the top-level `feedback` alias.
+ */
+function coachingText(r: ResultWithFeedback): string {
+  return (r.coach?.feedback || r.feedback || '').trim();
+}
+
+/** Per-part outcomes for a legacy multi-part result (one active part now). */
 function PartResults({ r }: { r: ResultWithFeedback }) {
   const parts = r.result.parts;
   if (!parts || parts.length === 0) return null;
@@ -62,35 +77,22 @@ function PartResults({ r }: { r: ResultWithFeedback }) {
       {parts.map((p, i) => {
         const part = r.parts?.find((x) => x.key === p.key);
         const max = part?.max_score ?? 5;
-        // Step keys are internal identifiers; show a human label instead.
-        const label =
-          parts.length > 1
-            ? `Part ${i + 1}`
-            : r.phase_index != null
-              ? `Step ${r.phase_index}`
-              : 'Result';
         const pct = max ? Math.round((p.score / max) * 100) : 0;
-        const tone =
-          pct >= 80
-            ? 'text-[var(--color-success)]'
-            : pct <= 40
-              ? 'text-[var(--color-error)]'
-              : 'text-[var(--color-warning)]';
         return (
           <li
             key={p.key}
             className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-2.5 py-1.5"
           >
             <div className="flex items-center justify-between gap-2">
-              <span className="min-w-0 truncate text-[12px] text-[var(--color-text-primary)]">
-                {label}
+              <span className="min-w-0 truncate text-[13px] text-[var(--color-text-primary)]">
+                {stepLabel(r, i, parts.length)}
               </span>
-              <span className={`shrink-0 text-[11px] font-semibold ${tone}`}>
+              <span className={`shrink-0 text-[12px] font-semibold ${scoreTone(pct)}`}>
                 {p.score}/{max} · {pct}%
               </span>
             </div>
             {p.rationale && (
-              <p className="mt-0.5 text-[11px] leading-4 text-[var(--color-text-muted)]">{p.rationale}</p>
+              <p className="mt-0.5 text-[13px] leading-5 text-[var(--color-text-muted)]">{p.rationale}</p>
             )}
           </li>
         );
@@ -99,35 +101,89 @@ function PartResults({ r }: { r: ResultWithFeedback }) {
   );
 }
 
+function SectionLabel({ children }: { children: string }) {
+  return (
+    <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+      {children}
+    </p>
+  );
+}
+
+/** Collapsed-by-default reveal of the complete step solution. */
+function SolutionReveal({ code }: { code: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-1.5 text-[13px] font-semibold text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-bg-tertiary)]"
+      >
+        {open ? 'Hide complete solution' : 'Show complete solution'}
+      </button>
+      {open && <CodeBlock code={code} />}
+    </div>
+  );
+}
+
 function CoachingBubble({ r }: { r: ResultWithFeedback }) {
   const coach = r.coach;
   const verdict = verdictFor(r);
-  const gap = shortGapText(coach);
+  const parts = r.result.parts ?? [];
+  const gap = coachingText(r);
+  const solution = (coach?.solution || '').trim();
+  const max = r.result.max_score;
+  const pct = max ? Math.round((r.result.score / max) * 100) : 0;
+  const correct = Boolean(max) && r.result.score / max >= 0.8;
+  // Only reveal the full answer once the candidate has missed something.
+  const showSolution = Boolean(solution) && !correct;
   return (
     <CoachBubble wide>
       <div className="space-y-3">
-        <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-          {verdict && (
-            <span className={`rounded-full px-2 py-0.5 text-[10px] ${verdict.cls}`}>
-              {verdict.label}{gap ? ` — ${gap}` : ''}
-            </span>
-          )}
-        </p>
-        <PartResults r={r} />
-        {coach && coach.steps.length > 0 ? (
-          <ol className="space-y-3">
-            {coach.steps.map((step, i) => (
-              <li key={i} className="space-y-1.5">
-                <p className="text-sm font-semibold text-[var(--color-text-primary)]">
-                  {i + 1}. {step.title}
-                </p>
-                {step.explanation && <Markdown text={step.explanation} />}
-                {step.code && <CodeBlock code={step.code} />}
-              </li>
-            ))}
-          </ol>
+        {parts.length > 1 ? (
+          <PartResults r={r} />
         ) : (
-          <Markdown text={r.feedback} />
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[15px] font-semibold text-[var(--color-text-primary)]">
+              {stepLabel(r, 0, 1)}
+            </p>
+            <span className="flex shrink-0 items-center gap-2">
+              {verdict && (
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${verdict.cls}`}>
+                  {verdict.label}
+                </span>
+              )}
+              <span className={`text-[12px] font-semibold ${scoreTone(pct)}`}>
+                {r.result.score}/{max} · {pct}%
+              </span>
+            </span>
+          </div>
+        )}
+        {/* One actionable explanation under the step heading. A legacy
+            multi-part result shows a rationale per part above instead. */}
+        {parts.length <= 1 && gap && <Markdown text={gap} size="md" />}
+        {coach && coach.steps.length > 0 && (
+          <div className="space-y-3">
+            <SectionLabel>How to fix it</SectionLabel>
+            <ol className="space-y-3">
+              {coach.steps.map((step, i) => (
+                <li key={i} className="space-y-1.5">
+                  <p className="text-[15px] font-semibold text-[var(--color-text-primary)]">
+                    {i + 1}. {step.title}
+                  </p>
+                  {step.explanation && <Markdown text={step.explanation} size="md" />}
+                  {step.code && <CodeBlock code={step.code} />}
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+        {showSolution && (
+          <div className="space-y-2">
+            <SectionLabel>Complete solution</SectionLabel>
+            <SolutionReveal code={solution} />
+          </div>
         )}
       </div>
     </CoachBubble>
